@@ -1,6 +1,6 @@
 // Client for the KiPo backend, reached through the gateway's reverse proxy.
 import type {
-  BrowseResult, Config, Doc, FoundRepo, Initiative, Size, InitiativeDetail, PhaseId, SessionStart, Ticket,
+  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, SessionStart, Start, Ticket,
 } from './types'
 
 const BASE = '/apps/kipo/api'
@@ -56,25 +56,25 @@ export const backend = {
   removeRepo: (slug: string) => call<Config>('/repos/remove', 'POST', { slug }),
   browse: (path?: string) =>
     call<BrowseResult>(path ? `/browse?path=${encodeURIComponent(path)}` : '/browse'),
-  listInitiatives: () => call<{ initiatives: Initiative[] }>('/initiatives'),
-  startInitiative: (start: { path: string; description: string; size: Size | null; worktree: boolean }) =>
-    call<Initiative>('/initiatives', 'POST', start),
+  listInitiatives: () => call<{ initiatives: Effort[] }>('/initiatives'),
+  startInitiative: (start: { path: string; description: string; start: Start; worktree: boolean; sourceIssue: number | null }) =>
+    call<Effort>('/initiatives', 'POST', start),
   getInitiative: (repo: string, n: number) =>
-    call<InitiativeDetail>(issuePath(repo, n)),
-  advance: (repo: string, n: number, force: boolean) =>
-    call<InitiativeDetail>(`${issuePath(repo, n)}/advance`, 'POST', { force }),
-  // Initiative-phase sessions, and wayfinder decision-ticket sessions in Discovery.
-  startSession: (repo: string, n: number, phase: PhaseId, ticket: number | null) =>
-    call<SessionStart>(`${issuePath(repo, n)}/session`, 'POST', { phase, ticket }),
+    call<EffortDetail>(issuePath(repo, n)),
+  // Next along the path, or `to` a later column.
+  advance: (repo: string, n: number, force: boolean, to: Column | null = null) =>
+    call<EffortDetail>(`${issuePath(repo, n)}/advance`, 'POST', { force, to }),
+  // A column's session; `skill` makes its seed end with that skill's Run line.
+  startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | null }) =>
+    call<SessionStart>(`${issuePath(repo, n)}/session`, 'POST', { skill: null, ticket: null, mode: null, ...body }),
+  // The "Run /<skill>: …" line, to send into a session that already exists.
+  skillMessage: (repo: string, n: number, skill: string) =>
+    call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[] }>('/sessions'),
   removeInitiative: (repo: string, n: number) =>
     call<{ removed: boolean }>(`${issuePath(repo, n)}/remove`, 'POST', {}),
   frontier: (repo: string, n: number) =>
     call<{ tickets: Ticket[] }>(`${issuePath(repo, n)}/frontier`),
-  ticketSession: (repo: string, n: number, t: number) =>
-    call<SessionStart>(`${issuePath(repo, n)}/tickets/${t}/session`, 'POST', {}),
-  ticketAdvance: (repo: string, n: number, t: number, force: boolean) =>
-    call<InitiativeDetail>(`${issuePath(repo, n)}/tickets/${t}/advance`, 'POST', { force }),
   doc: (repo: string, n: number, href: string) =>
     call<Doc>(`${issuePath(repo, n)}/doc?href=${encodeURIComponent(href)}`),
 }

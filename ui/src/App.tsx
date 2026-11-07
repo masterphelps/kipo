@@ -7,7 +7,7 @@ import { fileExistingSessions } from './folder'
 import { Rail, type RailView } from './Rail'
 import { Settings } from './Settings'
 import { StartPlan } from './StartPlan'
-import type { Initiative } from './types'
+import type { Effort } from './types'
 import { Workspace } from './Workspace'
 
 type Main =
@@ -22,7 +22,7 @@ export default function KiPo() {
   const info = useAppInfo()
   const active = info?.active !== false
   const api = useAppApi()
-  const [items, setItems] = useState<Initiative[] | null>(null)
+  const [items, setItems] = useState<Effort[] | null>(null)
   const [error, setError] = useState('')
   const [main, setMain] = useState<Main | null>(null)
   const [railWidth, setRailWidth] = useStoredSize('rail', 228, 168, 400)
@@ -50,7 +50,7 @@ export default function KiPo() {
     setMain(first ? { kind: 'initiative', repo: first.repo, number: first.number } : { kind: 'new' })
   }, [items, main])
 
-  const open = (i: Initiative, autoStart?: boolean) =>
+  const open = (i: Effort, autoStart?: boolean) =>
     setMain({ kind: 'initiative', repo: i.repo, number: i.number, autoStart })
 
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null

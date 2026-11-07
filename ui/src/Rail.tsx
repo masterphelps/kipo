@@ -1,35 +1,32 @@
 import { useMemo, useState } from 'react'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
-import { PHASE_LABELS, STAGES, STAGE_LABELS, type Initiative, type PhaseId } from './types'
+import { COLUMN_LABELS, type Column, type Effort } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
-// filter, and jump between initiatives. Grouped by where they are in the journey.
-const GROUPS: { title: string; phases: PhaseId[] }[] = [
-  { title: 'Planning', phases: ['intake', 'discovery', 'refinement', 'design'] },
-  { title: 'Delivering', phases: ['delivery'] },
-  { title: 'Shipping', phases: ['release', 'operate'] },
+// filter, and jump between efforts, grouped by where they are in the flow.
+const GROUPS: { title: string; columns: Column[] }[] = [
+  { title: 'Shaping', columns: ['intake', 'shape', 'grill', 'plan'] },
+  { title: 'Building', columns: ['build', 'review'] },
+  { title: 'Done', columns: ['done'] },
 ]
 
 export type RailView = 'board' | 'repos'
 
-function progress(i: Initiative): string {
-  if (i.phase !== 'delivery' || !i.ticketsByStage) return PHASE_LABELS[i.phase]
-  const counts = i.ticketsByStage
-  const total = STAGES.reduce((n, s) => n + (counts[s] ?? 0), 0)
-  const done = (counts.ready ?? 0) + (counts.shipped ?? 0)
-  const active = STAGES.filter(s => s !== 'ready' && s !== 'shipped' && counts[s])
-    .map(s => `${STAGE_LABELS[s]} ${counts[s]}`)
-  return total ? `${done} of ${total} done${active.length ? `, ${active.join(', ')}` : ''}` : 'Delivery'
+function progress(e: Effort): string {
+  const label = COLUMN_LABELS[e.column]
+  const c = e.ticketCounts
+  if (!c || !(c.open + c.closed)) return label
+  return `${label}, ${c.closed} of ${c.open + c.closed} tickets done`
 }
 
 export function Rail({ width, items, error, selected, view, onNew, onSelect, onView }: {
   width: number
-  items: Initiative[] | null
+  items: Effort[] | null
   error: string
   selected: string | null
   view: RailView | null
   onNew: () => void
-  onSelect: (i: Initiative) => void
+  onSelect: (i: Effort) => void
   onView: (v: RailView) => void
 }) {
   const [filter, setFilter] = useState('')
@@ -40,7 +37,7 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
 
   return (
     <nav
-      aria-label="Initiatives"
+      aria-label="Efforts"
       style={{
         width,
         flexShrink: 0,
@@ -66,13 +63,13 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
             cursor: 'pointer',
           }}
         >
-          + New initiative
+          + New effort
         </button>
         <input
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          placeholder="Filter initiatives"
-          aria-label="Filter initiatives"
+          placeholder="Filter efforts"
+          aria-label="Filter efforts"
           style={{ ...fieldStyle, fontSize: T.small, padding: '4px 8px' }}
         />
       </div>
@@ -81,10 +78,10 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
         {error && <div style={{ color: 'var(--danger-text)', fontSize: T.small, padding: '4px 6px' }}>{error}</div>}
         {items === null && !error && <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Loading…</div>}
         {items !== null && items.length === 0 && (
-          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>No initiatives yet.</div>
+          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>No efforts yet.</div>
         )}
         {GROUPS.map(g => {
-          const rows = shown.filter(i => g.phases.includes(i.phase))
+          const rows = shown.filter(i => g.columns.includes(i.column))
           if (!rows.length) return null
           return (
             <div key={g.title} style={{ marginTop: 8 }}>

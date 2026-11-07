@@ -1,29 +1,31 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useEffect, useState } from 'react'
 import { backend, errorText } from './api'
-import { ErrorLine, PathChip, T, fieldStyle, muted, strong } from './common'
+import { ErrorLine, PathChip, T, fieldStyle, muted, pathText, strong } from './common'
 import { FolderPicker } from './Settings'
-import type { FoundRepo, Initiative, Size } from './types'
+import type { Column, Effort, FoundRepo, Start } from './types'
 
-// "Let's plan something", after Spec Builder's start form. KiPo takes work of
-// any size, so instead of a work type it asks how big the work is: that picks the
-// path (a quick plan, a full spec, or a decision map for a whole product).
-type Scale = Size | 'unsure'
-
-const SCALES: { id: Scale; title: string; hint: string }[] = [
-  { id: 'small', title: 'Quick change', hint: 'One sitting: a goal, a short chat, the change.' },
-  { id: 'feature', title: 'Feature', hint: 'A spec, a technical design and tickets.' },
-  { id: 'foggy', title: 'Product or platform', hint: 'Map the big decisions first, one at a time.' },
-  { id: 'bug', title: 'Bug', hint: 'Find the root cause, then plan the fix.' },
-  { id: 'unsure', title: 'Not sure yet', hint: 'Size it together in the first conversation.' },
+// The start form, after Spec Builder's. KiPo asks where the work starts, because
+// that picks which columns it walks through (CONTRACT.md, "Start points").
+const STARTS: { id: Start; title: string; hint: string; path: Column[] }[] = [
+  { id: 'idea', title: 'An idea', hint: 'Grill it, spec and ticket it, build it.', path: ['grill', 'plan', 'build', 'review', 'done'] },
+  { id: 'small', title: 'A small change', hint: 'Grill briefly, then build in the same session.', path: ['grill', 'build', 'review', 'done'] },
+  { id: 'huge', title: 'A huge effort', hint: 'Too many unknowns: map the decisions first.', path: ['shape', 'plan', 'build', 'review', 'done'] },
+  { id: 'issue', title: 'An incoming issue', hint: 'Triage it until an agent can pick it up.', path: ['intake', 'build', 'review', 'done'] },
+  { id: 'bug', title: 'A hard bug', hint: 'Diagnose it with a tight loop, then fix it.', path: ['build', 'review', 'done'] },
 ]
 
 const label = (text: string) => (
   <span style={{ ...strong, fontSize: T.body, display: 'block', marginBottom: 6 }}>{text}</span>
 )
 
+const issueNumber = (text: string): number | null => {
+  const m = text.trim().match(/(?:issues\/|#)?(\d+)\s*$/)
+  return m ? Number(m[1]) : null
+}
+
 export function StartPlan({ onStarted, onCancel }: {
-  onStarted: (i: Initiative) => void
+  onStarted: (e: Effort) => void
   onCancel?: () => void
 }) {
   const [description, setDescription] = useState('')
@@ -31,7 +33,8 @@ export function StartPlan({ onStarted, onCancel }: {
   const [path, setPath] = useState('')
   const [picking, setPicking] = useState(false)
   const [worktree, setWorktree] = useState(false)
-  const [scale, setScale] = useState<Scale>('unsure')
+  const [start, setStart] = useState<Start>('idea')
+  const [source, setSource] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -53,17 +56,20 @@ export function StartPlan({ onStarted, onCancel }: {
     }
   }
 
-  const start = async () => {
-    if (!description.trim()) { setError('Say what you want to do first.'); return }
+  const go = async () => {
+    const sourceIssue = start === 'issue' && source.trim() ? issueNumber(source) : null
+    if (start === 'issue' && source.trim() && sourceIssue == null) { setError('Give the issue as a number or its link.'); return }
+    if (!description.trim() && !sourceIssue) { setError('Say what you want to do first.'); return }
     if (!path) { setError('Choose which project this is for.'); return }
     setBusy(true)
     setError('')
     try {
       onStarted(await backend.startInitiative({
         path,
-        description: description.trim(),
-        size: scale === 'unsure' ? null : scale,
+        description: description.trim() || `Issue #${sourceIssue}`,
+        start,
         worktree,
+        sourceIssue,
       }))
     } catch (e) {
       setError(errorText(e))
@@ -71,12 +77,14 @@ export function StartPlan({ onStarted, onCancel }: {
     }
   }
 
+  const chosen = STARTS.find(s => s.id === start)!
+
   return (
     <div style={{ maxWidth: 460, margin: '0 auto 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div>
-        <div style={{ ...strong, fontSize: 18 }}>Let's plan something</div>
-        <div style={{ ...muted, fontSize: T.body, marginTop: 4, maxWidth: 520 }}>
-          Describe it, and the agent asks a few questions here, then takes it through each phase with you.
+        <div style={{ ...strong, fontSize: 18 }}>Start an effort</div>
+        <div style={{ ...muted, fontSize: T.body, marginTop: 4 }}>
+          Describe it, pick where it starts, and the agent takes it through Matt Pocock's flow with you, one column at a time.
         </div>
       </div>
       <ErrorLine>{error}</ErrorLine>
@@ -123,10 +131,10 @@ export function StartPlan({ onStarted, onCancel }: {
       </div>
 
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend style={{ padding: 0 }}>{label('How big is it?')}</legend>
+        <legend style={{ padding: 0 }}>{label('Where does this start?')}</legend>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-          {SCALES.map(s => {
-            const on = scale === s.id
+          {STARTS.map(s => {
+            const on = start === s.id
             return (
               <label
                 key={s.id}
@@ -140,7 +148,7 @@ export function StartPlan({ onStarted, onCancel }: {
                   color: 'var(--text)',
                 }}
               >
-                <input type="radio" name="scale" checked={on} onChange={() => setScale(s.id)}
+                <input type="radio" name="start" checked={on} onChange={() => setStart(s.id)}
                   style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} />
                 <div style={{ ...strong, fontSize: T.body }}>{s.title}</div>
                 <div style={{ ...muted, fontSize: T.small, marginTop: 3, lineHeight: 1.4 }}>{s.hint}</div>
@@ -148,14 +156,27 @@ export function StartPlan({ onStarted, onCancel }: {
             )
           })}
         </div>
+        <div style={{ ...muted, fontSize: T.small, marginTop: 8 }}>Path: {pathText(chosen.path)}</div>
       </fieldset>
 
+      {start === 'issue' && (
+        <label>
+          {label('Which issue? (optional)')}
+          <input
+            value={source}
+            onChange={e => setSource(e.target.value)}
+            placeholder="#42 or its link, if it's already filed"
+            style={fieldStyle}
+          />
+        </label>
+      )}
+
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <Btn primary disabled={busy} onClick={start}>{busy ? 'Starting…' : 'Start the conversation'}</Btn>
+        <Btn primary disabled={busy} onClick={go}>{busy ? 'Starting…' : 'Start the conversation'}</Btn>
         {onCancel && <Btn onClick={onCancel}>Never mind</Btn>}
       </div>
       <div style={{ ...muted, fontSize: T.small, lineHeight: 1.5 }}>
-        Each initiative is a GitHub issue in the project. Its decisions, spec and tickets live there and in the repo, so they also work outside KiPo.
+        Each effort is a GitHub issue in the project. Its decisions, spec and tickets live there and in the repo, so they also work outside KiPo.
       </div>
     </div>
   )

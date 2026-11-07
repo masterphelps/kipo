@@ -1,38 +1,86 @@
 // Shapes from CONTRACT.md. Change the contract first, then these.
 
-// Two levels: the initiative moves through PHASES as one plan; once Design files
-// tickets, each ticket moves through STAGES on its own while the initiative is in
-// delivery.
-export const PHASES = ['intake', 'discovery', 'refinement', 'design', 'delivery', 'release', 'operate'] as const
-export type PhaseId = typeof PHASES[number]
+// Matt Pocock's flow as seven columns. An effort moves left to right along the
+// path its start point picked; columns off the path are skipped.
+export const COLUMNS = ['intake', 'shape', 'grill', 'plan', 'build', 'review', 'done'] as const
+export type Column = typeof COLUMNS[number]
 
-export const PHASE_LABELS: Record<PhaseId, string> = {
+export const COLUMN_LABELS: Record<Column, string> = {
   intake: 'Intake',
-  discovery: 'Discovery',
-  refinement: 'Refinement',
-  design: 'Design',
-  delivery: 'Delivery',
-  release: 'Release',
-  operate: 'Operate',
-}
-
-export const STAGES = ['build', 'review', 'test', 'security', 'ready', 'shipped'] as const
-export type Stage = typeof STAGES[number]
-
-export const STAGE_LABELS: Record<Stage, string> = {
+  shape: 'Shape',
+  grill: 'Grill',
+  plan: 'Plan',
   build: 'Build',
   review: 'Review',
-  test: 'Test',
-  security: 'Security',
-  ready: 'Ready',
-  shipped: 'Shipped',
+  done: 'Done',
 }
 
-// The stages a ticket is actively worked in, each with its own skill and session.
-export const WORK_STAGES: Stage[] = ['build', 'review', 'test', 'security']
+// When an effort belongs in each column (the board's own wording).
+export const COLUMN_HINTS: Record<Column, string> = {
+  intake: 'A raw issue, request or refactor candidate nobody has shaped yet.',
+  shape: 'Open questions: a wayfinder map, a prototype, research, a questionnaire waiting on someone.',
+  grill: 'An interview in progress. It updates GLOSSARY.md and adds ADRs.',
+  plan: 'A spec and the tickets that hang off it, with their blocking links.',
+  build: 'Tickets being built, or a branch with commits.',
+  review: 'A PR is open and waiting for you to merge.',
+  done: 'Merged. /retro turns what went wrong into checks, standards and agent instructions.',
+}
 
-export type Size = 'small' | 'feature' | 'foggy' | 'bug'
-export type ShipMode = 'together' | 'each'
+// The skills you start (buttons) and the ones the agent reaches for itself (chips).
+export const BUTTONS: Record<Column, string[]> = {
+  intake: ['setup-matt-pocock-skills', 'ask-matt', 'triage', 'improve-codebase-architecture'],
+  shape: ['wayfinder', 'to-questionnaire', 'handoff', 'teach'],
+  grill: ['grill-with-docs', 'grill-me', 'wait-what'],
+  plan: ['to-spec', 'to-tickets'],
+  build: ['implement', 'implement-spec'],
+  review: [],
+  done: ['retro'],
+}
+export const CHIPS: Record<Column, string[]> = {
+  intake: [],
+  shape: ['research', 'prototype'],
+  grill: ['grilling', 'domain-modeling'],
+  plan: ['codebase-design'],
+  build: ['tdd', 'diagnosing-bugs', 'wizard'],
+  review: ['code-review', 'pr'],
+  done: ['writing-for-agents'],
+}
+// Work in any column, so they sit above the chat box.
+export const SESSION_CONTROLS = ['handoff', 'wait-what', 'teach', 'writing-for-agents']
+
+// One-line descriptions shown on hover, so a button says what it does.
+export const SKILL_HINTS: Record<string, string> = {
+  'setup-matt-pocock-skills': 'Set up this repo for the skills: tracker, triage labels, docs layout. Once per repo.',
+  'ask-matt': 'Ask which skill or flow fits this situation.',
+  triage: 'Move a raw issue through triage to an agent-ready brief.',
+  'improve-codebase-architecture': 'Survey the codebase for deepening opportunities; picking one becomes an idea for Grill.',
+  wayfinder: 'Chart a map of decision tickets for an effort too big to see through, then work them one at a time.',
+  'to-questionnaire': 'Write a questionnaire for someone else who holds the answers.',
+  handoff: 'Write a portable handoff file, for a new directory, harness or person.',
+  teach: 'Learn a concept over several sessions, using this folder as the workspace.',
+  'grill-with-docs': 'Interview you about the idea, keeping GLOSSARY.md and ADRs up to date.',
+  'grill-me': 'The same interview, without writing anything to the repo.',
+  'wait-what': 'Re-explain the last message in plain words.',
+  'to-spec': 'Turn the conversation into a spec.',
+  'to-tickets': 'Split the spec into tracer-bullet tickets with blocking links.',
+  implement: 'Build one ticket, test-first, then review it.',
+  'implement-spec': 'Build every unblocked ticket in parallel on one integration branch, then one review.',
+  retro: 'Look back and turn lessons into checks, coding standards and agent instructions.',
+  'writing-for-agents': 'Write or edit skills, AGENTS.md and CLAUDE.md.',
+  research: 'Investigate a question against primary sources and leave a cited note.',
+  prototype: 'Throwaway code to answer one design question.',
+  grilling: 'The interview itself.',
+  'domain-modeling': 'Sharpen the domain language: GLOSSARY.md and ADRs.',
+  'codebase-design': 'Design the module shape: depth, seams, interfaces.',
+  tdd: 'Red, green, refactor, one slice at a time.',
+  'diagnosing-bugs': 'A tight feedback loop on a hard bug, then a fix with a regression test.',
+  wizard: 'A guided script for steps only you can do.',
+  'code-review': 'Review the diff against the coding standards and the spec.',
+  pr: 'Write the PR body: the change, evidence it works, and how reversible it is.',
+}
+
+export const STARTS = ['idea', 'small', 'huge', 'issue', 'bug'] as const
+export type Start = typeof STARTS[number]
 
 export type RepoConfig = { slug: string; path: string }
 export type Config = { repos: RepoConfig[] }
@@ -47,78 +95,54 @@ export type BrowseResult = {
   here: { path: string; name: string; slug: string | null } | null;
 }
 
-export type Initiative = {
+export type Effort = {
   repo: string
   number: number
   title: string
   url: string
-  phase: PhaseId
-  size: Size | null
+  column: Column
+  start: Start
+  path: Column[]
   destination: string
   updatedAt: string
-  ticketsByStage?: Partial<Record<Stage, number>> | null
+  ticketCounts?: { open: number; closed: number } | null
 }
 
-export type Decision = {
-  id: string
-  title: string
-  options: string[]
-  recommended: string | null
-  answer: string | null
-}
-
+export type Decision = { id: string; title: string; options: string[]; recommended: string | null; answer: string | null }
 export type GateItem = { id: string; label: string; done: boolean }
 export type Artifact = { label: string; href: string }
 
 export type PhaseState = {
-  phase: string
+  phase?: string
   summary: string | null
   blocking: string | null
   decisions: Decision[]
   gate: GateItem[]
   artifacts: Artifact[]
-  size?: Size | null
-  ship?: ShipMode | null
-  // Skills the phase agent loaded, in order; written by the phase skill.
   skillsUsed?: string[]
 }
 
-// What each phase or stage's skill routes to, so the page can show what's unused.
-// Mirrors skills/phase-<id>/SKILL.md; the agent picks the ones the size needs.
-export const ROUTED_SKILLS: Record<string, string[]> = {
-  intake: ['phase-intake', 'triage', 'ask-matt'],
-  discovery: ['phase-discovery', 'grill-with-docs', 'domain-modeling', 'research', 'to-questionnaire', 'wayfinder', 'diagnosing-bugs'],
-  refinement: ['phase-refinement', 'grilling', 'prototype', 'handoff'],
-  design: ['phase-design', 'to-spec', 'codebase-design', 'to-tickets'],
-  build: ['phase-build', 'implement', 'tdd'],
-  review: ['phase-review', 'code-review', 'pr'],
-  test: ['phase-test', 'tdd', 'verification-before-completion'],
-  security: ['phase-security', 'security-review'],
-  release: ['phase-release', 'deploy-checklist', 'wizard'],
-  operate: ['phase-operate', 'diagnosing-bugs', 'retro', 'improve-codebase-architecture'],
-}
-
-export type TicketDetail = {
+export type TicketInfo = {
   number: number
   title: string
   url: string
   state: 'OPEN' | 'CLOSED'
-  stage: Stage | null
   blockedBy: number[]
-  ticketState: PhaseState | null
-  gatePassed: boolean
   sessionKey: string | null
-  prUrl: string | null
+  prs: number[]
 }
 
-export type Delivery = {
-  total: number
-  byStage: Partial<Record<Stage, number>>
-  canAdvance: boolean
-  reason: string | null
+export type PrInfo = {
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'MERGED' | 'CLOSED'
+  isDraft: boolean
+  headRefName: string
+  tickets: number[]
 }
 
-export type InitiativeDetail = Initiative & {
+export type EffortDetail = Effort & {
   repoPath: string
   mapIssue: number | null
   specPath: string | null
@@ -127,24 +151,12 @@ export type InitiativeDetail = Initiative & {
   state: PhaseState | null
   gatePassed: boolean
   sessions: Record<string, string>
-  ship: ShipMode | null
-  tickets: TicketDetail[]
-  delivery: Delivery | null
-  // What each earlier phase recorded (its archived state), keyed by phase.
-  history?: Partial<Record<PhaseId, PhaseState>>
-  // Set when tickets couldn't be read, or blocking couldn't be checked.
+  history?: Partial<Record<Column, PhaseState>>
+  tickets: TicketInfo[]
+  prs: PrInfo[]
   ticketsError?: string
-  ticketsNote?: string
 }
 
-export type Ticket = {
-  number: number
-  title: string
-  url: string
-  labels: string[]
-  type: string | null
-}
-
+export type Ticket = { number: number; title: string; url: string; labels: string[]; type: string | null }
 export type Doc = { href: string; title: string; kind: 'markdown'; text: string; url: string | null }
-
-export type SessionStart = { slotName: string; seed: string }
+export type SessionStart = { slotName: string; seed: string; existing?: boolean }

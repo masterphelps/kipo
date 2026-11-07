@@ -1,6 +1,6 @@
 import { Badge } from '@kirocrew/app-sdk/ui'
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import type { Size } from './types'
+import { COLUMN_LABELS, type Column, type Start } from './types'
 
 // Layout is written as inline styles on purpose: the page inherits the dashboard's
 // stylesheet, which only carries the utility classes the dashboard itself uses.
@@ -72,24 +72,29 @@ export function PathChip({ path }: { path: string }) {
   )
 }
 
-export const SIZE_LABELS: Record<Size, string> = {
-  small: 'Quick change',
-  feature: 'Feature',
-  foggy: 'Product / platform',
-  bug: 'Bug',
+// The five ways into the flow, and the column paths they take (CONTRACT.md).
+export const START_LABELS: Record<Start, string> = {
+  idea: 'Idea',
+  small: 'Small change',
+  huge: 'Huge effort',
+  issue: 'Incoming issue',
+  bug: 'Hard bug',
 }
 
-const SIZE_VARIANT: Record<Size, 'ok' | 'aim' | 'err' | 'muted'> = {
+const START_VARIANT: Record<Start, 'ok' | 'aim' | 'err' | 'muted'> = {
+  idea: 'aim',
   small: 'ok',
-  feature: 'aim',
-  foggy: 'aim',
+  huge: 'aim',
+  issue: 'muted',
   bug: 'err',
 }
 
-export function SizeBadge({ size }: { size: Size | null }) {
-  if (!size) return <Badge variant="muted">Not sized</Badge>
-  return <Badge variant={SIZE_VARIANT[size]}>{SIZE_LABELS[size]}</Badge>
+export function StartBadge({ start }: { start: Start | null | undefined }) {
+  if (!start) return null
+  return <Badge variant={START_VARIANT[start]}>{START_LABELS[start]}</Badge>
 }
+
+export const pathText = (path: Column[]) => path.map(c => COLUMN_LABELS[c]).join(' → ')
 
 // A button sized like the dashboard's normal buttons: one line, fixed height, never
 // stretched by its row or wrapped by a narrow column.
