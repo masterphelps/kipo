@@ -86,15 +86,15 @@ class RepoRoutesTest(unittest.TestCase):
         description = "Let people export a board as CSV. It should keep the column order."
         status, out = self.app.dispatch(
             "POST", "/initiatives",
-            json.dumps({"path": path, "description": description, "size": "feature", "worktree": True}),
+            json.dumps({"path": path, "description": description, "start": "small", "worktree": True}),
         )
         self.assertEqual(status, 200, out)
         self.assertEqual(out["title"], "Let people export a board as CSV")
-        self.assertEqual((out["repo"], out["size"], out["phase"]), ("acme/widgets", "feature", "intake"))
+        self.assertEqual((out["repo"], out["start"], out["column"]), ("acme/widgets", "small", "grill"))
         self.assertEqual(self.storage.repo_path("acme/widgets"), path)
         detail = self.app.dispatch("GET", f"/initiatives/acme/widgets/{out['number']}", "")[1]
-        self.assertEqual(detail["repoPath"], f"{path}-lp{out['number']}")
-        self.assertIn(["git", "-C", path, "worktree", "add", "-b", f"kipo/{out['number']}", f"{path}-lp{out['number']}"],
+        self.assertEqual(detail["repoPath"], f"{path}-kipo{out['number']}")
+        self.assertIn(["git", "-C", path, "worktree", "add", "-b", f"kipo/{out['number']}", f"{path}-kipo{out['number']}"],
                       self.app.gh.runner.calls)
 
     def test_remove_closes_as_not_planned_and_leaves_the_board(self):

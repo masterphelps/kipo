@@ -1,28 +1,56 @@
-"""KiPo backend package: gh wrapper, initiative logic, phase state, storage."""
+"""KiPo backend package: gh wrapper, effort logic, column state, storage.
 
-# Initiative phases (the ``phase:`` label on the initiative issue), in order.
-PHASES = (
-    "intake",
-    "discovery",
-    "refinement",
-    "design",
-    "delivery",
-    "release",
-    "operate",
-)
+The columns, start points and skills are specified in CONTRACT.md.
+"""
 
-# Ticket stages (the ``stage:`` label on each ticket issue), in order.
-STAGES = ("build", "review", "test", "security", "ready", "shipped")
+# The seven columns (the ``kipo:col:`` label on the effort issue), in order.
+COLUMNS = ("intake", "shape", "grill", "plan", "build", "review", "done")
 
-# Stages that run a session per ticket.
-WORK_STAGES = ("build", "review", "test", "security")
+# Start points and the columns each one walks through.
+PATHS = {
+    "idea": ("grill", "plan", "build", "review", "done"),
+    "small": ("grill", "build", "review", "done"),
+    "huge": ("shape", "plan", "build", "review", "done"),
+    "issue": ("intake", "build", "review", "done"),
+    "bug": ("build", "review", "done"),
+}
+STARTS = tuple(PATHS)
+DEFAULT_START = "idea"
 
-# The one-level model's phases that are now read as ``delivery``.
-OLD_DELIVERY_PHASES = WORK_STAGES
+# Skills the human starts from a column's buttons.
+BUTTONS = {
+    "intake": ("setup-matt-pocock-skills", "ask-matt", "triage", "improve-codebase-architecture"),
+    "shape": ("wayfinder", "to-questionnaire", "handoff", "teach"),
+    "grill": ("grill-with-docs", "grill-me", "wait-what"),
+    "plan": ("to-spec", "to-tickets"),
+    "build": ("implement", "implement-spec"),
+    "review": (),
+    "done": ("retro",),
+}
 
-SHIP_MODES = ("together", "each")
+# Skills the agent loads on its own in a column.
+CHIPS = {
+    "intake": (),
+    "shape": ("research", "prototype"),
+    "grill": ("grilling", "domain-modeling"),
+    "plan": ("codebase-design",),
+    "build": ("tdd", "diagnosing-bugs", "wizard"),
+    "review": ("code-review", "pr"),
+    "done": ("writing-for-agents",),
+}
 
-SIZES = ("small", "feature", "foggy", "bug")
+# Every skill KiPo knows (27), in column order.
+SKILLS = tuple(dict.fromkeys(s for c in COLUMNS for s in (*BUTTONS[c], *CHIPS[c])))
+
+SKILLS_DIR = "/Users/masterphelps/.agents/skills"
+
+
+def run_line(skill):
+    """The message that starts a skill from a button."""
+    return (
+        f"Run /{skill}: read {SKILLS_DIR}/{skill}/SKILL.md (and any file it links to) "
+        "and follow it now, for this effort."
+    )
 
 
 class KipoError(Exception):

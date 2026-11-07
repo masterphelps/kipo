@@ -18,11 +18,14 @@ GIT_TIMEOUT = 5
 
 ISSUE_FIELDS = "number,title,url,labels,body,updatedAt,state"
 
+PR_FIELDS = "number,title,url,state,isDraft,headRefName,body"
+
+# First matching prefix wins, so the specific ones come first.
 LABEL_COLORS = {
-    "kipo:": "5319e7",
-    "phase:": "1d76db",
-    "size:": "fbca04",
-    "stage:": "0e8a16",
+    "kipo:col:": "1d76db",
+    "kipo:start:": "fbca04",
+    "kipo:effort": "5319e7",
+    "kipo:": "0e8a16",
 }
 
 
@@ -148,6 +151,11 @@ class Gh:
             if "Could not resolve" in e.message:
                 raise KipoError(f"Pull request #{number} was not found in {repo}.", "not_found", 404)
             raise
+
+    def list_prs(self, repo, limit=100):
+        return self.run_json([
+            "pr", "list", "-R", repo, "--state", "all", "--limit", str(limit), "--json", PR_FIELDS,
+        ]) or []
 
     def create_issue(self, repo, title, body, labels):
         args = ["issue", "create", "-R", repo, "--title", title, "--body-file", "-"]

@@ -33,6 +33,12 @@ class FakeGh:
         self.issue_queries = 0
         self._lock = threading.Lock()
 
+    def add_pr(self, repo, number, title="PR", body="", state="OPEN", head="feature", draft=False):
+        self.prs[(repo, number)] = {
+            "number": number, "title": title, "url": f"https://github.com/{repo}/pull/{number}",
+            "state": state, "isDraft": draft, "headRefName": head, "body": body,
+        }
+
     def add_issue(self, repo, number, title="T", body="", labels=(), state="OPEN", assignees=0):
         self.issues[(repo, number)] = {
             "number": number,
@@ -108,6 +114,10 @@ class FakeGh:
         if cmd == ["issue", "close"]:
             self.issues[(repo, int(args[3]))]["state"] = "CLOSED"
             return 0, "", ""
+        if cmd == ["pr", "list"]:
+            fields = _flag(args, "--json").split(",")
+            out = [{k: p.get(k) for k in fields} for (r, _), p in sorted(self.prs.items()) if r == repo]
+            return 0, json.dumps(out), ""
         if cmd == ["pr", "view"]:
             pr = self.prs.get((repo, int(args[3])))
             if not pr:

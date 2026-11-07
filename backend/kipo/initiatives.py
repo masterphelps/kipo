@@ -1,16 +1,21 @@
-"""Initiatives: the issue body format, label logic, advance, sessions, tickets and frontier."""
+"""Efforts: the issue body format, columns and paths, advance, sessions, tickets, PRs and frontier.
+
+An effort is a GitHub issue labelled ``kipo:effort``; its column is its
+``kipo:col:<id>`` label and its path lives in the ``kipo:meta`` comment.
+"""
 import datetime
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
 
-from . import OLD_DELIVERY_PHASES, PHASES, SHIP_MODES, SIZES, STAGES, WORK_STAGES, KipoError
+from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
 from . import docs
-from . import state as phase_state
+from . import state as col_state
 
-INITIATIVE_LABEL = "kipo:initiative"
-META_KEYS = ("repoPath", "size", "mapIssue", "specPath")
+EFFORT_LABEL = "kipo:effort"
+COL_PREFIX = "kipo:col:"
+START_PREFIX = "kipo:start:"
+META_KEYS = ("repoPath", "start", "path", "mapIssue", "specPath", "sourceIssue")
 
 _META_RE = re.compile(r"^<!--\s*kipo:meta\s+(.*?)\s*-->\s*$")
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
@@ -41,7 +46,7 @@ def _render_href(href):
 
 
 def render_body(body):
-    """Render ``{destination, artifacts, phaseLog, meta}`` as the issue body."""
+    """Render ``{destination, request, artifacts, phaseLog, meta}`` as the issue body."""
     meta = {**default_meta(), **(body.get("meta") or {})}
     lines = ["## Destination", "", body.get("destination", "").strip(), ""]
     if (body.get("request") or "").strip():
@@ -118,7 +123,7 @@ def merge_artifacts(*lists):
     return merged
 
 
-# -- labels -------------------------------------------------------------
+# -- labels, columns and paths -------------------------------------------
 
 def label_names(issue):
     return [l["name"] if isinstance(l, dict) else str(l) for l in issue.get("labels") or []]
@@ -128,117 +133,100 @@ def _label_values(labels, prefix):
     return [l[len(prefix):] for l in labels if l.startswith(prefix)]
 
 
-def phase_from_labels(labels):
-    """The current phase: the furthest ``phase:`` label present, else intake.
+def start_from(meta, labels):
+    if meta.get("start") in STARTS:
+        return meta["start"]
+    for value in _label_values(labels, START_PREFIX):
+        if value in STARTS:
+            return value
+    return DEFAULT_START
 
-    The one-level model's ``phase:build|review|test|security`` read as ``delivery``.
-    """
-    found = []
-    for value in _label_values(labels, "phase:"):
-        if value in OLD_DELIVERY_PHASES:
-            value = "delivery"
-        if value in PHASES:
-            found.append(value)
+
+def path_from(meta, start):
+    """The effort's path: the meta's when it is a valid, ordered column list, else its start's."""
+    path = meta.get("path")
+    if (
+        isinstance(path, list) and path
+        and all(c in COLUMNS for c in path)
+        and len(set(path)) == len(path)
+        and [COLUMNS.index(c) for c in path] == sorted(COLUMNS.index(c) for c in path)
+    ):
+        return list(path)
+    return list(PATHS[start])
+
+
+def column_from(labels, path):
+    """The current column: the furthest ``kipo:col:`` label present, else the path's first."""
+    found = [v for v in _label_values(labels, COL_PREFIX) if v in COLUMNS]
     if not found:
-        return PHASES[0]
-    return max(found, key=PHASES.index)
+        return path[0]
+    return max(found, key=COLUMNS.index)
 
 
-def old_delivery_stage(labels):
-    """For an initiative still labelled with an old phase, that phase as a stage."""
-    found = [v for v in _label_values(labels, "phase:") if v in OLD_DELIVERY_PHASES]
-    return max(found, key=STAGES.index) if found else None
+def next_on_path(column, path):
+    """The first column on ``path`` after ``column``, or None."""
+    i = COLUMNS.index(column)
+    return next((c for c in path if COLUMNS.index(c) > i), None)
 
 
-def stage_from_labels(labels):
-    """A ticket's stage: the furthest ``stage:`` label present, else None."""
-    found = [v for v in _label_values(labels, "stage:") if v in STAGES]
-    return max(found, key=STAGES.index) if found else None
+def rewrite_path(path, column, to):
+    """The path after jumping from ``column`` to the later column ``to``.
 
-
-def next_stage(stage, ship):
-    """The stage a ticket advances to, or None when it can't advance."""
-    if stage in WORK_STAGES:
-        return STAGES[STAGES.index(stage) + 1]
-    if stage == "ready" and ship == "each":
-        return "shipped"
-    return None
-
-
-def ticket_session_stage(stage, ship):
-    """The skill a ticket's session runs at its stage, or None when it has no session."""
-    if stage in WORK_STAGES:
-        return stage
-    if stage == "ready" and ship == "each":
-        return "release"
-    return None
-
-
-def ship_mode(value):
-    return value if value in SHIP_MODES else None
-
-
-def delivery_summary(tickets, ship):
-    """The computed delivery gate over the initiative's tickets."""
-    ship = ship or "together"
-    # A closed ticket that never got a stage (closed as not planned) is not part of delivery.
-    counted = [t for t in tickets if t["stage"] or t["state"] == "OPEN"]
-    by_stage = {s: 0 for s in STAGES}
-    for t in counted:
-        if t["stage"]:
-            by_stage[t["stage"]] += 1
-    done = ("ready", "shipped") if ship == "together" else ("shipped",)
-    left = [t for t in counted if t["stage"] not in done]
-    total = len(counted)
-    if not total:
-        reason = "There are no tickets yet."
-    elif left:
-        noun = "ticket" if total == 1 else "tickets"
-        verb = "isn't" if len(left) == 1 else "aren't"
-        word = "ready" if ship == "together" else "shipped"
-        reason = f"{len(left)} of {total} {noun} {verb} {word} yet."
-    else:
-        reason = None
-    return {"total": total, "byStage": by_stage, "canAdvance": reason is None, "reason": reason}
-
-
-def blocks(blocker):
-    """A blocker blocks while it is open and, if it is one of our tickets, not yet ready.
-
-    In ship-together mode tickets stay open until Release merges them, so a
-    ``ready``/``shipped`` blocker has to count as done or every dependent would deadlock.
+    What was walked up to ``column`` stays, then ``to``, then whatever the old
+    path had after ``to``.
     """
-    return blocker["state"] == "OPEN" and blocker.get("stage") not in ("ready", "shipped")
+    ci, ti = COLUMNS.index(column), COLUMNS.index(to)
+    walked = [c for c in path if COLUMNS.index(c) < ci] + [column]
+    rest = [c for c in path if COLUMNS.index(c) > ti]
+    if not rest and to != "done":
+        rest = ["done"]
+    return walked + [to] + rest
 
 
-def blocker_note(blocker):
-    stage = blocker.get("stage")
-    if stage in ("ready", "shipped"):
-        return f"now {stage}"
-    if stage:
-        return stage
-    return "closed" if blocker["state"] == "CLOSED" else "open"
+def position(column, path):
+    """``(k, N)`` for the seed: the column's 1-based place on the path."""
+    if column in path:
+        return path.index(column) + 1, len(path)
+    i = COLUMNS.index(column)
+    return sum(1 for c in path if COLUMNS.index(c) < i) + 1, len(path)
 
 
-def pr_url(ticket_state):
-    for a in phase_state.state_artifacts(ticket_state):
-        if a["label"].strip().lower() == "pr":
-            return a["href"]
-    return None
+def ticket_numbers(labels):
+    """Effort numbers from ``kipo:<n>`` ticket labels."""
+    return [int(v) for v in _label_values(labels, "kipo:") if v.isdigit()]
 
 
-def size_from(meta, labels):
-    if meta.get("size") in SIZES:
-        return meta["size"]
-    for l in labels:
-        if l.startswith("size:") and l[5:] in SIZES:
-            return l[5:]
-    return None
+# -- PRs ----------------------------------------------------------------
+
+_CLOSES_RE = re.compile(
+    r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+"
+    r"(?:(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:#|/issues/))?#?(\d+)\b",
+    re.IGNORECASE,
+)
 
 
-def next_phase(phase):
-    i = PHASES.index(phase)
-    return PHASES[i + 1] if i + 1 < len(PHASES) else None
+def closed_issues(body, repo):
+    """Issue numbers in ``repo`` that a PR body closes with a closing keyword."""
+    found = []
+    for m in _CLOSES_RE.finditer(body or ""):
+        other = m.group(1)
+        if other and other.lower() != repo.lower():
+            continue
+        n = int(m.group(2))
+        if n not in found:
+            found.append(n)
+    return found
+
+
+def on_effort_branch(head, number):
+    head = head or ""
+    prefix = f"kipo/{number}"
+    return head == prefix or head.startswith(prefix + "/") or head.startswith(prefix + "-")
+
+
+def review_gate(prs):
+    """Review passes when there is a PR and every PR is merged or closed."""
+    return bool(prs) and all(p["state"] in ("MERGED", "CLOSED") for p in prs)
 
 
 # -- names and seeds ----------------------------------------------------
@@ -247,60 +235,40 @@ def slugify(text):
     return re.sub(r"[^a-z0-9]", "-", text.lower())
 
 
-def session_key(phase, ticket=None):
-    return f"{phase}-t{ticket}" if ticket is not None else phase
-
-
-def session_name(repo, number, phase, ticket=None):
+def session_name(repo, number, key):
     owner, name = repo.split("/", 1)
-    return slugify(f"kipo-{owner}-{name}-{number}-{session_key(phase, ticket)}")
+    return slugify(f"kipo-{owner}-{name}-{number}-{key}")
 
 
-def ticket_session_key(ticket, stage):
-    return f"t{ticket}-{stage}"
-
-
-def ticket_session_name(repo, number, ticket, stage):
-    owner, name = repo.split("/", 1)
-    return slugify(f"kipo-{owner}-{name}-{number}-{ticket_session_key(ticket, stage)}")
-
-
-def render_seed(initiative, repo_path, phase, ticket=None, ship=None):
-    n = initiative["number"]
+def render_seed(effort, repo_path, column, ticket=None, skill=None):
+    n, path = effort["number"], effort["path"]
+    k, total = position(column, path)
     lines = [
-        f'[KiPo] Initiative #{n} "{initiative["title"]}" in {initiative["repo"]}',
-        f"Phase: {phase} ({PHASES.index(phase) + 1} of {len(PHASES)})",
+        f'[KiPo] Effort #{n} "{effort["title"]}" in {effort["repo"]}',
+        f"Column: {column} ({k} of {total} on this path: {' → '.join(path)})",
+        f"Start: {effort['start']}",
         f"Repo checkout: {repo_path}",
-        f"Initiative issue: {initiative['url']}",
-        f"State file: {phase_state.state_path(repo_path, n)}",
-        f"Size: {initiative['size'] or 'unset'}",
+        f"Effort issue: {effort['url']}",
+        f"State file: {col_state.state_path(repo_path, n)}",
     ]
-    if ship:
-        lines.append(f"Ship: {ship}")
     if ticket is not None:
-        lines.append(f"Ticket: #{ticket}")
-    lines.append(f"Load the skill `phase-{phase}` and follow it. Destination: {initiative['destination']}")
+        lines.append(f'Ticket: #{ticket["number"]} "{ticket["title"]}"')
+        if ticket.get("blockers"):
+            listed = ", ".join(f"#{b['number']} ({b['state'].lower()})" for b in ticket["blockers"])
+            lines.append(f"Blocked by: {listed}")
+    lines.append(f"Load the skill `kipo-{column}` and follow it. Destination: {effort['destination']}")
+    if skill:
+        lines.append(run_line(skill))
     return "\n".join(lines)
 
 
-def render_ticket_seed(initiative, repo_path, stage, ticket, ship=None):
-    n, t = initiative["number"], ticket["number"]
-    lines = [
-        f'[KiPo] Initiative #{n} "{initiative["title"]}" in {initiative["repo"]}',
-        f'Stage: {stage} for ticket #{t} "{ticket["title"]}"',
-        f"Repo checkout: {repo_path}",
-        f"Initiative issue: {initiative['url']}",
-        f"Ticket issue: {ticket['url']}",
-        f"State file: {phase_state.ticket_state_path(repo_path, n, t)}",
-        f"Size: {initiative['size'] or 'unset'}",
-    ]
-    if ship:
-        lines.append(f"Ship: {ship}")
-    if ticket.get("blockers"):
-        listed = ", ".join(f"#{b['number']} ({blocker_note(b)})" for b in ticket["blockers"])
-        lines.append(f"Blocked by: {listed}")
-    lines.append(f"Load the skill `phase-{stage}` and follow it. Destination: {initiative['destination']}")
-    return "\n".join(lines)
+def render_plan_handoff(effort, skill=None):
+    """What goes into the Grill session when the effort moves on to Plan."""
+    k, total = position("plan", effort["path"])
+    text = f"Moving to Plan (column {k} of {total}). Load the skill `kipo-plan` and follow it."
+    if skill:
+        text += "\n" + run_line(skill)
+    return text
 
 
 _ISSUE_URL_RE = re.compile(r"/issues/(\d+)(?:[#?].*)?$")
@@ -322,13 +290,13 @@ def derive_meta(meta, artifacts):
     return derived
 
 
-# -- service ------------------------------------------------------------
+# -- validation ---------------------------------------------------------
 
 TITLE_MAX = 72
 
 
 def title_from(description):
-    """A short issue title from a free-form description; Intake can rename it."""
+    """A short issue title from a free-form description."""
     first = re.split(r"(?<=[.!?])\s|\n", description.strip(), maxsplit=1)[0].strip().rstrip(".")
     if len(first) <= TITLE_MAX:
         return first
@@ -341,10 +309,29 @@ def validate_repo_slug(repo):
         raise KipoError("The repo must look like owner/name.", "invalid_repo", 400)
 
 
-class Initiatives:
-    # Ticket label edits run in parallel so a detail fetch stays under the proxy's 30 s.
-    LABEL_WORKERS = 8
+def _issue_number(value, what="ticket", code="invalid_ticket"):
+    if isinstance(value, bool) or not str(value).isdigit() or int(value) <= 0:
+        raise KipoError(f"The {what} must be an issue number.", code, 400)
+    return int(value)
 
+
+def validate_skill(skill):
+    if skill is None:
+        return None
+    if skill not in SKILLS:
+        raise KipoError(f"{skill!r} is not one of KiPo's skills.", "unknown_skill", 400)
+    return skill
+
+
+def validate_column(column):
+    if column not in COLUMNS:
+        raise KipoError(f"{column!r} is not a KiPo column.", "invalid_column", 400)
+    return column
+
+
+# -- service ------------------------------------------------------------
+
+class Initiatives:
     def __init__(self, gh, storage, clock=today):
         self.gh = gh
         self.storage = storage
@@ -363,31 +350,35 @@ class Initiatives:
 
     def _summary(self, repo, issue, body):
         labels = label_names(issue)
+        start = start_from(body["meta"], labels)
+        path = path_from(body["meta"], start)
         return {
             "repo": repo,
             "number": issue["number"],
             "title": issue["title"],
             "url": issue["url"],
-            "phase": phase_from_labels(labels),
-            "size": size_from(body["meta"], labels),
+            "column": column_from(labels, path),
+            "start": start,
+            "path": path,
             "destination": body["destination"],
             "updatedAt": issue.get("updatedAt") or "",
+            "ticketCounts": None,
         }
 
     def _fetch(self, repo, number):
         validate_repo_slug(repo)
         issue = self.gh.view_issue(repo, number)
-        if not issue or INITIATIVE_LABEL not in label_names(issue):
-            raise KipoError(f"Issue #{number} in {repo} is not a KiPo initiative.", "not_initiative", 404)
+        if not issue or EFFORT_LABEL not in label_names(issue):
+            raise KipoError(f"Issue #{number} in {repo} is not a KiPo effort.", "not_effort", 404)
         return issue, parse_body(issue.get("body"))
 
-    # -- tickets ----------------------------------------------------------
+    # -- tickets and PRs --------------------------------------------------
 
     def _ticket_nodes(self, repo, number):
-        """Every ``kipo:<n>`` issue, open and closed, with labels and blockers.
+        """Every ``kipo:<n>`` issue, open and closed, with its native blockers.
 
-        Returns ``(nodes, note)``; each node has a ``labels`` name list and a
-        ``blockers`` list of every native blocker as ``{number, state}``.
+        Returns ``(nodes, note)``; each node has a ``blockers`` list of
+        ``{number, state}``.
         """
         owner, name = repo.split("/", 1)
         query = _TICKETS_QUERY.replace("LABELS", json.dumps([f"kipo:{number}"]))
@@ -408,7 +399,6 @@ class Initiatives:
                 "title": node.get("title") or "",
                 "url": node.get("url") or "",
                 "state": node.get("state") or "OPEN",
-                "labels": [l["name"] for l in (node.get("labels") or {}).get("nodes") or []],
                 "blockers": [
                     {"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b
                 ],
@@ -416,141 +406,136 @@ class Initiatives:
         nodes.sort(key=lambda n: n["number"])
         return nodes, note
 
-    def _set_stage(self, repo, node, stage):
-        """Move a ticket's ``stage:`` label to ``stage``, in GitHub and in ``node``."""
-        label = f"stage:{stage}"
-        stale = [l for l in node["labels"] if l.startswith("stage:") and l != label]
-        self.gh.ensure_label(repo, label)
-        self.gh.edit_issue(repo, node["number"], add_labels=[label], remove_labels=stale)
-        node["labels"] = [l for l in node["labels"] if l not in stale] + ([label] if label not in node["labels"] else [])
+    def _prs(self, repo, number, ticket_numbers_):
+        """The repo's PRs that belong to this effort, each with the tickets it closes."""
+        mine = set(ticket_numbers_)
+        prs = []
+        for pr in self.gh.list_prs(repo):
+            closes = closed_issues(pr.get("body"), repo)
+            tickets = [t for t in closes if t in mine]
+            if not (tickets or number in closes or on_effort_branch(pr.get("headRefName"), number)):
+                continue
+            prs.append({
+                "number": pr["number"],
+                "title": pr.get("title") or "",
+                "url": pr.get("url") or "",
+                "state": (pr.get("state") or "OPEN").upper(),
+                "isDraft": bool(pr.get("isDraft")),
+                "headRefName": pr.get("headRefName") or "",
+                "tickets": tickets,
+            })
+        prs.sort(key=lambda p: p["number"])
+        return prs
 
-    def _set_stages(self, repo, moves):
-        """Apply ``[(node, stage)]`` label moves in parallel."""
-        if not moves:
-            return
-        if len(moves) == 1:
-            self._set_stage(repo, *moves[0])
-            return
-        with ThreadPoolExecutor(max_workers=min(self.LABEL_WORKERS, len(moves))) as pool:
-            for f in [pool.submit(self._set_stage, repo, node, stage) for node, stage in moves]:
-                f.result()
-
-    def _label_stageless(self, repo, nodes, stage):
-        moves = [(n, stage) for n in nodes if n["state"] == "OPEN" and not stage_from_labels(n["labels"])]
-        self._set_stages(repo, moves)
-
-    def _ticket_detail(self, node, repo_path, number, ship, stages):
-        """``stages`` maps every ticket of the initiative to its stage, to judge blockers."""
-        stage = stage_from_labels(node["labels"])
-        ts = phase_state.read_ticket_state(repo_path, number, node["number"])
-        session_stage = ticket_session_stage(stage, ship)
-        blockers = [{**b, "stage": stages.get(b["number"])} for b in node["blockers"]]
+    @staticmethod
+    def _ticket_detail(node, prs, sessions):
+        key = f"build-t{node['number']}"
         return {
             "number": node["number"],
             "title": node["title"],
             "url": node["url"],
             "state": node["state"],
-            "labels": node["labels"],
-            "stage": stage,
-            "blockedBy": [b["number"] for b in blockers if blocks(b)],
-            "blockers": blockers,
-            "ticketState": ts,
-            "gatePassed": phase_state.gate_passed(ts),
-            "sessionKey": ticket_session_key(node["number"], session_stage) if session_stage else None,
-            "prUrl": pr_url(ts),
+            "blockedBy": [b["number"] for b in node["blockers"] if b["state"] == "OPEN"],
+            "sessionKey": key if key in sessions or node["state"] == "OPEN" else None,
+            "prs": [p["number"] for p in prs if node["number"] in p["tickets"]],
         }
 
     # -- detail -----------------------------------------------------------
 
     def _detail(self, repo, issue, body):
         summary = self._summary(repo, issue, body)
-        labels = label_names(issue)
         number = issue["number"]
-        phase = summary["phase"]
+        column = summary["column"]
         meta = body["meta"]
         repo_path = self._repo_path(repo, meta)
-        st = phase_state.read_state(repo_path, number)
-        artifacts = merge_artifacts(body["artifacts"], phase_state.state_artifacts(st))
+        st = col_state.read_state(repo_path, number)
+        artifacts = merge_artifacts(body["artifacts"], col_state.state_artifacts(st))
         meta = derive_meta(meta, artifacts)
-        ship = ship_mode(meta.get("ship")) or (ship_mode((st or {}).get("ship")) if phase == "design" else None)
+        sessions = self.storage.get_sessions(repo, number)
 
-        tickets, tickets_note, tickets_error = [], None, None
+        nodes, tickets_note, tickets_error = [], None, None
         try:
             nodes, tickets_note = self._ticket_nodes(repo, number)
-            if phase == "delivery" and (issue.get("state") or "OPEN").upper() == "OPEN":
-                # A ticket filed during delivery gets its first stage the first time we see it.
-                self._label_stageless(repo, nodes, old_delivery_stage(labels) or STAGES[0])
-            stages = {n["number"]: stage_from_labels(n["labels"]) for n in nodes}
-            tickets = [self._ticket_detail(n, repo_path, number, ship or "together", stages) for n in nodes]
         except KipoError as e:
             tickets_error = e.message
+        prs, prs_error = [], None
+        try:
+            prs = self._prs(repo, number, [n["number"] for n in nodes])
+        except KipoError as e:
+            prs_error = e.message
+        tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
+        summary["ticketCounts"] = {
+            "open": sum(1 for t in tickets if t["state"] == "OPEN"),
+            "closed": sum(1 for t in tickets if t["state"] != "OPEN"),
+        } if tickets else None
 
-        delivery = delivery_summary(tickets, ship) if phase in ("delivery", "release", "operate") else None
+        gate = review_gate(prs) if column == "review" else col_state.gate_passed(st)
         detail = {
             **summary,
             "repoPath": repo_path or "",
             "mapIssue": meta.get("mapIssue"),
             "specPath": meta.get("specPath"),
+            "sourceIssue": meta.get("sourceIssue"),
             "artifacts": artifacts,
             "phaseLog": body["phaseLog"],
             "state": st,
-            "gatePassed": delivery["canAdvance"] if phase == "delivery" else phase_state.gate_passed(st),
-            "sessions": self.storage.get_sessions(repo, number),
-            "ship": ship,
+            "gatePassed": gate,
+            "sessions": sessions,
+            # What each earlier column recorded, for the column buttons in the page.
+            "history": col_state.read_archived(repo_path, number, COLUMNS[: COLUMNS.index(column)]),
             "tickets": tickets,
-            "delivery": delivery,
-            # What each earlier phase recorded, for the phase buttons in the page.
-            "history": phase_state.read_archived(repo_path, number, PHASES[: PHASES.index(phase)]),
+            "prs": prs,
         }
         if tickets_note:
             detail["ticketsNote"] = tickets_note
         if tickets_error:
             detail["ticketsError"] = tickets_error
+        if prs_error:
+            detail["prsError"] = prs_error
         return detail
 
-    # -- endpoints --------------------------------------------------------
+    # -- list -------------------------------------------------------------
 
     def list(self):
-        initiatives, errors = [], []
+        efforts, errors = [], []
         for entry in self.storage.get_config()["repos"]:
             repo = entry.get("slug")
             try:
                 found = [
                     self._summary(repo, issue, parse_body(issue.get("body")))
-                    for issue in self.gh.list_issues(repo, INITIATIVE_LABEL)
+                    for issue in self.gh.list_issues(repo, EFFORT_LABEL)
                 ]
             except KipoError as e:
                 errors.append({"repo": repo, "error": e.message, "code": e.code})
                 continue
-            counts = {}
-            if any(i["phase"] in TICKET_PHASES for i in found):
+            if found:
                 try:
-                    counts = self._stage_counts(repo)
+                    counts = self._ticket_counts(repo, [i["number"] for i in found])
                 except KipoError as e:
+                    counts = {}
                     errors.append({"repo": repo, "error": e.message, "code": e.code})
-            for i in found:
-                i["ticketsByStage"] = (
-                    {s: counts.get(i["number"], {}).get(s, 0) for s in STAGES} if i["phase"] in TICKET_PHASES else None
-                )
-            initiatives += found
-        initiatives.sort(key=lambda i: i["updatedAt"], reverse=True)
-        result = {"initiatives": initiatives}
+                for i in found:
+                    i["ticketCounts"] = counts.get(i["number"])
+            efforts += found
+        efforts.sort(key=lambda i: i["updatedAt"], reverse=True)
+        result = {"initiatives": efforts}
         if errors:
             result["errors"] = errors
         return result
 
-    STAGE_COUNT_PAGES = 5
+    TICKET_COUNT_PAGES = 5
 
-    def _stage_counts(self, repo):
-        """``{initiative number: {stage: count}}`` from one query over every staged ticket.
+    def _ticket_counts(self, repo, numbers):
+        """``{effort number: {open, closed}}`` from one (paged) query over the repo.
 
-        GitHub's ``labels`` filter matches any of the labels, so one query (paged)
-        finds every ticket with a ``stage:`` label in the repo.
+        GitHub's ``labels`` filter matches any of the labels, so one query finds
+        every ticket of every listed effort.
         """
         owner, name = repo.split("/", 1)
-        query = _STAGED_QUERY.replace("LABELS", json.dumps([f"stage:{s}" for s in STAGES]))
+        wanted = set(numbers)
+        query = _COUNT_QUERY.replace("LABELS", json.dumps([f"kipo:{n}" for n in sorted(wanted)]))
         counts, cursor = {}, None
-        for _ in range(self.STAGE_COUNT_PAGES):
+        for _ in range(self.TICKET_COUNT_PAGES):
             variables = {"owner": owner, "name": name}
             if cursor:
                 variables["cursor"] = cursor
@@ -558,42 +543,52 @@ class Initiatives:
             issues = ((((data or {}).get("data") or {}).get("repository") or {}).get("issues") or {})
             for node in issues.get("nodes") or []:
                 labels = [l["name"] for l in (node.get("labels") or {}).get("nodes") or []]
-                stage = stage_from_labels(labels)
-                for value in _label_values(labels, "kipo:"):
-                    if value.isdigit() and stage:
-                        per = counts.setdefault(int(value), {})
-                        per[stage] = per.get(stage, 0) + 1
+                key = "open" if (node.get("state") or "OPEN") == "OPEN" else "closed"
+                for n in ticket_numbers(labels):
+                    if n in wanted:
+                        per = counts.setdefault(n, {"open": 0, "closed": 0})
+                        per[key] += 1
             page = issues.get("pageInfo") or {}
             if not page.get("hasNextPage") or not page.get("endCursor"):
                 break
             cursor = page["endCursor"]
         return counts
 
-    def create(self, repo, title, destination, size=None, worktree=False):
+    # -- create -----------------------------------------------------------
+
+    def create(self, repo, title, destination, start=None, worktree=False, source_issue=None):
         validate_repo_slug(repo)
         if not isinstance(destination, str) or not destination.strip():
             raise KipoError("Say what you want to do first.", "invalid_request", 400)
         if not isinstance(title, str) or not title.strip():
             title = title_from(destination)
-        if size is not None and size not in SIZES:
-            raise KipoError(f"{size!r} is not a KiPo size.", "invalid_size", 400)
-        path = self._configured_path(repo)
+        start = start or DEFAULT_START
+        if start not in STARTS:
+            raise KipoError(f"{start!r} is not a KiPo start point.", "invalid_start", 400)
+        if source_issue is not None:
+            source_issue = _issue_number(source_issue, "source issue", "invalid_request")
+        repo_path = self._configured_path(repo)
+        path = list(PATHS[start])
+        first = path[0]
         body = {
             "destination": destination.strip(),
-            # Intake sharpens the Destination; the human's own words stay here.
+            # The human's own words stay here while the Destination gets sharpened.
             "request": destination.strip(),
             "artifacts": [],
-            "phaseLog": [f"{self.clock()} created in {PHASES[0]}"],
-            "meta": {**default_meta(), "repoPath": path, "size": size},
+            "phaseLog": [f"{self.clock()} created in {first}"],
+            "meta": {
+                **default_meta(), "repoPath": repo_path, "start": start, "path": path,
+                "sourceIssue": source_issue,
+            },
         }
-        labels = [INITIATIVE_LABEL, f"phase:{PHASES[0]}"] + ([f"size:{size}"] if size else [])
+        labels = [EFFORT_LABEL, f"{COL_PREFIX}{first}", f"{START_PREFIX}{start}"]
         for label in labels:
             self.gh.ensure_label(repo, label)
         number = self.gh.create_issue(repo, title.strip(), render_body(body), labels)
         if worktree:
             # The issue number names the worktree, so it is made after the issue.
-            wt_path = f"{path.rstrip(os.sep)}-lp{number}"
-            self.gh.add_worktree(path, wt_path, f"kipo/{number}")
+            wt_path = f"{repo_path.rstrip(os.sep)}-kipo{number}"
+            self.gh.add_worktree(repo_path, wt_path, f"kipo/{number}")
             body["meta"]["repoPath"] = wt_path
             body["phaseLog"].append(f"{self.clock()} worktree {wt_path} on branch kipo/{number}")
             self.gh.edit_issue(repo, number, body=render_body(body))
@@ -604,199 +599,148 @@ class Initiatives:
         issue, body = self._fetch(repo, number)
         return self._detail(repo, issue, body)
 
-    def advance(self, repo, number, force=False):
+    # -- advance ----------------------------------------------------------
+
+    def advance(self, repo, number, force=False, to=None):
         issue, body = self._fetch(repo, number)
         if (issue.get("state") or "OPEN").upper() != "OPEN":
-            raise KipoError(f"Issue #{number} is closed.", "initiative_closed", 409)
+            raise KipoError(f"Issue #{number} is closed.", "effort_closed", 409)
         labels = label_names(issue)
-        phase = phase_from_labels(labels)
         meta = body["meta"]
+        start = start_from(meta, labels)
+        path = path_from(meta, start)
+        column = column_from(labels, path)
         repo_path = self._repo_path(repo, meta)
-        st = phase_state.read_state(repo_path, number)
+        st = col_state.read_state(repo_path, number)
 
-        if phase == "delivery":
-            current = self._detail(repo, issue, body)
-            gate = current["delivery"]
-            if not gate["canAdvance"] and not force:
+        if to is not None:
+            validate_column(to)
+            if COLUMNS.index(to) <= COLUMNS.index(column):
                 raise KipoError(
-                    f"{gate['reason']} Finish them, or use Skip.",
-                    "gate_not_passed",
-                    409,
-                    extra={"reason": gate["reason"]},
+                    f"An effort in {column} can only move to a later column.", "invalid_column", 400
                 )
-            target = "release" if (current["ship"] or "together") == "together" else "operate"
+
+        if column == "review":
+            passed = review_gate(self._detail(repo, issue, body)["prs"])
+            why = "Review passes once every PR is merged or closed."
         else:
-            if not phase_state.gate_passed(st) and not force:
-                raise KipoError(
-                    f"The {phase} checklist isn't finished yet. Finish it, or use Skip.",
-                    "gate_not_passed",
-                    409,
-                )
-            target = next_phase(phase)
+            passed = col_state.gate_passed(st)
+            why = f"The {column} checklist isn't finished yet."
+        if not passed and not force:
+            raise KipoError(f"{why} Finish it, or use Skip.", "gate_not_passed", 409)
+
+        if to is not None:
+            path = rewrite_path(path, column, to)
+            target = to
+        else:
+            target = next_on_path(column, path)
 
         add, remove = [], []
         if target:
-            add.append(f"phase:{target}")
-            remove += [l for l in labels if l.startswith("phase:") and l != f"phase:{target}"]
+            add.append(f"{COL_PREFIX}{target}")
+            remove += [l for l in labels if l.startswith(COL_PREFIX) and l != f"{COL_PREFIX}{target}"]
 
-        size = (st or {}).get("size")
-        if size in SIZES:
-            meta["size"] = size
-            add.append(f"size:{size}")
-            remove += [l for l in labels if l.startswith("size:") and l != f"size:{size}"]
-
-        if target == "delivery":
-            meta["ship"] = ship_mode((st or {}).get("ship")) or ship_mode(meta.get("ship")) or "together"
-
-        body["artifacts"] = merge_artifacts(body["artifacts"], phase_state.state_artifacts(st))
+        meta["start"], meta["path"] = start, path
+        body["artifacts"] = merge_artifacts(body["artifacts"], col_state.state_artifacts(st))
         meta.update(derive_meta(meta, body["artifacts"]))
-        body["phaseLog"].append(f"{self.clock()} {phase} → {target or 'closed'}")
+        body["phaseLog"].append(f"{self.clock()} {column} → {target or 'closed'}")
 
         for label in add:
             self.gh.ensure_label(repo, label)
         self.gh.edit_issue(repo, number, body=render_body(body), add_labels=add, remove_labels=remove)
         if repo_path:
-            phase_state.archive_state(repo_path, number, phase)
-
-        if target == "delivery":
-            self._enter_delivery(repo, issue, body)
-        elif phase == "release" and target == "operate":
-            nodes, _ = self._ticket_nodes(repo, number)
-            self._set_stages(repo, [(n, "shipped") for n in nodes if stage_from_labels(n["labels"]) == "ready"])
+            col_state.archive_state(repo_path, number, column)
         if target is None:
             self.gh.close_issue(repo, number)
 
         issue, body = self._fetch(repo, number)
         return self._detail(repo, issue, body)
 
-    def _enter_delivery(self, repo, issue, body):
-        """Label every stage-less open ticket ``stage:build``; with no tickets, file one."""
-        number = issue["number"]
-        nodes, _ = self._ticket_nodes(repo, number)
-        if nodes:
-            self._label_stageless(repo, nodes, STAGES[0])
-            return
-        labels = [f"kipo:{number}", f"stage:{STAGES[0]}"]
-        for label in labels:
-            self.gh.ensure_label(repo, label)
-        text = "\n".join([
-            f"Part of KiPo initiative #{number} ({issue['url']}).",
-            "",
-            "## Destination",
-            "",
-            body["destination"],
-        ])
-        self.gh.create_issue(repo, issue["title"], text, labels)
-
     def remove(self, repo, number):
-        """Take an initiative off the board by closing its issue as not planned.
+        """Take an effort off the board by closing its issue as not planned.
 
         Nothing is deleted: the issue, its comments and any worktree stay, and
         reopening the issue on GitHub puts it back on the board.
         """
         issue, body = self._fetch(repo, number)
         if (issue.get("state") or "OPEN").upper() == "OPEN":
-            phase = phase_from_labels(label_names(issue))
+            summary = self._summary(repo, issue, body)
             self.gh.close_issue(
                 repo,
                 number,
                 reason="not planned",
-                comment=f"Removed from the KiPo board during {phase}. Reopen this issue to bring it back.",
+                comment=f"Removed from the KiPo board during {summary['column']}. Reopen this issue to bring it back.",
             )
         return {"removed": True, "repo": repo, "number": number}
 
-    def session(self, repo, number, phase=None, ticket=None):
+    # -- sessions ---------------------------------------------------------
+
+    def session(self, repo, number, column=None, skill=None, ticket=None, mode=None):
         issue, body = self._fetch(repo, number)
         summary = self._summary(repo, issue, body)
-        phase = phase or summary["phase"]
-        if phase not in PHASES:
-            raise KipoError(f"{phase!r} is not a KiPo phase.", "invalid_phase", 400)
-        if phase == "delivery":
-            raise KipoError(
-                "Delivery has no session of its own. Start a session on one of its tickets.",
-                "invalid_phase",
-                400,
-            )
-        if ticket is not None:
-            if isinstance(ticket, bool) or not str(ticket).isdigit() or int(ticket) <= 0:
-                raise KipoError("The ticket must be an issue number.", "invalid_ticket", 400)
-            ticket = int(ticket)
+        column = validate_column(column or summary["column"])
+        skill = validate_skill(skill)
+        if mode not in (None, "implement-spec"):
+            raise KipoError(f"{mode!r} is not a session mode.", "invalid_mode", 400)
         repo_path = self._repo_path(repo, body["meta"]) or ""
-        slot = session_name(repo, number, phase, ticket)
-        self.storage.record_session(repo, number, session_key(phase, ticket), slot)
-        ship = ship_mode(body["meta"].get("ship"))
-        return {"slotName": slot, "seed": render_seed(summary, repo_path, phase, ticket, ship=ship)}
+        sessions = self.storage.get_sessions(repo, number)
 
-    def _find_ticket(self, detail, ticket):
-        if isinstance(ticket, bool) or not str(ticket).isdigit():
-            raise KipoError("The ticket must be an issue number.", "invalid_ticket", 400)
-        found = next((t for t in detail["tickets"] if t["number"] == int(ticket)), None)
+        if mode == "implement-spec":
+            if column != "build":
+                raise KipoError("implement-spec runs in Build.", "invalid_mode", 400)
+            key, seed_ticket, skill = "build-spec", None, skill or "implement-spec"
+        elif ticket is not None:
+            ticket = _issue_number(ticket)
+            if column == "build":
+                seed_ticket = self._build_ticket(repo, number, ticket)
+                key, skill = f"build-t{ticket}", skill or "implement"
+            elif column == "shape":
+                found = self.gh.view_issue(repo, ticket)
+                seed_ticket = {"number": ticket, "title": (found or {}).get("title") or ""}
+                key = f"shape-t{ticket}"
+            else:
+                raise KipoError(
+                    f"{column.capitalize()} has no ticket sessions; only Build and Shape do.", "invalid_ticket", 400
+                )
+        else:
+            key, seed_ticket = column, None
+            if column == "plan" and sessions.get("grill"):
+                # Grill and Plan share one unbroken context.
+                slot = sessions["grill"]
+                self.storage.record_session(repo, number, "plan", slot)
+                return {"slotName": slot, "seed": render_plan_handoff(summary, skill), "existing": True}
+
+        slot = session_name(repo, number, key)
+        self.storage.record_session(repo, number, key, slot)
+        return {
+            "slotName": slot,
+            "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill),
+            "existing": False,
+        }
+
+    def _build_ticket(self, repo, number, ticket):
+        nodes, _ = self._ticket_nodes(repo, number)
+        found = next((n for n in nodes if n["number"] == ticket), None)
         if not found:
-            if detail.get("ticketsError"):
-                raise KipoError(f"Couldn't read the tickets: {detail['ticketsError']}", "gh_failed", 502)
+            raise KipoError(f"Issue #{ticket} is not a ticket of effort #{number}.", "not_ticket", 404)
+        blocked = [b["number"] for b in found["blockers"] if b["state"] == "OPEN"]
+        if blocked:
+            listed = ", ".join(f"#{b}" for b in blocked)
             raise KipoError(
-                f"Issue #{ticket} is not a ticket of initiative #{detail['number']}.", "not_ticket", 404
+                f"Ticket #{ticket} is blocked by {listed}. Its build can start once they are closed.",
+                "ticket_blocked",
+                409,
+                extra={"blockedBy": blocked},
             )
         return found
 
-    @staticmethod
-    def _not_active(ticket):
-        t, stage = ticket["number"], ticket["stage"]
-        if stage is None:
-            why = f"Ticket #{t} isn't in delivery yet."
-        elif stage == "ready":
-            why = f"Ticket #{t} is ready and ships with the rest of the initiative."
-        else:
-            why = f"Ticket #{t} has shipped."
-        return KipoError(why, "ticket_not_active", 409)
+    def skill(self, skill):
+        """The "Run /<skill>" line, for a session that already exists."""
+        if not isinstance(skill, str) or not skill:
+            raise KipoError("Say which skill to run.", "unknown_skill", 400)
+        return {"message": run_line(validate_skill(skill))}
 
-    def ticket_session(self, repo, number, ticket):
-        issue, body = self._fetch(repo, number)
-        detail = self._detail(repo, issue, body)
-        found = self._find_ticket(detail, ticket)
-        ship = detail["ship"] or "together"
-        stage = ticket_session_stage(found["stage"], ship)
-        if stage is None:
-            raise self._not_active(found)
-        if stage == "build" and found["blockedBy"]:
-            blockers = ", ".join(f"#{b}" for b in found["blockedBy"])
-            raise KipoError(
-                f"Ticket #{found['number']} is blocked by {blockers}. Its build can start once they are ready or closed.",
-                "ticket_blocked",
-                409,
-                extra={"blockedBy": found["blockedBy"]},
-            )
-        repo_path = detail["repoPath"]
-        slot = ticket_session_name(repo, number, found["number"], stage)
-        self.storage.record_session(repo, number, ticket_session_key(found["number"], stage), slot)
-        return {
-            "slotName": slot,
-            "seed": render_ticket_seed(detail, repo_path, stage, found, ship=detail["ship"]),
-        }
-
-    def ticket_advance(self, repo, number, ticket, force=False):
-        issue, body = self._fetch(repo, number)
-        detail = self._detail(repo, issue, body)
-        found = self._find_ticket(detail, ticket)
-        ship = detail["ship"] or "together"
-        target = next_stage(found["stage"], ship)
-        if target is None:
-            raise self._not_active(found)
-        if not found["gatePassed"] and not force:
-            session_stage = ticket_session_stage(found["stage"], ship)
-            raise KipoError(
-                f"The {session_stage} checklist for ticket #{found['number']} isn't finished yet. Finish it, or use Skip.",
-                "gate_not_passed",
-                409,
-            )
-        node = {"number": found["number"], "labels": list(found["labels"])}
-        self._set_stage(repo, node, target)
-        if detail["repoPath"]:
-            phase_state.archive_ticket_state(
-                detail["repoPath"], number, found["number"], ticket_session_stage(found["stage"], ship)
-            )
-        issue, body = self._fetch(repo, number)
-        return self._detail(repo, issue, body)
+    # -- docs and frontier -------------------------------------------------
 
     def doc(self, repo, number, href):
         issue, body = self._fetch(repo, number)
@@ -804,16 +748,13 @@ class Initiatives:
         return docs.read_doc(self.gh, repo, repo_path, href)
 
     def frontier(self, repo, number):
-        """Open, unblocked, unassigned children of the wayfinder map (Discovery only).
-
-        Delivery tickets are in the detail's ``tickets`` instead.
-        """
+        """Open, unblocked, unassigned children of the wayfinder map (Shape)."""
         issue, body = self._fetch(repo, number)
-        # The map is usually charted mid-Discovery, before advance writes it into
+        # The map is usually charted mid-Shape, before advance writes it into
         # the meta comment, so read it through the same derivation the detail uses.
         artifacts = merge_artifacts(
             body["artifacts"],
-            phase_state.state_artifacts(phase_state.read_state(self._repo_path(repo, body["meta"]), number)),
+            col_state.state_artifacts(col_state.read_state(self._repo_path(repo, body["meta"]), number)),
         )
         map_issue = derive_meta(body["meta"], artifacts).get("mapIssue")
         if map_issue:
@@ -850,9 +791,6 @@ class Initiatives:
         return result
 
 
-# Phases in which an initiative's tickets carry stages.
-TICKET_PHASES = ("delivery", "release", "operate")
-
 _BLOCKED_FIELD = "blockedBy(first: 50) { nodes { state } }"
 _FRONTIER_QUERY = (
     "query($owner: String!, $name: String!, $number: Int!) {"
@@ -867,14 +805,14 @@ _TICKETS_QUERY = (
     "query($owner: String!, $name: String!) {"
     " repository(owner: $owner, name: $name) {"
     " issues(first: 100, labels: LABELS, states: [OPEN, CLOSED], orderBy: {field: CREATED_AT, direction: ASC}) {"
-    " nodes { number title url state labels(first: 50) { nodes { name } } BLOCKED } } } }"
+    " nodes { number title url state BLOCKED } } } }"
 )
-_STAGED_QUERY = (
+_COUNT_QUERY = (
     "query($owner: String!, $name: String!, $cursor: String) {"
     " repository(owner: $owner, name: $name) {"
     " issues(first: 100, after: $cursor, labels: LABELS, states: [OPEN, CLOSED],"
     " orderBy: {field: UPDATED_AT, direction: DESC}) {"
-    " pageInfo { hasNextPage endCursor } nodes { number labels(first: 50) { nodes { name } } } } } }"
+    " pageInfo { hasNextPage endCursor } nodes { number state labels(first: 50) { nodes { name } } } } } }"
 )
 
 

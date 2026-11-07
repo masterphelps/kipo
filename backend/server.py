@@ -80,11 +80,10 @@ ROUTES = [
     ("GET", re.compile(_ISSUE + r"$"), "detail"),
     ("POST", re.compile(_ISSUE + r"/advance$"), "advance"),
     ("POST", re.compile(_ISSUE + r"/session$"), "session"),
+    ("POST", re.compile(_ISSUE + r"/skill$"), "skill"),
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
-    ("POST", re.compile(_ISSUE + r"/tickets/(\d+)/session$"), "ticket_session"),
-    ("POST", re.compile(_ISSUE + r"/tickets/(\d+)/advance$"), "ticket_advance"),
 ]
 
 
@@ -154,7 +153,7 @@ class App:
             raise KipoError(f"{os.path.basename(path)} isn't a git checkout.", "not_a_checkout", 400)
         if not info["slug"]:
             raise KipoError(
-                f"{info['name']} has no GitHub remote named origin, so KiPo can't file its initiatives anywhere.",
+                f"{info['name']} has no GitHub remote named origin, so KiPo can't file its efforts anywhere.",
                 "no_github_remote",
                 400,
             )
@@ -183,7 +182,7 @@ class App:
         return self.initiatives.list()
 
     def create_initiative(self, body):
-        """Start an initiative from the "Let's plan something" form.
+        """Start an effort from the start form.
 
         The form sends a project folder, not a slug: the folder is added to the
         config on first use, the same way the Settings picker adds it.
@@ -198,20 +197,33 @@ class App:
             repo,
             body.get("title"),
             body.get("description") or body.get("destination"),
-            size=body.get("size") or None,
+            start=body.get("start") or None,
             worktree=bool(body.get("worktree")),
+            source_issue=body.get("sourceIssue"),
         )
 
     def detail(self, body, owner, repo, n):
         return self.initiatives.detail(f"{owner}/{repo}", int(n))
 
     def advance(self, body, owner, repo, n):
-        force = bool(body.get("force")) if isinstance(body, dict) else False
-        return self.initiatives.advance(f"{owner}/{repo}", int(n), force=force)
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.advance(
+            f"{owner}/{repo}", int(n), force=bool(body.get("force")), to=body.get("to") or None
+        )
 
     def session(self, body, owner, repo, n):
         body = body if isinstance(body, dict) else {}
-        return self.initiatives.session(f"{owner}/{repo}", int(n), body.get("phase"), body.get("ticket"))
+        return self.initiatives.session(
+            f"{owner}/{repo}", int(n),
+            column=body.get("column") or None,
+            skill=body.get("skill") or None,
+            ticket=body.get("ticket"),
+            mode=body.get("mode") or None,
+        )
+
+    def skill(self, body, owner, repo, n):
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.skill(body.get("skill"))
 
     def remove(self, body, owner, repo, n):
         return self.initiatives.remove(f"{owner}/{repo}", int(n))
@@ -221,13 +233,6 @@ class App:
 
     def doc(self, body, owner, repo, n):
         return self.initiatives.doc(f"{owner}/{repo}", int(n), body.get("href"))
-
-    def ticket_session(self, body, owner, repo, n, t):
-        return self.initiatives.ticket_session(f"{owner}/{repo}", int(n), int(t))
-
-    def ticket_advance(self, body, owner, repo, n, t):
-        force = bool(body.get("force")) if isinstance(body, dict) else False
-        return self.initiatives.ticket_advance(f"{owner}/{repo}", int(n), int(t), force=force)
 
     def dispatch(self, method, path, raw_body):
         """Return ``(status, payload)`` for an already-authenticated request."""

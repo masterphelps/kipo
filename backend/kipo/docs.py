@@ -92,7 +92,7 @@ def _text_doc(href, path, text, url):
 
 def _file_doc(repo_path, href):
     if not repo_path:
-        raise KipoError("This initiative has no checkout to read from.", "doc_missing", 404)
+        raise KipoError("This effort has no checkout to read from.", "doc_missing", 404)
     root = os.path.realpath(repo_path)
     path = os.path.realpath(href if os.path.isabs(href) else os.path.join(root, href))
     if path != root and not path.startswith(root + os.sep):
