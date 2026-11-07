@@ -1,0 +1,57 @@
+{
+  "name": "kipo",
+  "version": "0.1.0",
+  "displayName": "KiPo",
+  "description": "Matt Pocock's engineering flow as a board you work in: Intake, Shape, Grill, Plan, Build, Review, Done. Each column has its skills as buttons, an embedded agent session, and the documents it produces.",
+  "author": "masterphelps",
+  "iconPath": "assets/icon.png",
+  "skills": [
+    "skills/kipo-intake",
+    "skills/kipo-shape",
+    "skills/kipo-grill",
+    "skills/kipo-plan",
+    "skills/kipo-build",
+    "skills/kipo-review",
+    "skills/kipo-done"
+  ],
+  "tags": [
+    "planning",
+    "workflow",
+    "developer-tools",
+    "mattpocock",
+    "skills"
+  ],
+  "backend": {
+    "entryPoint": "backend/server.py",
+    "port": "auto",
+    "healthCheck": "/health"
+  },
+  "ui": {
+    "entry": "dist/index.mjs",
+    "pages": [
+      {
+        "route": "/apps/kipo",
+        "label": "KiPo",
+        "icon": "Columns3"
+      }
+    ]
+  },
+  "dependencies": {
+    "commands": [
+      "gh",
+      "git"
+    ]
+  },
+  "permissions": {
+    "api": [
+      "/api/chat",
+      "/api/chat/*"
+    ],
+    "events": [
+      "slots"
+    ],
+    "storage": true,
+    "network": true,
+    "sessionApproval": true
+  }
+}

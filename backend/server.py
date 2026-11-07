@@ -1,0 +1,320 @@
+"""KiPo backend — a KiroCrew app.
+
+Run with: python backend/server.py
+Or let KiroCrew manage it via the app manifest backend section.
+
+Routing and HTTP only; the logic lives in the ``kipo`` package. The API is
+specified in CONTRACT.md.
+"""
+import hashlib
+import hmac
+import json
+import os
+import re
+import sys
+import time
+import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlsplit
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from kipo import KipoError, repos  # noqa: E402
+from kipo.gh import Gh  # noqa: E402
+from kipo.initiatives import Initiatives, validate_repo_slug  # noqa: E402
+from kipo.storage import Storage  # noqa: E402
+
+PORT = int(os.environ.get("PORT", 9100))
+APP_NAME = os.environ.get("KIROCREW_APP_NAME", "kipo")
+MAX_BODY = 1 << 20
+
+# Longest first, so /api/apps/kipo is not read as /api + /apps/kipo.
+PREFIXES = ("/apps/kipo/api", "/api/apps/kipo", "/api")
+
+try:
+    from kiro_crew.apps.proxy_auth import verify_proxy_request
+except ImportError:  # no kiro_crew in this Python: the same check with stdlib
+
+    def verify_proxy_request(header_value, *, method, target, body, secret=None, now=None):
+        key = os.environ.get("KIROCREW_PROXY_SECRET", "") if secret is None else secret
+        if not key or not header_value or ":" not in header_value:
+            return False
+        ts_str, _, sig = header_value.partition(":")
+        if not ts_str.isdigit() or not sig:
+            return False
+        clock = time.time() if now is None else now
+        if abs(clock - int(ts_str)) > 60:
+            return False
+        msg = f"{ts_str}:{method}:{target}:{hashlib.sha256(body or b'').hexdigest()}"
+        expected = hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(
+            expected.encode("utf-8", "surrogatepass"), sig.encode("utf-8", "surrogatepass")
+        )
+
+
+def strip_prefix(path):
+    """Drop any accepted API prefix, at a segment boundary, and the query string."""
+    path = urlsplit(path).path or "/"
+    for prefix in PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            path = path[len(prefix):] or "/"
+            break
+    if len(path) > 1:
+        path = path.rstrip("/")
+    return path
+
+
+_ISSUE = r"^/initiatives/([^/]+)/([^/]+)/(\d+)"
+ROUTES = [
+    ("GET", re.compile(r"^/health$"), "health"),
+    ("GET", re.compile(r"^/status$"), "status"),
+    ("GET", re.compile(r"^/config$"), "get_config"),
+    ("PUT", re.compile(r"^/config$"), "put_config"),
+    ("GET", re.compile(r"^/repos/discover$"), "discover_repos"),
+    ("POST", re.compile(r"^/repos$"), "add_repo"),
+    ("POST", re.compile(r"^/repos/remove$"), "remove_repo"),
+    ("GET", re.compile(r"^/browse$"), "browse"),
+    ("GET", re.compile(r"^/sessions$"), "list_sessions"),
+    ("GET", re.compile(r"^/initiatives$"), "list_initiatives"),
+    ("POST", re.compile(r"^/initiatives$"), "create_initiative"),
+    ("GET", re.compile(_ISSUE + r"$"), "detail"),
+    ("POST", re.compile(_ISSUE + r"/advance$"), "advance"),
+    ("POST", re.compile(_ISSUE + r"/session$"), "session"),
+    ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
+    ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
+    ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
+    ("POST", re.compile(_ISSUE + r"/tickets/(\d+)/session$"), "ticket_session"),
+    ("POST", re.compile(_ISSUE + r"/tickets/(\d+)/advance$"), "ticket_advance"),
+]
+
+
+class App:
+    """The endpoint implementations, independent of the HTTP plumbing."""
+
+    def __init__(self, gh=None, storage=None, clock=None, repo_roots=repos.DEFAULT_ROOTS, home=None):
+        self.gh = gh or Gh()
+        self.storage = storage or Storage()
+        self.repo_roots = repo_roots
+        self.home = home
+        kwargs = {"clock": clock} if clock else {}
+        self.initiatives = Initiatives(self.gh, self.storage, **kwargs)
+
+    def health(self, body):
+        return {"status": "ok"}
+
+    def status(self, body):
+        return {"app": APP_NAME, "version": "0.1.0"}
+
+    def get_config(self, body):
+        return self.storage.get_config()
+
+    def put_config(self, body):
+        repos = body.get("repos") if isinstance(body, dict) else None
+        if not isinstance(repos, list):
+            raise KipoError('The config needs a "repos" list.', "invalid_config", 400)
+        clean, seen = [], set()
+        for entry in repos:
+            if not isinstance(entry, dict):
+                raise KipoError("Each repo needs a slug and a path.", "invalid_config", 400)
+            slug, path = entry.get("slug"), entry.get("path")
+            try:
+                validate_repo_slug(slug)
+            except KipoError:
+                raise KipoError(f"{slug!r} is not an owner/name repo slug.", "invalid_config", 400)
+            if slug.lower() in seen:
+                raise KipoError(f"{slug} is listed twice.", "invalid_config", 400)
+            seen.add(slug.lower())
+            if not isinstance(path, str) or not os.path.isabs(path):
+                raise KipoError(f"The path for {slug} must be absolute.", "invalid_config", 400)
+            path = os.path.normpath(path)
+            if not os.path.isdir(path):
+                raise KipoError(f"{path} does not exist.", "invalid_config", 400)
+            if not self.gh.is_git_checkout(path):
+                raise KipoError(f"{path} is not a git checkout.", "invalid_config", 400)
+            clean.append({"slug": slug, "path": path})
+        return self.storage.save_config({"repos": clean})
+
+    def _configured_paths(self):
+        return [r.get("path", "") for r in self.storage.get_config()["repos"]]
+
+    def discover_repos(self, body):
+        return {"repos": repos.discover(roots=self.repo_roots, configured=self._configured_paths())}
+
+    def browse(self, body):
+        return repos.browse(body.get("path") or None, home=self.home)
+
+    def add_repo(self, body):
+        """Add a checkout by its folder alone; the slug comes from its origin remote."""
+        path = body.get("path") if isinstance(body, dict) else None
+        if not isinstance(path, str) or not os.path.isabs(path):
+            raise KipoError("Pick a folder to add.", "invalid_request", 400)
+        path = os.path.normpath(path)
+        info = repos.describe(path)
+        if not info:
+            raise KipoError(f"{os.path.basename(path)} isn't a git checkout.", "not_a_checkout", 400)
+        if not info["slug"]:
+            raise KipoError(
+                f"{info['name']} has no GitHub remote named origin, so KiPo can't file its initiatives anywhere.",
+                "no_github_remote",
+                400,
+            )
+        current = self.storage.get_config()["repos"]
+        for entry in current:
+            if entry.get("slug", "").lower() == info["slug"].lower():
+                if os.path.normpath(entry.get("path", "")) == path:
+                    return {"repos": current}
+                raise KipoError(
+                    f"{info['slug']} is already added from {entry.get('path')}. Remove that one first.",
+                    "duplicate_repo",
+                    409,
+                )
+        return self.storage.save_config({"repos": current + [{"slug": info["slug"], "path": path}]})
+
+    def remove_repo(self, body):
+        slug = body.get("slug") if isinstance(body, dict) else None
+        current = self.storage.get_config()["repos"]
+        kept = [r for r in current if r.get("slug", "").lower() != str(slug or "").lower()]
+        return self.storage.save_config({"repos": kept})
+
+    def list_sessions(self, body):
+        return {"sessions": self.storage.all_sessions()}
+
+    def list_initiatives(self, body):
+        return self.initiatives.list()
+
+    def create_initiative(self, body):
+        """Start an initiative from the "Let's plan something" form.
+
+        The form sends a project folder, not a slug: the folder is added to the
+        config on first use, the same way the Settings picker adds it.
+        """
+        body = body if isinstance(body, dict) else {}
+        repo = body.get("repo")
+        if body.get("path"):
+            config = self.add_repo({"path": body["path"]})
+            path = os.path.normpath(body["path"])
+            repo = next(r["slug"] for r in config["repos"] if os.path.normpath(r["path"]) == path)
+        return self.initiatives.create(
+            repo,
+            body.get("title"),
+            body.get("description") or body.get("destination"),
+            size=body.get("size") or None,
+            worktree=bool(body.get("worktree")),
+        )
+
+    def detail(self, body, owner, repo, n):
+        return self.initiatives.detail(f"{owner}/{repo}", int(n))
+
+    def advance(self, body, owner, repo, n):
+        force = bool(body.get("force")) if isinstance(body, dict) else False
+        return self.initiatives.advance(f"{owner}/{repo}", int(n), force=force)
+
+    def session(self, body, owner, repo, n):
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.session(f"{owner}/{repo}", int(n), body.get("phase"), body.get("ticket"))
+
+    def remove(self, body, owner, repo, n):
+        return self.initiatives.remove(f"{owner}/{repo}", int(n))
+
+    def frontier(self, body, owner, repo, n):
+        return self.initiatives.frontier(f"{owner}/{repo}", int(n))
+
+    def doc(self, body, owner, repo, n):
+        return self.initiatives.doc(f"{owner}/{repo}", int(n), body.get("href"))
+
+    def ticket_session(self, body, owner, repo, n, t):
+        return self.initiatives.ticket_session(f"{owner}/{repo}", int(n), int(t))
+
+    def ticket_advance(self, body, owner, repo, n, t):
+        force = bool(body.get("force")) if isinstance(body, dict) else False
+        return self.initiatives.ticket_advance(f"{owner}/{repo}", int(n), int(t), force=force)
+
+    def dispatch(self, method, path, raw_body):
+        """Return ``(status, payload)`` for an already-authenticated request."""
+        route = strip_prefix(path)
+        # A GET handler receives the query string as its body (/browse and /doc read it).
+        query = {k: v[-1] for k, v in parse_qs(urlsplit(path).query).items()}
+        allowed = False
+        for verb, pattern, name in ROUTES:
+            m = pattern.match(route)
+            if not m:
+                continue
+            allowed = True
+            if verb != method:
+                continue
+            try:
+                body = json.loads(raw_body) if raw_body.strip() else {}
+            except ValueError:
+                return 400, {"error": "The request body is not valid JSON.", "code": "invalid_json"}
+            if method == "GET":
+                body = query
+            try:
+                args = [unquote(g) for g in m.groups()]
+                return 200, getattr(self, name)(body, *args)
+            except KipoError as e:
+                return e.status, {**e.extra, "error": e.message, "code": e.code}
+            except Exception:
+                traceback.print_exc()
+                return 500, {"error": "The KiPo backend hit an unexpected error.", "code": "internal_error"}
+        if allowed:
+            return 405, {"error": f"{method} is not allowed on {route}.", "code": "method_not_allowed"}
+        return 404, {"error": f"No KiPo endpoint at {route}.", "code": "not_found"}
+
+
+class Handler(BaseHTTPRequestHandler):
+    app = None  # set by make_server
+
+    def _handle(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_BODY:
+            return self._json(413, {"error": "The request body is too large.", "code": "body_too_large"})
+        raw = self.rfile.read(length) if length else b""
+        is_health = self.command == "GET" and strip_prefix(self.path) == "/health"
+        if os.environ.get("KIROCREW_PROXY_SECRET") and not is_health:
+            if not verify_proxy_request(
+                self.headers.get("X-KiroCrew-Proxy", ""),
+                method=self.command,
+                target=self.path,
+                body=raw,
+            ):
+                return self._json(401, {"error": "The request was not signed by the gateway.", "code": "unauthorized"})
+        status, payload = self.app.dispatch(self.command, self.path, raw.decode("utf-8", "replace"))
+        self._json(status, payload)
+
+    do_GET = do_PUT = do_POST = do_DELETE = do_PATCH = _handle
+
+    def _json(self, code, data):
+        payload = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):
+        pass
+
+
+class Server(ThreadingHTTPServer):
+    """The listener, with the address-reuse flag bound to the platform.
+
+    ``HTTPServer`` hardcodes ``allow_reuse_address = 1``. On POSIX that only
+    waives TIME_WAIT, but on Windows ``SO_REUSEADDR`` also lets a socket bind a
+    port that already has a LIVE listener, so a second copy of this backend
+    would start successfully and the two would split incoming requests.
+    Kiro Crew decides a port collision happened by seeing the child die on its
+    initial bind, so that bind has to be allowed to fail.
+    """
+
+    allow_reuse_address = not sys.platform.startswith("win")
+    daemon_threads = True
+
+
+def make_server(app=None, port=PORT):
+    handler = type("KiPoHandler", (Handler,), {"app": app or App()})
+    return Server(("127.0.0.1", port), handler)
+
+
+if __name__ == "__main__":
+    print(f"{APP_NAME} backend on port {PORT}", flush=True)
+    make_server().serve_forever()
