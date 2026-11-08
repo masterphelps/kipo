@@ -7,6 +7,7 @@ import {
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierPanel, type SessionStatus } from './Frontier'
+import { TileGraph } from './Graph'
 import { EffortInspector, TicketInspector, nextStep } from './Inspector'
 import { Divider, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
@@ -53,6 +54,11 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [wide, setWide] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
+  // The map under the bars: where you open a ticket. Fold it away to give the
+  // conversation the room; drag its bottom edge to resize it.
+  const [mapOpen, setMapOpenState] = useState(() => localStorage.getItem('kipo.mapOpen') !== '0')
+  const setMapOpen = (on: boolean) => { setMapOpenState(on); localStorage.setItem('kipo.mapOpen', on ? '1' : '0') }
+  const [mapHeight, setMapHeight] = useStoredSize('map', 360, 90, 900)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -325,7 +331,29 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
           </div>
           {detail.frontier?.lanes && (
-            <FrontierPanel frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
+            <FrontierPanel frontier={detail.frontier} renderMap={highlight => (
+              <div>
+                <button type="button" onClick={() => setMapOpen(!mapOpen)} aria-expanded={mapOpen}
+                  title={mapOpen ? 'Fold the map away' : 'Show the map: every ticket and what blocks what. Click one to open it.'}
+                  style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: 'var(--muted)', fontSize: T.tiny, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span aria-hidden style={{ fontSize: 9 }}>{mapOpen ? '▾' : '▸'}</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>Map</span>
+                  <span>{mapOpen ? 'click a ticket to open it' : `${detail.frontier!.tiles.length} tickets`}</span>
+                </button>
+                {mapOpen && (
+                  <div style={{ maxHeight: mapHeight, overflow: 'auto', marginTop: 6, padding: '8px 8px 0', scrollbarWidth: 'thin' }}>
+                    <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} bands highlight={highlight}
+                      focus={focusTile?.number ?? null} dimOthers={false} statuses={statuses} onOpen={openTile} />
+                  </div>
+                )}
+              </div>
+            )} />
+          )}
+          {detail.frontier?.lanes && mapOpen ? (
+            <Divider direction="horizontal" label="Resize the map and the conversation"
+              onDrag={d => setMapHeight(h => h + d)} onReset={() => setMapHeight(360)} />
+          ) : (
+            <div style={{ borderBottom: '1px solid var(--border)' }} />
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (

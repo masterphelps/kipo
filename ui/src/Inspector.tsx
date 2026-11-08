@@ -352,12 +352,6 @@ export function EffortInspector({ repo, number, detail, stage, next, busy, autop
         </div>
       </Section>
 
-      {(detail.frontier?.tiles.length ?? 0) > 1 && (
-        <Section title="Map" aside="how the tickets block each other · click one to open it">
-          <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} onOpen={onOpenTile} />
-        </Section>
-      )}
-
       <Documents repo={repo} number={number} detail={detail} onOpenTile={onOpenTile} />
     </div>
   )

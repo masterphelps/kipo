@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { T, muted } from './common'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
@@ -149,38 +149,26 @@ const LANE_HINT: Record<Lane, string> = {
   deliver: 'The back half: tickets that end in a PR. Implement, review, merge.',
 }
 
-// Navigation only: pick a segment, then a tile, to open that ticket's
-// conversation. What to do next lives in the right panel's Next; skills live
-// above the chat box.
-export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
+// The effort at a glance: who's up, the two bars, and a legend. Picking a bar
+// segment or a legend entry highlights those tickets on the map, which the
+// caller draws below (renderMap) and which is where you open a ticket.
+export function FrontierPanel({ frontier, renderMap }: {
   frontier: Frontier
-  onTile: (t: Tile) => void
-  openNumber: number | null               // the tile whose ticket is showing
-  statuses: Record<number, SessionStatus> // tiles with a session, by ticket number
+  renderMap: (highlight: Set<number> | null) => ReactNode
 }) {
   const { counts, fog, tiles, lanes } = frontier
-  const [picked, setPicked] = useState<Pick | null>(null)
-  // Conversations still going: a done ticket's conversation is closed with it.
-  const withSession = tiles.filter(t => t.sessionKey && t.state !== 'done')
-  // With a ticket open, show its group so its tile (outlined) is in view;
-  // otherwise whatever is waiting on someone.
-  const openTile = openNumber != null ? tiles.find(t => t.number === openNumber) : undefined
-  const auto: Pick | null = openTile ? { lane: null, state: openTile.state }
-    : counts.you ? { lane: null, state: 'you' } : counts.afk ? { lane: null, state: 'afk' } : null
-  const sel = picked ?? auto
+  const [sel, setSel] = useState<Pick | null>(null)
   const total = frontierTotal(counts, fog)
   if (!total) return null
 
-  const toggle = (p: Pick) => setPicked(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
+  const toggle = (p: Pick) => setSel(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
   const isSel = (lane: Lane | null, state: Pick['state']) => !!sel && sel.state === state && (sel.lane === null || sel.lane === lane)
-  const tilesShown = !sel ? []
-    : sel.state === 'open' ? withSession
-    : sel.state === 'fog' ? []
-    : tiles.filter(t => t.state === sel.state && (sel.lane === null || t.lane === sel.lane))
+  const highlight = !sel || sel.state === 'fog' || sel.state === 'open' ? null
+    : new Set(tiles.filter(t => t.state === sel.state && (sel.lane === null || t.lane === sel.lane)).map(t => t.number))
   const laneTotal = (l: Lane) => TILE_STATES.reduce((n, s) => n + (lanes[l][s] || 0), 0) + (l === 'decide' ? fog : 0)
 
   return (
-    <div style={{ padding: '8px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ padding: '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.body, minWidth: 0 }}>
         {counts.you > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
@@ -218,6 +206,7 @@ export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
           const on = isSel(null, s) && (!sel || sel.lane === null)
           return (
             <button key={s} type="button" onClick={() => toggle({ lane: null, state: s })}
+              title={s === 'fog' ? "Questions in the map's Not yet specified: in scope, not sharp enough to ticket yet" : `Highlight these on the map`}
               style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: on ? STATE_META[s].text : 'var(--muted)', fontWeight: on ? 600 : 400 }}>
               <span style={{
                 display: 'inline-block', width: 8, height: 8, borderRadius: 2, marginRight: 5,
@@ -227,37 +216,9 @@ export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
             </button>
           )
         })}
-        {withSession.length > 0 && (
-          <button type="button" onClick={() => toggle({ lane: null, state: 'open' })}
-            title="Open tickets that already have a conversation going: show them here to switch between them"
-            style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel?.state === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel?.state === 'open' ? 600 : 400 }}>
-            <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 5, background: STATE_META.building.color }} />
-            {withSession.length} open conversation{withSession.length === 1 ? '' : 's'}
-          </button>
-        )}
       </div>
 
-      {sel?.state === 'fog' && (
-        <div style={{ ...muted, fontSize: T.small, paddingLeft: 68 }}>
-          {fog} question{fog === 1 ? '' : 's'} in the map's "Not yet specified": in scope, not sharp enough to ticket yet.
-        </div>
-      )}
-      {tilesShown.length > 0 && sel && (
-        <div style={{ paddingLeft: 68 }}>
-          <div style={{ fontSize: T.tiny, marginBottom: 2, color: sel.state === 'open' ? 'var(--text)' : STATE_META[sel.state].text }}>
-            {sel.state === 'open' ? 'Open conversations' : STATE_META[sel.state].label[0].toUpperCase() + STATE_META[sel.state].label.slice(1)}
-            {sel.lane ? ` · ${LANE_LABEL[sel.lane]}` : ''}
-            <span style={muted}> · click a tile to open it</span>
-          </div>
-          {/* Padding inside the scroller leaves room for the open tile's outline and
-              the status dots, which sit outside each tile's box. */}
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '6px 6px 6px 4px', margin: '0 -6px 0 -4px', scrollbarWidth: 'thin' }}>
-            {tilesShown.map(t => (
-              <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
-            ))}
-          </div>
-        </div>
-      )}
+      {renderMap(highlight)}
     </div>
   )
 }

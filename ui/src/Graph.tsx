@@ -6,58 +6,83 @@ import type { Tile } from './types'
 // The blocking graph drawn with the tiles themselves: each ticket sits in a
 // column by how deep it is in the chain (nothing blocks column 0), arrows run
 // from blocker to blocked. An arrow from a closed blocker is faint and dashed:
-// that wait is over. Fog, when given, is dashed "?" tiles past the last column.
+// that wait is over. With `bands`, Decide tickets sit in a top band and Deliver
+// tickets in a bottom one, so the hand-over shows as arrows crossing between
+// them. The frontier (open, unblocked tickets: your move or the agent's) is
+// outlined in its own color. Fog is dashed "?" tiles past the last column.
 
 type Placed = { tile: Tile; col: number; row: number }
+type Layout = { placed: Placed[]; cols: number; rows: number; split: number | null }
 
-function layout(tiles: Tile[]): { placed: Placed[]; cols: number; rows: number } {
+const blockersIn = (t: Tile, known: Map<number, Tile>) =>
+  (t.blockers ?? t.blockedBy).filter(n => known.has(n) && n !== t.number)
+
+function layout(tiles: Tile[], bands: boolean): Layout {
   const byNumber = new Map(tiles.map(t => [t.number, t]))
-  const blockersOf = (t: Tile) => (t.blockers ?? t.blockedBy).filter(n => byNumber.has(n) && n !== t.number)
   const depth = new Map<number, number>()
   const visiting = new Set<number>()
   const depthOf = (t: Tile): number => {
     if (depth.has(t.number)) return depth.get(t.number)!
     if (visiting.has(t.number)) return 0 // a cycle: break it rather than loop
     visiting.add(t.number)
-    const bs = blockersOf(t)
+    const bs = blockersIn(t, byNumber)
     const d = bs.length ? 1 + Math.max(...bs.map(n => depthOf(byNumber.get(n)!))) : 0
     visiting.delete(t.number)
     depth.set(t.number, d)
     return d
   }
   tiles.forEach(depthOf)
-  const cols = Math.max(0, ...tiles.map(t => depth.get(t.number)!)) + 1
-  // Rows: column 0 by number; later columns by the average row of their blockers
-  // (one barycenter pass keeps most arrows short and uncrossed).
+  const cols = tiles.length ? Math.max(...tiles.map(t => depth.get(t.number)!)) + 1 : 0
+
+  // Rows, one band at a time: column 0 by number, later columns by the average
+  // row of their blockers (one barycenter pass keeps arrows short), each column
+  // centered in its band.
+  const groups: Tile[][] = bands
+    ? [tiles.filter(t => t.lane === 'decide'), tiles.filter(t => t.lane !== 'decide')]
+    : [tiles]
   const rowOf = new Map<number, number>()
   const placed: Placed[] = []
-  let rows = 0
-  for (let c = 0; c < cols; c++) {
-    const inCol = tiles.filter(t => depth.get(t.number) === c)
-    const key = (t: Tile) => {
-      const bs = blockersOf(t).map(n => rowOf.get(n)).filter((r): r is number => r !== undefined)
-      return bs.length ? bs.reduce((a, b) => a + b, 0) / bs.length : t.number / 1000
+  let top = 0
+  let split: number | null = null
+  groups.forEach((group, gi) => {
+    if (!group.length) return
+    if (bands && gi === 1 && top > 0) { split = top; top += 0.6 } // room for the band line
+    let bandRows = 0
+    const perCol: Tile[][] = []
+    for (let c = 0; c < cols; c++) {
+      const inCol = group.filter(t => depth.get(t.number) === c)
+      const key = (t: Tile) => {
+        const bs = blockersIn(t, byNumber).map(n => rowOf.get(n)).filter((r): r is number => r !== undefined)
+        return bs.length ? bs.reduce((a, b) => a + b, 0) / bs.length : t.number / 1000
+      }
+      inCol.sort((a, b) => key(a) - key(b) || a.number - b.number)
+      inCol.forEach((t, i) => rowOf.set(t.number, top + i))
+      perCol.push(inCol)
+      bandRows = Math.max(bandRows, inCol.length)
     }
-    inCol.sort((a, b) => key(a) - key(b) || a.number - b.number)
-    inCol.forEach((t, i) => { rowOf.set(t.number, i); placed.push({ tile: t, col: c, row: i }) })
-    rows = Math.max(rows, inCol.length)
-  }
-  // Center each column against the tallest, so the diagram reads as a flow.
-  for (let c = 0; c < cols; c++) {
-    const n = placed.filter(p => p.col === c).length
-    const shift = (rows - n) / 2
-    placed.forEach(p => { if (p.col === c) p.row += shift })
-  }
-  return { placed, cols, rows }
+    perCol.forEach((inCol, c) => {
+      const shift = (bandRows - inCol.length) / 2
+      inCol.forEach((t, i) => {
+        const row = top + i + shift
+        rowOf.set(t.number, row)
+        placed.push({ tile: t, col: c, row })
+      })
+    })
+    top += bandRows
+  })
+  return { placed, cols, rows: top, split }
 }
 
-export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: {
+export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, bands, highlight, dimOthers = true }: {
   tiles: Tile[]
-  focus?: number | null          // highlight this ticket and its neighbors
+  focus?: number | null          // the open ticket: outlined, its arrows drawn bold
   fog?: number
   onOpen: (t: Tile) => void
   statuses?: Record<number, SessionStatus>
-  labeled?: boolean               // wider nodes with the ticket's title
+  labeled?: boolean              // wider nodes with the ticket's title
+  bands?: boolean                // Decide band over Deliver band
+  highlight?: Set<number> | null // a picked bar segment: these stay lit, the rest dim
+  dimOthers?: boolean            // with a focus, dim tickets not linked to it
 }) {
   // Fit the panel: labeled nodes shrink to the width available (down to a floor).
   const box = useRef<HTMLDivElement>(null)
@@ -71,47 +96,49 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
     return () => ro.disconnect()
   }, [])
   if (!tiles.length) return null
+
   // Tickets that block nothing and wait on nothing sit in a row underneath.
+  const known = new Map(tiles.map(t => [t.number, t]))
   const linked = new Set<number>()
-  const known = new Set(tiles.map(t => t.number))
-  for (const t of tiles) {
-    for (const b of t.blockers ?? t.blockedBy) {
-      if (known.has(b) && b !== t.number) { linked.add(b); linked.add(t.number) }
-    }
-  }
+  for (const t of tiles) for (const b of blockersIn(t, known)) { linked.add(b); linked.add(t.number) }
   const alone = tiles.length > 1 ? tiles.filter(t => !linked.has(t.number)) : []
   const inGraph = alone.length ? tiles.filter(t => linked.has(t.number)) : tiles
-  const { placed, cols, rows } = layout(inGraph)
+  const { placed, cols, rows, split } = layout(inGraph, !!bands)
+
   const size = 30
-  const gapX = labeled ? 32 : 56
-  const fit = avail && cols ? Math.floor((avail - 2 - (cols - 1) * gapX) / cols) : 168
+  const labelW = bands ? 52 : 0
+  const gapX = labeled ? 32 : 48
+  const fit = avail && cols ? Math.floor((avail - 2 - labelW - (cols - 1) * gapX) / cols) : 168
   const nodeW = labeled ? Math.max(110, Math.min(200, fit)) : size
   const nodeH = size + 6
   const gapY = labeled ? 10 : 8
-  const fogCols = fog > 0 ? 1 : 0
-  const width = (cols + fogCols) * nodeW + (cols + fogCols - 1) * gapX + 2
   const fogN = fog > 0 ? Math.min(fog, 4) : 0
+  const graphCols = inGraph.length ? cols : 0
+  const width = labelW + (graphCols + (fogN ? 1 : 0)) * (nodeW + gapX) - gapX + 2
+  // The fog belongs to Decide: center it in the Decide band (the whole graph
+  // when there are no bands).
+  const decideRows = split ?? rows
   const allRows = Math.max(rows, fogN)
-  const height = inGraph.length || fogN ? allRows * (nodeH + gapY) - gapY + 2 : 0
-  const pos = new Map(placed.map(p => [p.tile.number, { x: 1 + p.col * (nodeW + gapX), y: 1 + p.row * (nodeH + gapY) }]))
-  const byNumber = new Map(tiles.map(t => [t.number, t]))
+  const rowY = (r: number) => 1 + r * (nodeH + gapY)
+  const height = inGraph.length || fogN ? rowY(allRows) - gapY + 1 : 0
+  const pos = new Map(placed.map(p => [p.tile.number, { x: labelW + 1 + p.col * (nodeW + gapX), y: rowY(p.row) }]))
 
   const neighbors = new Set<number>()
   if (focus != null) {
     neighbors.add(focus)
-    const f = byNumber.get(focus)
-    ;(f?.blockers ?? f?.blockedBy ?? []).forEach(n => neighbors.add(n))
-    tiles.forEach(t => { if ((t.blockers ?? t.blockedBy).includes(focus)) neighbors.add(t.number) })
+    const f = known.get(focus)
+    if (f) blockersIn(f, known).forEach(n => neighbors.add(n))
+    tiles.forEach(t => { if (blockersIn(t, known).includes(focus)) neighbors.add(t.number) })
   }
-  const lit = (n: number) => focus == null || neighbors.has(n)
+  const lit = (n: number) =>
+    (highlight ? highlight.has(n) : true) && (focus == null || !dimOthers || neighbors.has(n))
+  const frontier = (t: Tile) => t.state === 'you' || t.state === 'afk'
+  const ringFor = (t: Tile) =>
+    frontier(t) && t.number !== focus ? `0 0 0 2px var(--bg), 0 0 0 3.5px ${STATE_META[t.state].color}` : undefined
 
   const edges: { from: Tile; to: Tile }[] = []
-  for (const t of tiles) {
-    for (const b of t.blockers ?? t.blockedBy) {
-      const from = byNumber.get(b)
-      if (from && from.number !== t.number) edges.push({ from, to: t })
-    }
-  }
+  for (const t of inGraph) for (const b of blockersIn(t, known)) edges.push({ from: known.get(b)!, to: t })
+  const bandLineY = split != null ? rowY(split) + 0.3 * (nodeH + gapY) - gapY / 2 : null
 
   return (
     <div ref={box} style={{ overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin', minWidth: 0 }}>
@@ -122,34 +149,51 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
               <path d="M0,0 L8,4 L0,8 z" fill="var(--muted)" />
             </marker>
           </defs>
+          {bandLineY != null && (
+            <line x1={0} x2={width} y1={bandLineY} y2={bandLineY} stroke="var(--border)" strokeDasharray="2 4" />
+          )}
           {edges.map(({ from, to }) => {
-            const a = pos.get(from.number)!
-            const b = pos.get(to.number)!
+            const a = pos.get(from.number)
+            const b = pos.get(to.number)
+            if (!a || !b) return null
             const x1 = a.x + nodeW + 2
             const y1 = a.y + nodeH / 2
             const x2 = b.x - 2
             const y2 = b.y + nodeH / 2
             const mid = (x1 + x2) / 2
             const done = from.state === 'done'
-            const on = lit(from.number) && lit(to.number) && (focus == null || from.number === focus || to.number === focus)
+            const bold = focus != null && (from.number === focus || to.number === focus)
+            const faded = (focus != null && dimOthers && !bold) || !lit(from.number) || !lit(to.number)
             return (
               <path key={`${from.number}-${to.number}`}
                 d={`M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`}
-                fill="none" stroke={on && focus != null ? 'var(--text)' : 'var(--muted)'}
-                strokeWidth={on && focus != null ? 1.6 : 1.2}
+                fill="none" stroke={bold ? 'var(--text)' : 'var(--muted)'} strokeWidth={bold ? 1.6 : 1.2}
                 strokeDasharray={done ? '3 3' : undefined}
-                opacity={focus != null && !on ? 0.15 : done ? 0.45 : 0.8}
+                opacity={faded ? 0.15 : done ? 0.45 : 0.8}
                 markerEnd="url(#kipo-arrow)" />
             )
           })}
         </svg>
+        {bands && placed.length > 0 && (['decide', 'deliver'] as const).map(lane => {
+          const ys = placed.filter(p => (lane === 'decide' ? p.tile.lane === 'decide' : p.tile.lane !== 'decide')).map(p => p.row)
+          if (!ys.length) return null
+          const mid = (Math.min(...ys) + Math.max(...ys)) / 2
+          return (
+            <span key={lane} style={{ position: 'absolute', left: 0, top: rowY(mid) + nodeH / 2 - 8, fontSize: T.tiny, fontWeight: 600, color: 'var(--muted)' }}>
+              {lane === 'decide' ? 'Decide' : 'Deliver'}
+            </span>
+          )
+        })}
         {placed.map(({ tile }) => {
           const p = pos.get(tile.number)!
           return (
             <div key={tile.number}
               style={{ position: 'absolute', left: p.x, top: p.y, width: nodeW, display: 'flex', alignItems: 'center', gap: 8,
-                opacity: lit(tile.number) ? 1 : 0.3, transition: 'opacity .15s' }}>
-              <TileButton tile={tile} size={size} onClick={() => onOpen(tile)} open={tile.number === focus} status={statuses?.[tile.number]} />
+                opacity: lit(tile.number) ? 1 : 0.28, transition: 'opacity .15s' }}>
+              <span title={ringFor(tile) ? 'On the frontier: open and unblocked' : undefined}
+                style={{ borderRadius: 8, boxShadow: ringFor(tile), display: 'inline-flex' }}>
+                <TileButton tile={tile} size={size} onClick={() => onOpen(tile)} open={tile.number === focus} status={statuses?.[tile.number]} />
+              </span>
               {labeled && (
                 <button type="button" onClick={() => onOpen(tile)} title={tile.title}
                   style={{ flex: 1, minWidth: 0, background: 'transparent', padding: 0, textAlign: 'left', cursor: 'pointer',
@@ -163,7 +207,7 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
         })}
         {Array.from({ length: fogN }).map((_, i) => (
           <div key={`fog-${i}`} title={`${fog} question${fog === 1 ? '' : 's'} not yet specified`}
-            style={{ position: 'absolute', left: 1 + (inGraph.length ? cols : 0) * (nodeW + gapX), top: 1 + ((allRows - fogN) / 2 + i) * (nodeH + gapY), width: size, height: nodeH,
+            style={{ position: 'absolute', left: labelW + 1 + graphCols * (nodeW + gapX), top: rowY(Math.max(0, (decideRows - fogN) / 2) + i), width: size, height: nodeH,
               borderRadius: 6, border: '1.5px dashed var(--border)', color: 'var(--muted)', display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
             ?
@@ -171,31 +215,30 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
         ))}
       </div>
       {alone.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: T.tiny, color: 'var(--muted)', marginRight: 4 }}>Not linked to anything</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap', paddingLeft: labelW }}>
+          <span style={{ fontSize: T.tiny, color: 'var(--muted)', marginRight: 2 }}>Not linked to anything</span>
           {alone.map(t => (
-            <span key={t.number} style={{ opacity: lit(t.number) ? 1 : 0.3 }}>
+            <span key={t.number} style={{ opacity: lit(t.number) ? 1 : 0.28, borderRadius: 8, display: 'inline-flex', boxShadow: ringFor(t) }}>
               <TileButton tile={t} size={size} onClick={() => onOpen(t)} open={t.number === focus} status={statuses?.[t.number]} />
             </span>
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: T.tiny, color: 'var(--muted)' }}>
+      <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap', paddingLeft: labelW }}>
         <span><svg width="22" height="6" aria-hidden><line x1="0" y1="3" x2="22" y2="3" stroke="var(--muted)" strokeWidth="1.2" /></svg> still blocks</span>
         <span><svg width="22" height="6" aria-hidden><line x1="0" y1="3" x2="22" y2="3" stroke="var(--muted)" strokeWidth="1.2" strokeDasharray="3 3" opacity=".6" /></svg> blocker closed</span>
-        {fog > 0 && <span style={{ color: STATE_META.fog.text }}>? not yet specified</span>}
+        <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, boxShadow: `0 0 0 1.5px ${STATE_META.you.color}`, marginRight: 5 }} />frontier: open and unblocked</span>
+        {fog > 0 && <span>? not yet specified</span>}
       </div>
     </div>
   )
 }
 
-// A ticket's neighborhood: what blocks it, it, and what it blocks (one step
-// each way, plus their links to each other).
+// A ticket's neighborhood: what blocks it, it, and what it blocks (one step each way).
 export function neighborhood(tiles: Tile[], focus: number): Tile[] {
   const f = tiles.find(t => t.number === focus)
   if (!f) return []
   const keep = new Set<number>([focus, ...(f.blockers ?? f.blockedBy)])
   tiles.forEach(t => { if ((t.blockers ?? t.blockedBy).includes(focus)) keep.add(t.number) })
-  // Within the neighborhood, edges only between kept tiles (layout ignores the rest).
   return tiles.filter(t => keep.has(t.number))
 }
