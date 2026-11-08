@@ -359,7 +359,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             {slotKey && running.length > 0 && <Running skills={running} />}
           </div>
           {detail.frontier?.lanes && (
-            <FrontierSummary frontier={detail.frontier} onPick={p => { setMapPick(p); setView('map') }} />
+            <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
