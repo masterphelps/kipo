@@ -274,6 +274,20 @@ def render_plan_handoff(effort, skill=None):
 _ISSUE_URL_RE = re.compile(r"/issues/(\d+)(?:[#?].*)?$")
 
 
+def source_issue_of(repo, meta, artifacts):
+    """The issue an effort was started from: the meta field, or else a "Source
+    issue" artifact linking an issue in the same repo. None when there isn't one."""
+    if meta.get("sourceIssue"):
+        return int(meta["sourceIssue"])
+    for artifact in artifacts:
+        if (artifact.get("label") or "").strip().lower() != "source issue":
+            continue
+        m = re.search(r"github\.com/([^/]+/[^/]+)/issues/(\d+)", artifact.get("href") or "")
+        if m and m.group(1).lower() == repo.lower():
+            return int(m.group(2))
+    return None
+
+
 def derive_meta(meta, artifacts):
     """Fill mapIssue and specPath from the "Wayfinder map" and "Spec" artifacts
     when the meta comment doesn't carry them yet."""
@@ -460,7 +474,9 @@ class Initiatives:
             tickets_error = e.message
         prs, prs_error = [], None
         try:
-            prs = self._prs(repo, number, [n["number"] for n in nodes])
+            # A PR that closes the issue the effort started from is the effort's PR too.
+            source = source_issue_of(repo, meta, artifacts)
+            prs = self._prs(repo, number, [n["number"] for n in nodes] + ([source] if source else []))
         except KipoError as e:
             prs_error = e.message
         tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]

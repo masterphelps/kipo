@@ -440,3 +440,28 @@ class DocTests(Columns):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceIssuePrTests(Columns):
+    """An effort started from an issue: the PR that closes that issue is the effort's PR."""
+
+    def test_pr_closing_the_source_issue_link_counts(self):
+        self.make_effort(start="issue", column="review", artifacts=[
+            {"label": "Source issue", "href": f"https://github.com/{REPO}/issues/22"},
+        ])
+        self.fake.add_pr(REPO, 33, body="Closes #22.", state="OPEN")
+        d = self.get()[1]
+        self.assertEqual([p["number"] for p in d["prs"]], [33])
+        self.assertFalse(d["gatePassed"])
+
+    def test_pr_closing_the_meta_source_issue_counts(self):
+        self.make_effort(start="issue", column="review", meta={"sourceIssue": 22})
+        self.fake.add_pr(REPO, 33, body="Fixes #22", state="MERGED")
+        self.assertTrue(self.get()[1]["gatePassed"])
+
+    def test_source_issue_in_another_repo_is_ignored(self):
+        self.make_effort(start="issue", column="review", artifacts=[
+            {"label": "Source issue", "href": "https://github.com/other/repo/issues/22"},
+        ])
+        self.fake.add_pr(REPO, 33, body="Closes #22.", state="OPEN")
+        self.assertEqual(self.get()[1]["prs"], [])
