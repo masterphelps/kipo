@@ -2,7 +2,11 @@
 import { Fragment, useState, type ReactNode } from 'react'
 import { Popover } from './Menu'
 import { T } from './common'
+import { FlowChart } from './FlowChart'
 import { STATE_MEANING, tileMeaning } from './glossary'
+
+// The old Decide/Deliver × HITL/Agent grid, kept switchable while the flow chart beds in.
+const SHOW_GRID = false
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
@@ -188,6 +192,9 @@ export function FrontierSummary({ frontier, onTile, openNumber, statuses, next, 
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       {next}
       <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
+        <FlowChart tiles={tiles} fogItems={frontier.fogItems ?? []} openNumber={openNumber} statuses={statuses} onTile={onTile} onFog={setFogAt} />
+      </div>
+      {SHOW_GRID && <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
         <div role="grid" aria-label="Tickets by lane and whose move"
           style={{ display: 'grid', gridTemplateColumns: `58px repeat(${cols}, minmax(max-content, auto))`, columnGap: 6, rowGap: 4, alignItems: 'start', minWidth: 'min-content' }}>
           <span />
@@ -245,7 +252,7 @@ export function FrontierSummary({ frontier, onTile, openNumber, statuses, next, 
             </Fragment>
           ))}
         </div>
-      </div>
+      </div>}
       {fogAt && (
         <Popover x={fogAt.x} y={fogAt.y} label="Not yet specified" onClose={() => setFogAt(null)}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong, var(--text))' }}>Not yet specified · {fog}</div>
