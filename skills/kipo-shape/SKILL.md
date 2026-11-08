@@ -44,7 +44,7 @@ Read `Start:` and the `Column:` line.
 - **`huge`** (shape → plan → build → review → done): start with `wayfinder`. Name the destination as the effort's `## Destination`, chart the map, then work the frontier one decision ticket per session.
 - **A ticket session** (the seed has `Ticket:`): claim that one decision ticket first (assign it), resolve it per `wayfinder`, record the answer on the ticket and close it, update the map's Decisions-so-far, then stop. Don't take a second ticket in the same session.
 - **The hand-off.** Wayfinder hands off, it doesn't build. When the frontier is empty and Not yet specified holds nothing in scope, the way is clear: KiPo shows "The map is clear" and a "Write the spec" button, which runs `/to-spec` and then `/to-tickets` (Matt: the front half ends with a spec and a set of tickets). Say so in one line. If the effort turned out genuinely small, say so instead: the human can `/implement` it directly.
-- On any other path an effort lands here only by "Move to…": ask which open question brought it here before recommending a button.
+- On any other path an effort reaches Shape only when the human presses a Shape skill (wayfinder, prototype, questionnaire) from the Decide stage: ask which open question brought it here before recommending a button.
 
 ## Gate
 

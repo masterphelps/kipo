@@ -39,7 +39,7 @@ Read `Start:` and the `Column:` line.
 
 - **`idea`**: this is the Grill session, continued. The grilling is already in context: write the spec from it with no new interview, then the tickets. Don't compact or clear before `/to-tickets` is done.
 - **`huge`**: Plan has its own session. Read the wayfinder map (artifact "Wayfinder map" in the archived Shape state, or the effort's `mapIssue`) and its closed decision tickets, and let `/to-spec` collapse them into the spec. Link the map from the spec.
-- `small`, `issue` and `bug` skip Plan. If an effort lands here by "Move to…", start from the effort issue and any archived states.
+- `small`, `issue` and `bug` usually skip Plan. If the human presses `/to-spec` on one anyway, start from the effort issue and any archived states.
 
 ## Tickets
 

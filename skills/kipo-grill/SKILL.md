@@ -46,7 +46,7 @@ Read `Start:` and the `Column:` line.
 
 - **`idea`** (grill → plan → build → review → done): grill until the idea is sharp, then stop. Grill and Plan share this session, so say in one line that `/to-spec` then `/to-tickets` (the Decide skills on the right) continue in this same conversation and end the front half. Don't compact or clear.
 - **`small`** (grill → build → review → done): grill briefly, only what the change needs. Then, when the human says go (or presses `/implement`), build it here with `/implement`: there is no spec or tickets, and this effort's own PR on `kipo/<n>` is its Deliver half. If the grilling shows a multi-session build or a hard-to-reverse decision, say so as decision `still-small` (options: keep small, move to Plan) before building.
-- If a question needs a runnable answer, recommend the human "Move to…" Shape for a prototype, or hand off with `handoff`.
+- If a question needs a runnable answer, recommend a prototype (the Decide stage's `prototype`, or a wayfinder prototype ticket), or hand off with `handoff`.
 
 ## Gate
 

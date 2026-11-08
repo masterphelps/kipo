@@ -40,7 +40,7 @@ None. Intake's skills are all the human's to start.
 Read `Start:` and the `Column:` line. Intake is the first column only on the `issue` path (intake → build → review → done):
 
 - **`issue`**: recommend `triage` on the source issue. Its goal is `ready-for-agent` with an agent brief comment, because the next column is Build. If triage lands elsewhere (`needs-info`, `ready-for-human`, `wontfix`), say so in `blocking`: the effort can't go to Build yet, and the human may Skip, wait, or close it.
-- If `improve-codebase-architecture` produces a candidate the human picks, it is an idea, not a ticket: tell the human to use "Move to…" Grill, so `/grill-with-docs` sharpens it.
+- If `improve-codebase-architecture` produces a candidate the human picks, it is an idea, not a ticket: tell the human to press `/grill-with-docs` (Decide), so the grilling sharpens it.
 
 ## Gate
 
