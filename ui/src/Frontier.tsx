@@ -36,12 +36,14 @@ export function FrontierBar({ counts, fog, height = 6, selected, onSelect }: {
     <div style={{ display: 'flex', gap: 2, height, borderRadius: height / 2, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
       {shown.map(([s, n]) => {
         const on = selected === s
+        const dim = !!selected && !on
         const style = {
           flex: n,
           minWidth: 4,
           height: '100%',
           background: s === 'fog' ? FOG_FILL : STATE_META[s].color,
-          boxShadow: on ? 'inset 0 0 0 2px #fff' : undefined,
+          opacity: dim ? 0.35 : 1,
+          transition: 'opacity .15s',
           cursor: onSelect ? 'pointer' : undefined,
           padding: 0,
           border: 0,
@@ -123,7 +125,7 @@ export function TileButton({ tile, onClick, size = 34, open, status }: {
           className={status === 'running' ? 'kipo-pulse' : undefined}
           style={{
             position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 999,
-            background: status === 'running' ? STATE_META.building.color : STATE_META.you.color,
+            background: status === 'running' ? STATE_META.building.color : 'var(--text-strong, #fff)',
             boxShadow: '0 0 0 2px var(--bg)',
           }}
         />
@@ -190,12 +192,30 @@ export function FrontierPanel({
     <div style={{ padding: '8px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.body, minWidth: 0 }}>
-        {counts.you > 0 && <span><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
-        {counts.afk > 0 && <span><b style={{ color: STATE_META.afk.text }}>Agent's move:</b> {counts.afk}</span>}
-        <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {counts.you > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
+        {counts.afk > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.afk.text }}>Agent's move:</b> {counts.afk}</span>}
+        <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
           {counts.done} of {tiles.length} done{fog ? ` · ${fog} in the fog` : ''}
         </span>
         <span style={{ flex: 1 }} />
+        {lanes.deliver.review > 0 && (
+          <button type="button" onClick={onReview} title="Review the open PRs, fix what it finds, merge the two-way doors"
+            style={btn(STATE_META.review.color, '#160b33')}>
+            {reviewOpen ? 'Open review' : `Review ${lanes.deliver.review} PR${lanes.deliver.review === 1 ? '' : 's'}`}
+          </button>
+        )}
+        {(readyDeliver.length > 0 || autopilot) && (
+          <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
+            title="Autopilot: when a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
+            style={{
+              ...btn(autopilot ? 'rgba(45,212,191,.14)' : 'transparent', autopilot ? STATE_META.afk.text : 'var(--muted)'),
+              border: `1px solid ${autopilot ? STATE_META.afk.color : 'var(--border)'}`, fontWeight: 500,
+            }}>
+            <span aria-hidden style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 6,
+              background: autopilot ? STATE_META.afk.color : 'var(--muted)' }} className={autopilot ? 'kipo-pulse' : undefined} />
+            Autopilot {autopilot ? 'on' : 'off'}
+          </button>
+        )}
         {ready.length > 0 && (
           <button type="button" disabled={!!starting} onClick={() => onStartAgents(ready)}
             title={`Start a session for each: ${ready.map(t => `#${t.number}`).join(', ')}`}
@@ -224,7 +244,7 @@ export function FrontierPanel({
         const c = lanes[lane]
         const n = laneTotal(lane)
         return (
-          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr) auto', alignItems: 'center', gap: 10 }}>
+          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr)', alignItems: 'center', gap: 10, minHeight: 16 }}>
             <span title={LANE_HINT[lane]} style={{ fontSize: T.small, fontWeight: 600, color: frontier.active[lane] ? 'var(--text)' : 'var(--muted)' }}>
               {LANE_LABEL[lane]}
             </span>
@@ -237,21 +257,6 @@ export function FrontierPanel({
                 {lane === 'deliver' ? (handover ? 'No tickets yet: write the spec first.' : 'No tickets yet.') : 'Nothing left to decide.'}
               </span>
             )}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: T.tiny, whiteSpace: 'nowrap' }}>
-              {lane === 'deliver' && c.review > 0 && (
-                <button type="button" onClick={onReview} title="Review the open PRs, fix what it finds, merge the two-way doors"
-                  style={btn(STATE_META.review.color, '#160b33')}>
-                  {reviewOpen ? 'Open review' : `Review ${c.review} PR${c.review === 1 ? '' : 's'}`}
-                </button>
-              )}
-              {lane === 'deliver' && (readyDeliver.length > 0 || autopilot) && (
-                <label title="When a ticket closes and frees the next one an agent can take, start it. Runs while KiPo is open."
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: autopilot ? STATE_META.afk.text : 'var(--muted)', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={autopilot} onChange={e => onAutopilot(e.target.checked)} style={{ margin: 0 }} />
-                  Keep agents on the frontier
-                </label>
-              )}
-            </span>
           </div>
         )
       })}
@@ -277,7 +282,7 @@ export function FrontierPanel({
             title="Tickets with a conversation: flip between them"
             style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel?.state === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel?.state === 'open' ? 600 : 400 }}>
             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 5, background: STATE_META.building.color }} />
-            {withSession.length} open
+            {withSession.length} conversation{withSession.length === 1 ? '' : 's'}
           </button>
         )}
       </div>
@@ -287,11 +292,20 @@ export function FrontierPanel({
           {fog} question{fog === 1 ? '' : 's'} in the map's "Not yet specified": in scope, not sharp enough to ticket yet.
         </div>
       )}
-      {tilesShown.length > 0 && (
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, paddingLeft: 68, scrollbarWidth: 'thin' }}>
-          {tilesShown.map(t => (
-            <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
-          ))}
+      {tilesShown.length > 0 && sel && (
+        <div style={{ paddingLeft: 68 }}>
+          <div style={{ fontSize: T.tiny, marginBottom: 2, color: sel.state === 'open' ? 'var(--text)' : STATE_META[sel.state].text }}>
+            {sel.state === 'open' ? 'Conversations' : STATE_META[sel.state].label[0].toUpperCase() + STATE_META[sel.state].label.slice(1)}
+            {sel.lane ? ` · ${LANE_LABEL[sel.lane]}` : ''}
+            <span style={muted}> · click a tile to open it</span>
+          </div>
+          {/* Padding inside the scroller leaves room for the open tile's outline and
+              the status dots, which sit outside each tile's box. */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '6px 6px 6px 4px', margin: '0 -6px 0 -4px', scrollbarWidth: 'thin' }}>
+            {tilesShown.map(t => (
+              <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
+            ))}
+          </div>
         </div>
       )}
     </div>
