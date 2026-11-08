@@ -8,8 +8,8 @@ import {
 import { cached, remember } from './cache'
 import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
 import { TileGraph } from './Graph'
-import { EffortInspector, TicketInspector, nextStep } from './Inspector'
-import { Divider, useStoredSize } from './layout'
+import { EffortInspector, TicketChain, TicketInspector, nextStep } from './Inspector'
+import { Divider, useFitSplit, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
@@ -54,6 +54,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [wide, setWide] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
+  // Horizontal splits: the bars and tiles over the chat, and a ticket's chain over its details.
+  const summarySplit = useFitSplit('summary', 56, 0.6)
+  const chainSplit = useFitSplit('chain', 100, 0.75)
   // The middle shows one thing at a time: the conversation, or the map of the
   // effort's tickets (where you pick one to open).
   const [view, setView] = useState<'conversation' | 'map'>('conversation')
@@ -339,7 +342,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {view === 'map' && hasMap ? (
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket and what blocks what. Click one to open its conversation.</span>
+                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket and what blocks what. Hover one to trace its chain; click it to open its conversation.</span>
               </div>
               <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
               <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} bands labeled
@@ -358,9 +361,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
             {slotKey && running.length > 0 && <Running skills={running} />}
           </div>
-          {detail.frontier?.lanes && (
-            <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
-          )}
+          {detail.frontier?.lanes && (<>
+            <div ref={summarySplit.ref} style={summarySplit.style}>
+              <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
+            </div>
+            <Divider direction="horizontal" label="Resize the bars and the conversation"
+              onDrag={summarySplit.onDrag} onReset={summarySplit.reset} />
+          </>)}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
               <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
@@ -390,10 +397,16 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
         {actionError && <div style={{ padding: '8px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
+        {focusTile && (<>
+          <div ref={chainSplit.ref} style={chainSplit.style}>
+            <TicketChain detail={detail} tile={focusTile} hasSession={!!slotKey} onOpenTile={openTile} statuses={statuses} />
+          </div>
+          <Divider direction="horizontal" label="Resize the ticket's chain and its details"
+            onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
+        </>)}
         <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
           {focusTile ? (
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              hasSession={!!slotKey} onOpenTile={openTile}
               decisions={<Decisions state={convState} slotKey={slotKey} onError={setActionError} />} />
           ) : (
             <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}

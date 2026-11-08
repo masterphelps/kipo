@@ -112,3 +112,22 @@ export function Divider({ direction, onDrag, onReset, label }: {
     </div>
   )
 }
+
+// A pane above a horizontal divider. It fits its content until you drag the
+// divider; after that it keeps the height you gave it (remembered). Double-click
+// the divider to go back to fitting. `maxShare` caps it at a share of the window.
+export function useFitSplit(name: string, min: number, maxShare = 0.75) {
+  const [size, setSize] = useStoredSize(name, 0, 0, 4000) // 0 = fit the content
+  const ref = useRef<HTMLDivElement>(null)
+  const onDrag = useCallback((d: number) => {
+    const max = Math.round(window.innerHeight * maxShare)
+    setSize(s => {
+      const from = s || ref.current?.offsetHeight || min
+      return Math.max(min, Math.min(max, from + d))
+    })
+  }, [min, maxShare, setSize])
+  const style: CSSProperties = size
+    ? { flex: `0 0 ${size}px`, minHeight: 0, overflowY: 'auto' }
+    : { flex: '0 1 auto', minHeight: 0, maxHeight: `${Math.round(maxShare * 100)}%`, overflowY: 'auto' }
+  return { ref, style, onDrag, reset: () => setSize(0) }
+}

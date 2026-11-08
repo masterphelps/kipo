@@ -2,8 +2,8 @@ import { MarkdownRenderer } from '@kirocrew/app-sdk/ui'
 import { useEffect, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, StartBadge, T, isUrl, muted, strong } from './common'
-import { STATE_META, TileButton } from './Frontier'
-import { TileGraph, neighborhood } from './Graph'
+import { STATE_META, TileButton, type SessionStatus } from './Frontier'
+import { TileGraph, chain, opensUp } from './Graph'
 import { STAGE_LABELS, type Artifact, type EffortDetail, type Stage, type Tile, type TicketCard } from './types'
 
 // The right panel says what's open and what you can do with it: a ticket's card
@@ -53,15 +53,89 @@ const PR_STATE: Record<string, { label: string; color: string }> = {
 
 // ---------------------------------------------------------------- a ticket
 
-// Read-only: the ticket's facts. Starting it and running skills on it happen
-// with its conversation, on the left.
-export function TicketInspector({ repo, number, detail, tile, hasSession, onOpenTile, decisions }: {
-  repo: string
-  number: number
+// The top of a ticket's card: what it is, and where it sits. Its whole chain is
+// drawn: everything it waits on, and everything waiting on it, with what closing
+// it frees called out. Sits above a drag handle; the card's details scroll below.
+export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: {
   detail: EffortDetail
   tile: Tile
   hasSession: boolean
   onOpenTile: (t: Tile) => void
+  statuses?: Record<number, SessionStatus>
+}) {
+  const tiles = detail.frontier?.tiles ?? []
+  const prs = detail.prs.filter(p => tile.prs.includes(p.number))
+  const meta = STATE_META[tile.state]
+  const done = tile.state === 'done'
+  const linked = chain(tiles, tile.number)
+  const frees = opensUp(tiles, tile.number)
+  const waitsOn = linked.filter(t => t.number !== tile.number && isUpstream(tiles, t.number, tile.number))
+  const downstream = linked.filter(t => t.number !== tile.number && isUpstream(tiles, tile.number, t.number))
+
+  let status: ReactNode
+  if (done) status = prs.some(p => p.state === 'MERGED') ? 'Closed: its PR merged.' : 'Closed.'
+  else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
+  else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
+  else if (tile.state === 'building') status = 'An agent is working on it.'
+  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is on the left.' : 'Your move. Start its conversation on the left.'
+  else status = hasSession ? 'Its conversation is on the left.' : 'An agent can take it on its own. Start it on the left.'
+
+  const list = (ts: Tile[]) => ts.map(t => `#${t.number}`).join(', ').replace(/, ([^,]*)$/, ' and $1')
+  return (
+    <div>
+      <div style={{ padding: '14px 16px 12px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <TileButton tile={tile} size={34} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ ...muted, fontSize: T.small }}>#{tile.number} · {TYPE_LABEL[tile.type]} · {tile.lane === 'deliver' ? 'Deliver' : 'Decide'}</span>
+            <Pill color={meta.color === 'transparent' ? 'var(--border)' : meta.color} text={meta.text}>{meta.label}</Pill>
+            {tile.source && <Pill color="var(--border)" text="var(--muted)">source issue</Pill>}
+            <span style={{ flex: 1 }} />
+            <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>
+          </div>
+          <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{tile.title}</div>
+          <div style={{ fontSize: T.small, marginTop: 6, lineHeight: 1.45 }}>{status}</div>
+        </div>
+      </div>
+
+      <Section title="Where it sits"
+        aside={linked.length > 1 ? `waits on ${waitsOn.length || 'nothing'} · ${downstream.length || 'nothing'} downstream` : 'nothing links to it'}>
+        {frees.length > 0 && (
+          <div style={{ fontSize: T.small, lineHeight: 1.45, marginBottom: 8 }}>
+            <span style={{ color: STATE_META.afk.text, fontWeight: 600 }}>{done ? 'Opened up' : 'Opens up'}</span>{' '}
+            {done ? `${list(frees)} when it closed.` : `${list(frees)}: closing it frees ${frees.length === 1 ? 'it' : 'them'} to start.`}
+          </div>
+        )}
+        {linked.length > 1
+          ? <TileGraph tiles={linked} focus={tile.number} onOpen={onOpenTile} labeled dimOthers={false} statuses={statuses} />
+          : <span style={{ ...muted, fontSize: T.small }}>Nothing blocks it and it blocks nothing.</span>}
+      </Section>
+    </div>
+  )
+}
+
+// Is `a` somewhere upstream of `b` (does `b` wait on `a`, directly or not)?
+function isUpstream(tiles: Tile[], a: number, b: number): boolean {
+  const byNumber = new Map(tiles.map(t => [t.number, t]))
+  const seen = new Set<number>()
+  const stack = [b]
+  while (stack.length) {
+    const t = byNumber.get(stack.pop()!)
+    for (const n of t ? (t.blockers ?? t.blockedBy) : []) {
+      if (n === a) return true
+      if (!seen.has(n)) { seen.add(n); stack.push(n) }
+    }
+  }
+  return false
+}
+
+// The rest of a ticket's card, read-only: decisions, PRs, how it ended, what it
+// asks. Starting it and running skills on it happen with its conversation.
+export function TicketInspector({ repo, number, detail, tile, decisions }: {
+  repo: string
+  number: number
+  detail: EffortDetail
+  tile: Tile
   decisions: ReactNode // this ticket's conversation's decision cards
 }) {
   const [card, setCard] = useState<TicketCard | null>(null)
@@ -76,38 +150,11 @@ export function TicketInspector({ repo, number, detail, tile, hasSession, onOpen
     return () => { live = false }
   }, [repo, number, tile.number, tile.state])
 
-  const tiles = detail.frontier?.tiles ?? []
-  const byNumber = new Map(tiles.map(t => [t.number, t]))
-  const blockedBy = (tile.blockers ?? tile.blockedBy).map(n => byNumber.get(n)).filter((t): t is Tile => !!t)
-  const unblocks = tiles.filter(t => (t.blockers ?? t.blockedBy).includes(tile.number))
   const prs = detail.prs.filter(p => tile.prs.includes(p.number))
-  const meta = STATE_META[tile.state]
   const done = tile.state === 'done'
-
-  let status: ReactNode
-  if (done) status = prs.some(p => p.state === 'MERGED') ? 'Closed: its PR merged.' : 'Closed.'
-  else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
-  else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
-  else if (tile.state === 'building') status = 'An agent is working on it.'
-  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is on the left.' : 'Your move. Start its conversation on the left.'
-  else status = hasSession ? 'Its conversation is on the left.' : 'An agent can take it on its own. Start it on the left.'
 
   return (
     <div>
-      <div style={{ padding: '14px 16px 12px', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <TileButton tile={tile} size={34} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ ...muted, fontSize: T.small }}>#{tile.number} · {TYPE_LABEL[tile.type]} · {tile.lane === 'deliver' ? 'Deliver' : 'Decide'}</span>
-            <Pill color={meta.color === 'transparent' ? 'var(--border)' : meta.color} text={meta.text}>{meta.label}</Pill>
-            {tile.source && <Pill color="var(--border)" text="var(--muted)">source issue</Pill>}
-          </div>
-          <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{tile.title}</div>
-          <div style={{ fontSize: T.small, marginTop: 6, lineHeight: 1.45 }}>{status}</div>
-          <a href={tile.url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: 'var(--accent)', fontSize: T.small, marginTop: 8 }}>Open on GitHub</a>
-        </div>
-      </div>
-
       {decisions}
 
       {prs.length > 0 && (
@@ -133,13 +180,6 @@ export function TicketInspector({ repo, number, detail, tile, hasSession, onOpen
             : <span style={{ ...muted, fontSize: T.small }}>Closed with no comment.</span>}
         </Section>
       )}
-
-      {(blockedBy.length > 0 || unblocks.length > 0) && (
-        <Section title="Connections" aside={`blocked by ${blockedBy.length || 'nothing'} · ${done ? 'was blocking' : 'blocks'} ${unblocks.length || 'nothing'}`}>
-          <TileGraph tiles={neighborhood(tiles, tile.number)} focus={tile.number} onOpen={onOpenTile} labeled />
-        </Section>
-      )}
-
 
       <Section title={done ? 'What it asked' : 'What it asks'}>
         {error ? <ErrorLine>{error}</ErrorLine>

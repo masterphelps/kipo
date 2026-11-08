@@ -11,6 +11,8 @@ import type { Tile } from './types'
 // them. The frontier (open, unblocked tickets: your move or the agent's) is
 // outlined in its own color. Fog is dashed "?" tiles past the last column.
 
+const PAD = 6
+
 type Placed = { tile: Tile; col: number; row: number }
 type Layout = { placed: Placed[]; cols: number; rows: number; split: number | null }
 
@@ -87,6 +89,9 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   // Fit the panel: labeled nodes shrink to the width available (down to a floor).
   const box = useRef<HTMLDivElement>(null)
   const [avail, setAvail] = useState(0)
+  // Hovering a ticket lights its whole chain: everything it waits on, and
+  // everything that waits on it.
+  const [hover, setHover] = useState<number | null>(null)
   useEffect(() => {
     const el = box.current
     if (!el) return
@@ -107,11 +112,11 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
 
   const size = 30
   const labelW = bands ? 52 : 0
-  const gapX = labeled ? 32 : 48
+  const gapX = bands ? 64 : labeled ? 40 : 48
   const fogN = fog > 0 ? Math.min(fog, 4) : 0
   const fogW = fogN ? gapX + size : 0 // the fog column is one narrow tile wide
-  const fit = avail && cols ? Math.floor((avail - 2 - labelW - fogW - (cols - 1) * gapX) / cols) : 168
-  const nodeW = labeled ? Math.max(110, Math.min(200, fit)) : size
+  const fit = avail && cols ? Math.floor((avail - 2 - 2 * PAD - labelW - fogW - (cols - 1) * gapX) / cols) : 168
+  const nodeW = labeled ? Math.max(110, Math.min(bands ? 240 : 200, fit)) : size
   const nodeH = size + 6
   const gapY = labeled ? 10 : 8
   const graphCols = inGraph.length ? cols : 0
@@ -131,8 +136,10 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
     if (f) blockersIn(f, known).forEach(n => neighbors.add(n))
     tiles.forEach(t => { if (blockersIn(t, known).includes(focus)) neighbors.add(t.number) })
   }
+  const hovered = hover != null && known.has(hover) ? new Set(chain(tiles, hover).map(t => t.number)) : null
   const lit = (n: number) =>
-    (highlight ? highlight.has(n) : true) && (focus == null || !dimOthers || neighbors.has(n))
+    hovered ? hovered.has(n)
+      : (highlight ? highlight.has(n) : true) && (focus == null || !dimOthers || neighbors.has(n))
   const frontier = (t: Tile) => t.state === 'you' || t.state === 'afk'
   const ringFor = (t: Tile) =>
     frontier(t) && t.number !== focus ? `0 0 0 2px var(--bg), 0 0 0 3.5px ${STATE_META[t.state].color}` : undefined
@@ -142,7 +149,9 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   const bandLineY = split != null ? rowY(split) + 0.3 * (nodeH + gapY) - gapY / 2 : null
 
   return (
-    <div ref={box} style={{ overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin', minWidth: 0 }}>
+    // PAD keeps the frontier ring and the open outline (both drawn outside the
+    // tile) inside the scroller, which would otherwise clip them.
+    <div ref={box} style={{ overflowX: 'auto', padding: PAD, scrollbarWidth: 'thin', minWidth: 0 }}>
       <div style={{ position: 'relative', width, height, minWidth: width }}>
         <svg width={width} height={height} style={{ position: 'absolute', inset: 0, overflow: 'visible' }} aria-hidden>
           <defs>
@@ -163,8 +172,9 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
             const y2 = b.y + nodeH / 2
             const mid = (x1 + x2) / 2
             const done = from.state === 'done'
-            const bold = focus != null && (from.number === focus || to.number === focus)
-            const faded = (focus != null && dimOthers && !bold) || !lit(from.number) || !lit(to.number)
+            const bold = hovered ? hovered.has(from.number) && hovered.has(to.number)
+              : focus != null && (from.number === focus || to.number === focus)
+            const faded = hovered ? !bold : (focus != null && dimOthers && !bold) || !lit(from.number) || !lit(to.number)
             return (
               <path key={`${from.number}-${to.number}`}
                 d={`M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`}
@@ -189,6 +199,7 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
           const p = pos.get(tile.number)!
           return (
             <div key={tile.number}
+              onPointerEnter={() => setHover(tile.number)} onPointerLeave={() => setHover(h => (h === tile.number ? null : h))}
               style={{ position: 'absolute', left: p.x, top: p.y, width: nodeW, display: 'flex', alignItems: 'center', gap: 8,
                 opacity: lit(tile.number) ? 1 : 0.28, transition: 'opacity .15s' }}>
               <span title={ringFor(tile) ? 'On the frontier: open and unblocked' : undefined}
@@ -235,11 +246,31 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   )
 }
 
-// A ticket's neighborhood: what blocks it, it, and what it blocks (one step each way).
-export function neighborhood(tiles: Tile[], focus: number): Tile[] {
-  const f = tiles.find(t => t.number === focus)
-  if (!f) return []
-  const keep = new Set<number>([focus, ...(f.blockers ?? f.blockedBy)])
-  tiles.forEach(t => { if ((t.blockers ?? t.blockedBy).includes(focus)) keep.add(t.number) })
+// A ticket's whole chain: everything it waits on (all the way up) and
+// everything waiting on it (all the way down).
+export function chain(tiles: Tile[], focus: number): Tile[] {
+  const byNumber = new Map(tiles.map(t => [t.number, t]))
+  if (!byNumber.has(focus)) return []
+  const keep = new Set<number>([focus])
+  const up = [focus]
+  while (up.length) {
+    const t = byNumber.get(up.pop()!)
+    for (const b of t ? blockersIn(t, byNumber) : []) if (!keep.has(b)) { keep.add(b); up.push(b) }
+  }
+  const down = new Set<number>([focus])
+  const queue = [focus]
+  while (queue.length) {
+    const n = queue.pop()!
+    for (const t of tiles) {
+      if (!down.has(t.number) && blockersIn(t, byNumber).includes(n)) { down.add(t.number); keep.add(t.number); queue.push(t.number) }
+    }
+  }
   return tiles.filter(t => keep.has(t.number))
+}
+
+// What closing a ticket frees: tickets it blocks whose every other blocker is closed.
+export function opensUp(tiles: Tile[], focus: number): Tile[] {
+  const byNumber = new Map(tiles.map(t => [t.number, t]))
+  return tiles.filter(t => t.state !== 'done' && blockersIn(t, byNumber).includes(focus)
+    && blockersIn(t, byNumber).every(b => b === focus || byNumber.get(b)?.state === 'done'))
 }
