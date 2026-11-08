@@ -39,6 +39,9 @@ declare module '@kirocrew/app-sdk' {
     composerMaxHeight?: number
   }
   export function ChatEmbed(props: ChatEmbedProps): JSX.Element
+  // Kiro Crew's native chat page for a session, with its side panel (the agent's
+  // background work, subagents, checks). conversationOnly drops its sessions rail.
+  export function ChatPanel(props: { slotKey: string; conversationOnly?: boolean }): JSX.Element
 }
 
 declare module '@kirocrew/app-sdk/ui' {

@@ -1,4 +1,4 @@
-import { ChatEmbed, useAppApi, type ChatEmbedSendMeta } from '@kirocrew/app-sdk'
+import { ChatPanel, useAppApi } from '@kirocrew/app-sdk'
 import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
@@ -608,16 +608,13 @@ function PhaseChat({ slotKey, onSkill, sent }: {
   onSkill: (s: string) => void
   sent: string | null
 }) {
-  const api = useAppApi()
-  const onSend = useCallback(
-    (message: string, meta?: ChatEmbedSendMeta) => api.post('/api/chat?ws=1', { slot: slotKey, message, meta }),
-    [api, slotKey],
-  )
-  // No skill menu: KiPo starts each conversation with the right skill, and the
-  // effort's next step is on the right. One reaction is worth a click, because
-  // it answers the agent's last message: /wait-what. Any other skill can be typed.
+  // Kiro's own chat for the session, side panel and all: what the agent is
+  // running in the background (subagents, checks, workflows) shows there, as in
+  // any Kiro chat. No skill menu: KiPo starts each conversation with the right
+  // skill. One reaction is worth a click, because it answers the agent's last
+  // message: /wait-what. Any other skill can be typed.
   const controls = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px 4px', fontSize: T.tiny }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 16px', fontSize: T.tiny, borderBottom: '1px solid var(--border)' }}>
       <button type="button" onClick={() => onSkill('wait-what')} title={SKILL_HINTS['wait-what']}
         style={{ background: 'transparent', padding: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: T.tiny, textDecoration: 'underline dotted' }}>
         /wait-what: say that again in plain words
@@ -625,7 +622,14 @@ function PhaseChat({ slotKey, onSkill, sent }: {
       {sent && <span style={muted}>· sent /{sent}</span>}
     </div>
   )
-  return <ChatEmbed slotKey={slotKey} onSend={onSend} startAtBottom frameless aboveComposer={controls} placeholder="Reply to the agent…" />
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {controls}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <ChatPanel key={slotKey} slotKey={slotKey} conversationOnly />
+      </div>
+    </div>
+  )
 }
 
 const TILE_ACTIONS: Record<Tile['type'], { what: string; action: string; body: string }> = {
