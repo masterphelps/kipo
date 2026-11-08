@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, StartBadge, T, isUrl, muted, strong } from './common'
 import { STATE_META, TileButton } from './Frontier'
+import { TileGraph, neighborhood } from './Graph'
 import { STAGE_LABELS, type Artifact, type EffortDetail, type Stage, type Tile, type TicketCard } from './types'
 
 // The right panel says what's open and what you can do with it: a ticket's card
@@ -48,25 +49,6 @@ const PR_STATE: Record<string, { label: string; color: string }> = {
   MERGED: { label: 'merged', color: STATE_META.done.color },
   OPEN: { label: 'open', color: STATE_META.review.color },
   CLOSED: { label: 'closed', color: 'var(--muted)' },
-}
-
-// Tickets as small clickable tiles with their titles: for "blocked by" and "unblocks".
-function TileList({ tiles, onOpen, empty }: { tiles: Tile[]; onOpen: (t: Tile) => void; empty: string }) {
-  if (!tiles.length) return <span style={{ ...muted, fontSize: T.small }}>{empty}</span>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {tiles.map(t => (
-        <div key={t.number} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <TileButton tile={t} size={26} bare onClick={() => onOpen(t)} />
-          <button type="button" onClick={() => onOpen(t)}
-            style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent', color: 'var(--text)', cursor: 'pointer', padding: 0, fontSize: T.small }}>
-            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
-            <div style={{ fontSize: T.tiny, color: STATE_META[t.state].text }}>#{t.number} · {STATE_META[t.state].label}</div>
-          </button>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 // ---------------------------------------------------------------- a ticket
@@ -153,17 +135,8 @@ export function TicketInspector({ repo, number, detail, tile, hasSession, onOpen
       )}
 
       {(blockedBy.length > 0 || unblocks.length > 0) && (
-        <Section title="Connections">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <div style={{ ...muted, fontSize: T.tiny, marginBottom: 6 }}>Blocked by</div>
-              <TileList tiles={blockedBy} onOpen={onOpenTile} empty="Nothing." />
-            </div>
-            <div>
-              <div style={{ ...muted, fontSize: T.tiny, marginBottom: 6 }}>{done ? 'Was blocking' : 'Blocks'}</div>
-              <TileList tiles={unblocks} onOpen={onOpenTile} empty="Nothing." />
-            </div>
-          </div>
+        <Section title="Connections" aside={`blocked by ${blockedBy.length || 'nothing'} · ${done ? 'was blocking' : 'blocks'} ${unblocks.length || 'nothing'}`}>
+          <TileGraph tiles={neighborhood(tiles, tile.number)} focus={tile.number} onOpen={onOpenTile} labeled />
         </Section>
       )}
 
@@ -378,6 +351,12 @@ export function EffortInspector({ repo, number, detail, stage, next, busy, autop
           {detail.destination.trim() ? <MarkdownRenderer content={detail.destination} /> : <span style={muted}>Not written yet.</span>}
         </div>
       </Section>
+
+      {(detail.frontier?.tiles.length ?? 0) > 1 && (
+        <Section title="Map" aside="how the tickets block each other · click one to open it">
+          <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} onOpen={onOpenTile} />
+        </Section>
+      )}
 
       <Documents repo={repo} number={number} detail={detail} onOpenTile={onOpenTile} />
     </div>
