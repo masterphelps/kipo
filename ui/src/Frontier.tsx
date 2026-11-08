@@ -138,8 +138,7 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
 // The effort's frontier, under its header: who's up, then Matt's two halves as
 // two bars (Decide: the front half, ending in a spec and tickets; Deliver: the
 // back half, ending in merged PRs), a legend that picks a segment, and that
-// segment's tiles. Banners mark the two moments that matter: the hand-over from
-// Decide to Deliver, and everything landed.
+// segment's tiles.
 type Pick = { lane: Lane | null; state: TileState | 'fog' | 'open' }
 
 const LANE_LABEL: Record<Lane, string> = { decide: 'Decide', deliver: 'Deliver' }
@@ -148,38 +147,26 @@ const LANE_HINT: Record<Lane, string> = {
   deliver: 'The back half: tickets that end in a PR. Implement, review, merge.',
 }
 
-const btn = (bg: string, fg: string, disabled?: boolean) => ({
-  height: 24, padding: '0 10px', borderRadius: 6, border: 0, flexShrink: 0, whiteSpace: 'nowrap' as const,
-  background: bg, color: fg, fontWeight: 600, fontSize: T.small,
-  cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
-})
-
-export function FrontierPanel({
-  frontier, onTile, onStartAgents, starting, openNumber, statuses,
-  autopilot, onAutopilot, onHandover, onReview, onRetro, reviewOpen,
-}: {
+// Navigation only: pick a segment, then a tile, to open that ticket's
+// conversation. What to do next lives in the right panel's Next; skills live
+// above the chat box.
+export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
   frontier: Frontier
   onTile: (t: Tile) => void
-  onStartAgents: (tiles: Tile[]) => void
-  starting: string | null
   openNumber: number | null               // the tile whose ticket is showing
   statuses: Record<number, SessionStatus> // tiles with a session, by ticket number
-  autopilot: boolean                      // keep agents on the Deliver frontier
-  onAutopilot: (on: boolean) => void
-  onHandover: () => void                  // /to-spec then /to-tickets
-  onReview: () => void                    // the effort's review conversation
-  onRetro: () => void
-  reviewOpen: boolean                     // a review conversation already exists
 }) {
-  const { counts, fog, tiles, lanes, handover, landed } = frontier
+  const { counts, fog, tiles, lanes } = frontier
   const [picked, setPicked] = useState<Pick | null>(null)
   const withSession = tiles.filter(t => t.sessionKey)
-  const auto: Pick | null = counts.you ? { lane: null, state: 'you' } : counts.afk ? { lane: null, state: 'afk' } : null
+  // With a ticket open, show its group so its tile (outlined) is in view;
+  // otherwise whatever is waiting on someone.
+  const openTile = openNumber != null ? tiles.find(t => t.number === openNumber) : undefined
+  const auto: Pick | null = openTile ? { lane: null, state: openTile.state }
+    : counts.you ? { lane: null, state: 'you' } : counts.afk ? { lane: null, state: 'afk' } : null
   const sel = picked ?? auto
-  const ready = tiles.filter(t => t.state === 'afk')
-  const readyDeliver = ready.filter(t => t.lane === 'deliver')
   const total = frontierTotal(counts, fog)
-  if (!total && !handover && !landed) return null
+  if (!total) return null
 
   const toggle = (p: Pick) => setPicked(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
   const isSel = (lane: Lane | null, state: Pick['state']) => !!sel && sel.state === state && (sel.lane === null || sel.lane === lane)
@@ -198,48 +185,7 @@ export function FrontierPanel({
         <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
           {counts.done} of {tiles.length} done{fog ? ` · ${fog} in the fog` : ''}
         </span>
-        <span style={{ flex: 1 }} />
-        {lanes.deliver.review > 0 && (
-          <button type="button" onClick={onReview} title="Review the open PRs, fix what it finds, merge the two-way doors"
-            style={btn(STATE_META.review.color, '#160b33')}>
-            {reviewOpen ? 'Open review' : `Review ${lanes.deliver.review} PR${lanes.deliver.review === 1 ? '' : 's'}`}
-          </button>
-        )}
-        {(readyDeliver.length > 0 || autopilot) && (
-          <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
-            title="Autopilot: when a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
-            style={{
-              ...btn(autopilot ? 'rgba(45,212,191,.14)' : 'transparent', autopilot ? STATE_META.afk.text : 'var(--muted)'),
-              border: `1px solid ${autopilot ? STATE_META.afk.color : 'var(--border)'}`, fontWeight: 500,
-            }}>
-            <span aria-hidden style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 6,
-              background: autopilot ? STATE_META.afk.color : 'var(--muted)' }} className={autopilot ? 'kipo-pulse' : undefined} />
-            Autopilot {autopilot ? 'on' : 'off'}
-          </button>
-        )}
-        {ready.length > 0 && (
-          <button type="button" disabled={!!starting} onClick={() => onStartAgents(ready)}
-            title={`Start a session for each: ${ready.map(t => `#${t.number}`).join(', ')}`}
-            style={btn(STATE_META.afk.color, '#062621', !!starting)}>
-            {starting ?? `Start ${ready.length} agent${ready.length === 1 ? '' : 's'}`}
-          </button>
-        )}
       </div>
-
-      {handover && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 8, fontSize: T.small,
-          border: `1px solid ${STATE_META.afk.color}`, background: 'var(--bg-elevated)' }}>
-          <span style={{ flex: 1 }}><b>The map is clear.</b> <span style={muted}>Every decision is closed and the fog is gone: write the spec and cut the tickets.</span></span>
-          <button type="button" onClick={onHandover} style={btn(STATE_META.afk.color, '#062621')}>Write the spec</button>
-        </div>
-      )}
-      {landed && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 8, fontSize: T.small,
-          border: `1px solid ${STATE_META.done.color}`, background: 'var(--bg-elevated)' }}>
-          <span style={{ flex: 1 }}><b>Everything delivered is merged.</b> <span style={muted}>Retro the run, then close the effort.</span></span>
-          <button type="button" onClick={onRetro} style={btn(STATE_META.done.color, '#062010')}>Run /retro</button>
-        </div>
-      )}
 
       {(['decide', 'deliver'] as Lane[]).map(lane => {
         const c = lanes[lane]
@@ -255,7 +201,7 @@ export function FrontierPanel({
                 onSelect={s => toggle({ lane, state: s })} />
             ) : (
               <span style={{ ...muted, fontSize: T.tiny }}>
-                {lane === 'deliver' ? (handover ? 'No tickets yet: write the spec first.' : 'No tickets yet.') : 'Nothing left to decide.'}
+                {lane === 'deliver' ? (frontier.handover ? 'No tickets yet: write the spec first.' : 'No tickets yet.') : 'Nothing left to decide.'}
               </span>
             )}
           </div>

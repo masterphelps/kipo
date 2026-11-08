@@ -3,7 +3,7 @@ import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
 import {
-  ActionButton, ErrorLine, StartBadge, T, TextButton, fieldStyle, muted, scrollRow, strong,
+  ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, scrollRow, strong,
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierPanel, type SessionStatus } from './Frontier'
@@ -287,9 +287,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     )
   }
 
-  const scopeLabel = focus.kind === 'ticket' ? `deliver #${focus.t}` : focus.kind === 'spec' ? 'implement-spec'
-    : focus.kind === 'decision' ? `decide #${focus.t}` : focus.kind === 'stage' ? COLUMN_LABELS[focus.column].toLowerCase()
-    : COLUMN_LABELS[detail.column].toLowerCase()
   // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
   const stage: Stage = (detail.frontier?.stage && STAGES.includes(detail.frontier.stage) ? detail.frontier.stage : null) ?? stageOfColumn(detail.column)
   // Skills for what's open: the tile's type, else the effort's stage. The any-time
@@ -298,6 +295,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const skills = { buttons: rawSkills.buttons.filter(b => !SESSION_CONTROLS.includes(b)), chips: rawSkills.chips }
   const next = nextStep(detail, {
     openTile,
+    startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
     startAgents: t => { void startAgents(t) },
     handover,
     review: openReview,
@@ -313,36 +311,29 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {/* Middle: the conversation. */}
       {!wide && (
         <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {/* The one place to navigate between conversations: back to the effort's
+              own conversation here, any ticket's from the tiles below. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+            {focus.kind !== 'column' && (
+              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
+            )}
             {slotKey
               ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
-              : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail.title}</span>}
-            <span style={{ fontSize: T.tiny, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elevated)', color: 'var(--accent)', border: '1px solid var(--accent)', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
-            <StartBadge start={detail.start} />
+              : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
             <span style={{ flex: 1 }} />
-            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260, direction: 'rtl' }} title={detail.repoPath}>
-              {detail.repoPath}
-            </span>
+            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
           </div>
           {detail.frontier?.lanes && (
-            <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents}
-              openNumber={focusTile?.number ?? null} statuses={statuses}
-              autopilot={autopilot} onAutopilot={setAutopilot}
-              onHandover={handover} onReview={openReview} onRetro={runRetro} reviewOpen={!!detail.sessions.review} />
-          )}
-          {focus.kind !== 'column' && (
-            <div style={{ ...scrollRow, padding: '6px 16px', borderBottom: '1px solid var(--border)', fontSize: T.small, gap: 8 }}>
-              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
-              {(focusTile ?? ticket) && <a href={(focusTile ?? ticket)!.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>#{(focusTile ?? ticket)!.number}</a>}
-              {(focusTile ?? ticket) && <span>{(focusTile ?? ticket)!.title}</span>}
-            </div>
+            <FrontierPanel frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
-              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
+              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent}
+                skills={skills.buttons} skillsLabel={focusTile ? `For #${focusTile.number}:` : 'For this effort:'} />
             ) : (
               <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
-                onStart={() => start(focusTile ? tileSkill(focusTile) : null)} />
+                onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
+                skills={skills.buttons.filter(s => !focusTile || s !== tileSkill(focusTile))} onSkill={s => start(s)} />
             )}
           </div>
         </section>
@@ -356,11 +347,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {/* Right: whatever is open. A ticket's card for a tile, the effort's overview otherwise. */}
       <section style={{ flex: wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: wide ? undefined : rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 41 }}>
-          {focusTile ? (
-            <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's overview and its own conversation">← Effort</TextButton>
-          ) : (
-            <span style={{ ...muted, fontSize: T.small }}>Effort overview</span>
-          )}
           <span style={{ flex: 1 }} />
           <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the conversation' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
           <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
@@ -372,13 +358,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
           {focusTile ? (
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              skills={skills} used={[]} starting={starting} hasSession={!!slotKey}
-              onStart={() => start(tileSkill(focusTile))} onOpenTile={openTile} onRunSkill={runSkill} />
+              hasSession={!!slotKey} onOpenTile={openTile} />
           ) : (
             <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}
-              skills={skills} used={focus.kind === 'column' ? detail.state?.skillsUsed ?? [] : []} busy={busy || starting}
+              busy={busy || starting || !!startingAgents} autopilot={autopilot} onAutopilot={setAutopilot}
+              showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
               decisions={focus.kind === 'column' ? <Decisions state={detail.state} slotKey={slotKey} onError={setActionError} /> : null}
-              onOpenTile={openTile} onRunSkill={runSkill} />
+              onOpenTile={openTile} />
           )}
         </div>
       </section>
@@ -495,15 +481,39 @@ function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string 
   )
 }
 
-function PhaseChat({ slotKey, onSkill, sent }: { slotKey: string; onSkill: (s: string) => void; sent: string | null }) {
+function PhaseChat({ slotKey, onSkill, sent, skills, skillsLabel }: {
+  slotKey: string
+  onSkill: (s: string) => void
+  sent: string | null
+  skills: string[]      // the skills that fit what's open
+  skillsLabel: string
+}) {
   const api = useAppApi()
   const onSend = useCallback(
     (message: string, meta?: ChatEmbedSendMeta) => api.post('/api/chat?ws=1', { slot: slotKey, message, meta }),
     [api, slotKey],
   )
-  // The session controls: skills that work in any column, one click above the chat box.
+  // Every skill you can press lives here, one click above the chat box: the ones
+  // that fit what's open, then the ones that work any time. Each sends
+  // "Run /<skill>" into this conversation.
+  const pill = (s: string, accent: boolean) => (
+    <button key={s} type="button" onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
+      style={{
+        flexShrink: 0, height: 22, padding: '0 8px', borderRadius: 999, fontSize: T.tiny, cursor: 'pointer', whiteSpace: 'nowrap',
+        border: `1px solid ${accent ? 'var(--accent)' : 'var(--border)'}`, background: 'transparent', color: accent ? 'var(--accent)' : 'var(--text)',
+      }}>
+      /{s}
+    </button>
+  )
   const controls = (
     <div style={{ ...scrollRow, gap: 2, padding: '0 2px 4px' }}>
+      {skills.length > 0 && (
+        <>
+          <span style={{ ...muted, fontSize: T.tiny, marginRight: 4 }}>{skillsLabel}</span>
+          {skills.map(s => pill(s, true))}
+          <span aria-hidden style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 6px', flexShrink: 0 }} />
+        </>
+      )}
       <span style={{ ...muted, fontSize: T.tiny, marginRight: 4 }}>Any time:</span>
       {SESSION_CONTROLS.map(s => (
         <button key={s} type="button" onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
@@ -526,34 +536,41 @@ const TILE_ACTIONS: Record<Tile['type'], { what: string; action: string; body: s
   issue: { what: 'Issue', action: 'Triage it', body: 'A follow-up filed on the map. Triage moves it to an agent-ready brief, or asks you what it needs.' },
 }
 
-function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
+// Where a conversation would be, when there isn't one: why not, and the one
+// button that starts it (plus the other skills it could start with). The
+// ticket's own details are on the right; this doesn't repeat them.
+function NotStarted({ detail, focus, ticket, tile, starting, onStart, skills, onSkill }: {
   detail: EffortDetail
   focus: Focus
   ticket: TicketInfo | null
   tile: Tile | null
   starting: boolean
   onStart: () => void
+  skills: string[]
+  onSkill: (s: string) => void
 }) {
   let title: string
   let body: string
   let action: string | null
   if (tile) {
     const a = TILE_ACTIONS[tile.type]
-    const who = tile.who === 'you' ? 'Your move' : "Agent's move"
-    title = `${a.what} #${tile.number}: ${tile.title}`
     if (tile.state === 'done') {
+      title = 'Closed'
       body = tile.sessionKey
-        ? 'Closed. Its resolution is on the issue, and its conversation is in the sidebar\'s History.'
-        : 'Closed. Its resolution is on the issue.'
+        ? 'Its conversation was closed when the ticket was. How it ended is on the right.'
+        : 'How it ended is on the right.'
       action = null
     } else if (tile.state === 'blocked') {
-      body = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those are closed.`
+      title = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}`
+      body = 'It can start once those are closed.'
       action = null
     } else if (tile.state === 'review') {
-      body = `PR ${tile.prs.map(n => `#${n}`).join(', ')} is open for it. Review merges it once it's clean.`
+      title = 'In review'
+      body = 'Its PR is open. The effort\'s Review merges it once it\'s clean.'
       action = null
     } else {
-      body = `${who}. ${a.body}`
+      title = 'No conversation yet'
+      body = `${tile.who === 'you' ? 'Your move.' : "An agent can take it on its own."} ${a.body}`
       action = a.action
     }
   } else if (focus.kind === 'ticket') {
@@ -583,7 +600,7 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
     const shared = col === 'plan' && detail.sessions.grill
     title = `${COLUMN_LABELS[col]} hasn't started`
     body = shared ? 'Plan continues the Grill conversation, so the spec and tickets are written with everything it learned.'
-      : `${COLUMN_HINTS[col]} Start it, or press one of the skill buttons on the right.`
+      : `${COLUMN_HINTS[col]}`
     action = shared ? 'Continue in the Grill conversation' : `Start ${COLUMN_LABELS[col]}`
   }
   return (
@@ -593,8 +610,18 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
         <div style={{ ...muted, fontSize: T.body, margin: '6px 0 14px', lineHeight: 1.5 }}>{body}</div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
           {action && <Btn primary disabled={starting} onClick={onStart}>{starting ? 'Starting…' : action}</Btn>}
-          {tile && <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>}
         </div>
+        {action && skills.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', alignItems: 'center', marginTop: 12 }}>
+            <span style={{ ...muted, fontSize: T.tiny, marginRight: 2 }}>or start with</span>
+            {skills.map(s => (
+              <button key={s} type="button" disabled={starting} onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
+                style={{ height: 22, padding: '0 8px', borderRadius: 999, fontSize: T.tiny, border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)', cursor: starting ? 'default' : 'pointer' }}>
+                /{s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -628,7 +655,7 @@ function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClos
   }
   return (
     <span style={group}>
-      <TextButton disabled={busy} onClick={() => setConfirm('remove')}>Remove</TextButton>
+      <TextButton disabled={busy} onClick={() => setConfirm('remove')} title="Close this effort's issue as not planned and take it off the board">Remove effort</TextButton>
       {stage === 'done' && !detail.sessions.done && (
         <ActionButton disabled={busy} onClick={onRetro}>Run /retro</ActionButton>
       )}

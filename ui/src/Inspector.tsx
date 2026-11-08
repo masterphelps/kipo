@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, StartBadge, T, isUrl, muted, strong } from './common'
 import { STATE_META, TileButton } from './Frontier'
-import { SKILL_HINTS, STAGE_LABELS, type Artifact, type EffortDetail, type Stage, type Tile, type TicketCard } from './types'
+import { STAGE_LABELS, type Artifact, type EffortDetail, type Stage, type Tile, type TicketCard } from './types'
 
 // The right panel says what's open and what you can do with it: a ticket's card
 // when a tile is open, the effort's overview when its own conversation is.
@@ -50,39 +50,6 @@ const PR_STATE: Record<string, { label: string; color: string }> = {
   CLOSED: { label: 'closed', color: 'var(--muted)' },
 }
 
-// Skills that fit what's open, under a heading that says what pressing one does.
-function Skills({ skills, used, disabled, onRun }: { skills: SkillSet; used: string[]; disabled: boolean; onRun: (s: string) => void }) {
-  if (!skills.buttons.length && !skills.chips.length) return null
-  const set = new Set(used)
-  return (
-    <Section title="Skills" aside="press one to run it in the conversation on the left">
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {skills.buttons.map(s => (
-          <button key={s} type="button" disabled={disabled} onClick={() => onRun(s)} title={SKILL_HINTS[s]}
-            style={{
-              height: 26, padding: '0 10px', borderRadius: 6, whiteSpace: 'nowrap', fontSize: T.small, fontWeight: 500,
-              border: `1px solid ${set.has(s) ? 'var(--ok-text)' : 'var(--accent)'}`, background: 'transparent',
-              color: set.has(s) ? 'var(--ok-text)' : 'var(--accent)', cursor: disabled ? 'default' : 'pointer',
-            }}>
-            {set.has(s) ? '✓ ' : ''}/{s}
-          </button>
-        ))}
-      </div>
-      {skills.chips.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8 }}>
-          <span style={{ ...muted, fontSize: T.tiny }}>The agent uses on its own:</span>
-          {skills.chips.map(s => (
-            <span key={s} title={SKILL_HINTS[s]}
-              style={{ fontSize: T.tiny, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elevated)', color: set.has(s) ? 'var(--ok-text)' : 'var(--muted)' }}>
-              {set.has(s) ? '✓ ' : ''}{s}
-            </span>
-          ))}
-        </div>
-      )}
-    </Section>
-  )
-}
-
 // Tickets as small clickable tiles with their titles: for "blocked by" and "unblocks".
 function TileList({ tiles, onOpen, empty }: { tiles: Tile[]; onOpen: (t: Tile) => void; empty: string }) {
   if (!tiles.length) return <span style={{ ...muted, fontSize: T.small }}>{empty}</span>
@@ -104,18 +71,15 @@ function TileList({ tiles, onOpen, empty }: { tiles: Tile[]; onOpen: (t: Tile) =
 
 // ---------------------------------------------------------------- a ticket
 
-export function TicketInspector({ repo, number, detail, tile, skills, used, starting, hasSession, onStart, onOpenTile, onRunSkill }: {
+// Read-only: the ticket's facts. Starting it and running skills on it happen
+// with its conversation, on the left.
+export function TicketInspector({ repo, number, detail, tile, hasSession, onOpenTile }: {
   repo: string
   number: number
   detail: EffortDetail
   tile: Tile
-  skills: SkillSet
-  used: string[]
-  starting: boolean
   hasSession: boolean
-  onStart: () => void
   onOpenTile: (t: Tile) => void
-  onRunSkill: (s: string) => void
 }) {
   const [card, setCard] = useState<TicketCard | null>(null)
   const [error, setError] = useState('')
@@ -142,12 +106,8 @@ export function TicketInspector({ repo, number, detail, tile, skills, used, star
   else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
   else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
   else if (tile.state === 'building') status = 'An agent is working on it.'
-  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is open on the left.' : 'Your move: it needs you in the conversation.'
-  else status = hasSession ? 'Its conversation is open on the left.' : 'An agent can take it on its own.'
-
-  const canStart = !done && !hasSession && (tile.state === 'you' || tile.state === 'afk')
-  const startLabel = tile.lane === 'deliver' ? 'Implement it' : tile.type === 'research' ? 'Run the research'
-    : tile.type === 'prototype' ? 'Start a prototype' : tile.type === 'issue' ? 'Triage it' : tile.type === 'task' ? 'Start this task' : 'Start the grill'
+  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is on the left.' : 'Your move. Start its conversation on the left.'
+  else status = hasSession ? 'Its conversation is on the left.' : 'An agent can take it on its own. Start it on the left.'
 
   return (
     <div>
@@ -161,15 +121,7 @@ export function TicketInspector({ repo, number, detail, tile, skills, used, star
           </div>
           <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{tile.title}</div>
           <div style={{ fontSize: T.small, marginTop: 6, lineHeight: 1.45 }}>{status}</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-            {canStart && (
-              <button type="button" disabled={starting} onClick={onStart}
-                style={btn(tile.who === 'you' ? STATE_META.you.color : STATE_META.afk.color, '#14121c', starting)}>
-                {starting ? 'Starting…' : startLabel}
-              </button>
-            )}
-            <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>
-          </div>
+          <a href={tile.url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: 'var(--accent)', fontSize: T.small, marginTop: 8 }}>Open on GitHub</a>
         </div>
       </div>
 
@@ -212,7 +164,6 @@ export function TicketInspector({ repo, number, detail, tile, skills, used, star
         </Section>
       )}
 
-      {!done && <Skills skills={skills} used={used} disabled={starting} onRun={onRunSkill} />}
 
       <Section title={done ? 'What it asked' : 'What it asks'}>
         {error ? <ErrorLine>{error}</ErrorLine>
@@ -234,6 +185,7 @@ export type NextStep = {
 // The single most useful thing to do next, read from the frontier.
 export function nextStep(detail: EffortDetail, h: {
   openTile: (t: Tile) => void
+  startTile: (t: Tile) => void
   startAgents: (t: Tile[]) => void
   handover: () => void
   review: () => void
@@ -264,7 +216,7 @@ export function nextStep(detail: EffortDetail, h: {
     const frees = unblockCount(first)
     return {
       text: <><b>{yours.length} waiting on you.</b> Start with <b>#{first.number}</b>, {first.title}{frees ? <>: closing it frees {frees} more</> : null}.</>,
-      actions: [{ label: `Open #${first.number}`, onClick: () => h.openTile(first), kind: 'you' }],
+      actions: [{ label: first.sessionKey ? `Continue #${first.number}` : `Start #${first.number}`, onClick: () => h.startTile(first), kind: 'you' }],
     }
   }
   const ready = tiles.filter(t => t.state === 'afk')
@@ -363,18 +315,20 @@ function Documents({ repo, number, detail, onOpenTile }: { repo: string; number:
   )
 }
 
-export function EffortInspector({ repo, number, detail, stage, next, skills, used, busy, decisions, onOpenTile, onRunSkill }: {
+// The effort's facts, and its one next action. Skills live above the chat box;
+// moving between conversations happens in the middle.
+export function EffortInspector({ repo, number, detail, stage, next, busy, autopilot, onAutopilot, showAutopilot, decisions, onOpenTile }: {
   repo: string
   number: number
   detail: EffortDetail
   stage: Stage
   next: NextStep
-  skills: SkillSet
-  used: string[]
   busy: boolean
+  autopilot: boolean
+  onAutopilot: (on: boolean) => void
+  showAutopilot: boolean
   decisions: ReactNode
   onOpenTile: (t: Tile) => void
-  onRunSkill: (s: string) => void
 }) {
   const kindColor = { you: STATE_META.you.color, afk: STATE_META.afk.color, done: STATE_META.done.color, review: STATE_META.review.color }
   return (
@@ -402,6 +356,16 @@ export function EffortInspector({ repo, number, detail, stage, next, skills, use
             ))}
           </div>
         )}
+        {showAutopilot && (
+          <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
+            title="When a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
+            style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, background: 'transparent', padding: 0, cursor: 'pointer',
+              fontSize: T.small, color: autopilot ? STATE_META.afk.text : 'var(--muted)' }}>
+            <span aria-hidden className={autopilot ? 'kipo-pulse' : undefined}
+              style={{ width: 8, height: 8, borderRadius: 999, background: autopilot ? STATE_META.afk.color : 'var(--muted)' }} />
+            Autopilot {autopilot ? 'on' : 'off'}: {autopilot ? 'new agent tickets start on their own' : 'start new agent tickets as they free up'}
+          </button>
+        )}
       </Section>
 
       {decisions}
@@ -413,8 +377,6 @@ export function EffortInspector({ repo, number, detail, stage, next, skills, use
       </Section>
 
       <Documents repo={repo} number={number} detail={detail} onOpenTile={onOpenTile} />
-
-      <Skills skills={skills} used={used} disabled={busy} onRun={onRunSkill} />
     </div>
   )
 }
