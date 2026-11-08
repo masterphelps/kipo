@@ -18,7 +18,7 @@ An interview is in progress; it updates `GLOSSARY.md` and adds ADRs. Grill makes
 - **Record every skill** (button, chip or session control) by appending its name to `skillsUsed` the moment you load it.
 - The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), tell the human to run `setup-matt-pocock-skills` (Intake's first button).
 - Session controls (`handoff`, `wait-what`, `teach`, `writing-for-agents`) can arrive in any column as "Run /<skill>: …": follow and record them, then resume.
-- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. The human moves on by clicking Next (or Skip). When every gate item is done, say so in one line and stop.
+- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. There is no Next: KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. When every gate item is done, say so in one line and stop.
 
 ## Buttons
 
@@ -44,8 +44,8 @@ If no button has been pressed yet, recommend one as decision `button` (options: 
 
 Read `Start:` and the `Column:` line.
 
-- **`idea`** (grill → plan → build → review → done): grill until the idea is sharp, then stop. Grill and Plan share this session, so say in one line that the human can click Next to Plan and `/to-spec` will continue in this same conversation. Don't compact or clear.
-- **`small`** (grill → build → review → done): grill briefly, only what the change needs. Then, when the human clicks Next, build it here with `/implement`: Plan is skipped. If the grilling shows a multi-session build or a hard-to-reverse decision, say so as decision `still-small` (options: keep small, move to Plan) before building.
+- **`idea`** (grill → plan → build → review → done): grill until the idea is sharp, then stop. Grill and Plan share this session, so say in one line that `/to-spec` then `/to-tickets` (the Decide skills on the right) continue in this same conversation and end the front half. Don't compact or clear.
+- **`small`** (grill → build → review → done): grill briefly, only what the change needs. Then, when the human says go (or presses `/implement`), build it here with `/implement`: there is no spec or tickets, and this effort's own PR on `kipo/<n>` is its Deliver half. If the grilling shows a multi-session build or a hard-to-reverse decision, say so as decision `still-small` (options: keep small, move to Plan) before building.
 - If a question needs a runnable answer, recommend the human "Move to…" Shape for a prototype, or hand off with `handoff`.
 
 ## Gate

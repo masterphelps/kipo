@@ -516,8 +516,24 @@ class Initiatives:
                 map_nodes, map_body = self._map_children(repo, int(meta["mapIssue"]))
             except KipoError:
                 map_nodes, map_body = [], None
-        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body)
-        self.storage.save_frontier(repo, number, front["counts"], front["fog"])
+        source_node = None
+        source = source_issue_of(repo, meta, artifacts)
+        if source and source not in {n["number"] for n in nodes} | {n["number"] for n in map_nodes}:
+            try:
+                found = self.gh.view_issue(repo, source)
+            except KipoError:
+                found = None
+            if found:
+                source_node = {
+                    "number": source, "title": found.get("title") or "", "url": found.get("url") or "",
+                    "state": (found.get("state") or "OPEN").upper(), "labels": label_names(found), "blockers": [],
+                }
+        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body, source_node)
+        front.update(frontier_mod.stage_of(front, column, prs))
+        self.storage.save_frontier(repo, number, {
+            "counts": front["counts"], "lanes": front["lanes"], "fog": front["fog"],
+            "stage": front["stage"], "active": front["active"],
+        })
         summary["ticketCounts"] = {
             "open": sum(1 for t in tickets if t["state"] == "OPEN"),
             "closed": sum(1 for t in tickets if t["state"] != "OPEN"),
@@ -572,6 +588,8 @@ class Initiatives:
                 for i in found:
                     i["ticketCounts"] = counts.get(i["number"])
                     i["frontier"] = self.storage.get_frontier(repo, i["number"])
+                    # The stage, read from the last frontier seen, else from the column.
+                    i["stage"] = (i["frontier"] or {}).get("stage") or frontier_mod.LEGACY_STAGE.get(i["column"], "intake")
             efforts += found
         efforts.sort(key=lambda i: i["updatedAt"], reverse=True)
         result = {"initiatives": efforts}
@@ -775,8 +793,25 @@ class Initiatives:
         }
 
     def _build_ticket(self, repo, number, ticket):
+        """A ticket an agent can build in this effort: one of its ``kipo:<n>``
+        tickets, a child of its wayfinder map, or the issue it started from."""
         nodes, _ = self._ticket_nodes(repo, number)
         found = next((n for n in nodes if n["number"] == ticket), None)
+        if not found:
+            issue, body = self._fetch(repo, number)
+            meta = body["meta"]
+            artifacts = merge_artifacts(
+                body["artifacts"],
+                col_state.state_artifacts(col_state.read_state(self._repo_path(repo, meta), number)),
+            )
+            meta = derive_meta(meta, artifacts)
+            if meta.get("mapIssue"):
+                children, _ = self._map_children(repo, int(meta["mapIssue"]))
+                found = next((n for n in children if n["number"] == ticket), None)
+            if not found and source_issue_of(repo, meta, artifacts) == ticket:
+                seen = self.gh.view_issue(repo, ticket) or {}
+                found = {"number": ticket, "title": seen.get("title") or "", "url": seen.get("url") or "",
+                         "state": seen.get("state") or "OPEN", "blockers": []}
         if not found:
             raise KipoError(f"Issue #{ticket} is not a ticket of effort #{number}.", "not_ticket", 404)
         blocked = [b["number"] for b in found["blockers"] if b["state"] == "OPEN"]

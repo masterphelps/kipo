@@ -18,7 +18,7 @@ It's merged. `/retro` turns the effort's lessons into checks, standards and agen
 - **Record every skill** (button, chip or session control) by appending its name to `skillsUsed` the moment you load it.
 - The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), tell the human to run `setup-matt-pocock-skills` (Intake's first button).
 - Session controls (`handoff`, `wait-what`, `teach`, `writing-for-agents`) can arrive in any column as "Run /<skill>: …": follow and record them, then resume.
-- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. The human moves on by clicking Next (or Skip). When every gate item is done, say so in one line and stop.
+- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. There is no Next: KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. When every gate item is done, say so in one line and stop.
 
 ## Buttons
 
@@ -42,7 +42,7 @@ If it hasn't been pressed yet, recommend it as decision `button` (options: `retr
 Read `Start:` and the `Column:` line.
 
 - **`bug`**: the retro's first question is what would have prevented this bug. Where the answer is "there's no good seam to lock it down", name `improve-codebase-architecture` as the follow-up.
-- **Every path**: Next from Done closes the effort issue; don't close it yourself.
+- **Every path**: the human's "Close effort" button closes the effort issue; don't close it yourself.
 
 ## Gate
 

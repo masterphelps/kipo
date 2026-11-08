@@ -10,8 +10,9 @@ import { FrontierPanel, type SessionStatus } from './Frontier'
 import { Divider, useStoredSize } from './layout'
 import { openSession } from './sessions'
 import {
-  BUTTONS, CHIPS, COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
-  type Artifact, type Column, type Decision, type Doc, type EffortDetail, type PhaseState, type Ticket, type TicketInfo, type Tile,
+  BUTTONS, CHIPS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
+  STAGES, STAGE_COLUMNS, STAGE_HINTS, STAGE_LABELS, stageOfColumn,
+  type Artifact, type Column, type Decision, type Doc, type EffortDetail, type PhaseState, type Stage, type Ticket, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -22,10 +23,12 @@ type Focus =
   | { kind: 'column' }
   | { kind: 'ticket'; t: number }   // a /implement session for one ticket
   | { kind: 'spec' }                // the /implement-spec session across all tickets
-  | { kind: 'decision'; t: number } // a wayfinder decision ticket in Shape
+  | { kind: 'decision'; t: number } // a Decide ticket: a map child, or the source issue being triaged
+  | { kind: 'stage'; column: Column } // one column's own conversation: review, plan (the hand-over), done (retro)
 
 const focusKey = (f: Focus, column: Column) =>
-  f.kind === 'ticket' ? `build-t${f.t}` : f.kind === 'spec' ? 'build-spec' : f.kind === 'decision' ? `shape-t${f.t}` : column
+  f.kind === 'ticket' ? `build-t${f.t}` : f.kind === 'spec' ? 'build-spec' : f.kind === 'decision' ? `shape-t${f.t}`
+    : f.kind === 'stage' ? f.column : column
 
 export function Workspace({ repo, number, active, autoStart, onRemoved, onChanged }: {
   repo: string
@@ -48,6 +51,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [confirm, setConfirm] = useState<'skip' | 'remove' | null>(null)
   const [wide, setWide] = useState(false)
   const [viewColumn, setViewColumn] = useState<Column | null>(null)
+  const [viewStage, setViewStage] = useState<Stage | null>(null)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
   const [statusHeight, setStatusHeight] = useStoredSize('status', 280, 90, 900)
@@ -66,7 +70,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   }, [load, active])
 
   const column = detail?.column
-  useEffect(() => { setConfirm(null); setActionError(''); setViewColumn(null) }, [column, focus])
+  useEffect(() => { setConfirm(null); setActionError(''); setViewColumn(null); setViewStage(null) }, [column, focus])
   // Back to the column view when the effort moves on, but not on first load, so
   // the remembered ticket or decision stays open when you come back to KiPo.
   const lastColumn = useRef(column)
@@ -92,11 +96,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       const body = f.kind === 'ticket' ? { column: 'build' as Column, ticket: f.t, skill: skill ?? 'implement' }
         : f.kind === 'spec' ? { column: 'build' as Column, mode: 'implement-spec' as const, skill: skill ?? 'implement-spec' }
         : f.kind === 'decision' ? { column: 'shape' as Column, ticket: f.t, skill }
+        : f.kind === 'stage' ? { column: f.column, skill }
         : { column: detail.column, skill }
       const res = await backend.startSession(repo, number, body)
       const title = f.kind === 'ticket' ? `${detail.title}: #${f.t}`
         : f.kind === 'spec' ? `${detail.title}: implement-spec`
         : f.kind === 'decision' ? `${detail.title}: decision #${f.t}`
+        : f.kind === 'stage' ? `${detail.title}: ${COLUMN_LABELS[f.column]}`
         : `${detail.title}: ${COLUMN_LABELS[detail.column]}`
       if (res.existing) {
         // Grill and Plan share one conversation: carry on in it.
@@ -117,9 +123,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   // The frontier's tiles. A build ticket opens as a ticket session, a map child
   // as a decision session; its skill follows its wayfinder type.
-  const tileFocus = (t: Tile): Focus => (t.type === 'build' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
+  // Deliver tiles build (a build-t<t> session running /implement); Decide tiles
+  // decide (a shape-t<t> session running their type's skill).
+  const tileFocus = (t: Tile): Focus => (t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
   const tileSkill = (t: Tile): string | null =>
-    t.type === 'build' ? 'implement' : t.type === 'research' ? 'research' : t.type === 'prototype' ? 'prototype' : t.type === 'issue' ? 'triage' : null
+    t.lane === 'deliver' ? 'implement'
+      : t.type === 'research' ? 'research' : t.type === 'prototype' ? 'prototype' : t.type === 'issue' ? 'triage' : null
   const [startingAgents, setStartingAgents] = useState<string | null>(null)
 
   // Clicking a tile only shows its ticket; starting it is the Start button on
@@ -168,6 +177,48 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     onChanged()
   }
 
+  // Keep agents on the frontier: Matt's deterministic loop, run by KiPo. When a
+  // Deliver ticket an agent can take appears (a blocker closed), start it.
+  // Only while this page is open; each ticket is started at most once here.
+  const autopilotKey = `kipo.autopilot:${repo}#${number}`
+  const [autopilot, setAutopilotState] = useState(() => localStorage.getItem(autopilotKey) === '1')
+  const setAutopilot = (on: boolean) => { setAutopilotState(on); localStorage.setItem(autopilotKey, on ? '1' : '0') }
+  const autoStartedTiles = useRef(new Set<number>())
+  useEffect(() => {
+    if (!autopilot || !active || startingAgents || !detail?.frontier) return
+    const fresh = detail.frontier.tiles.filter(t =>
+      t.lane === 'deliver' && t.state === 'afk' && !t.sessionKey && !autoStartedTiles.current.has(t.number))
+    if (!fresh.length) return
+    fresh.forEach(t => autoStartedTiles.current.add(t.number))
+    void startAgents(fresh)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autopilot, active, startingAgents, detail])
+
+  // A column's own conversation: open it if it exists, else start it with a skill.
+  const openStage = (column: Column, skill: string | null) => {
+    if (!detail) return
+    if (detail.sessions[column]) { setFocus({ kind: 'stage', column }); return }
+    void start(skill, { kind: 'stage', column })
+  }
+  const handover = () => openStage('plan', 'to-spec')
+  const openReview = () => openStage('review', null)
+  const runRetro = () => openStage('done', 'retro')
+
+  // Closing the effort: it moves to Done (if it isn't there) and its issue closes.
+  const closeEffort = async () => {
+    if (!detail) return
+    setBusy(true)
+    setActionError('')
+    try {
+      if (detail.column !== 'done') await backend.advance(repo, number, true, 'done')
+      await backend.advance(repo, number, true, null)
+      onRemoved()
+    } catch (e) {
+      setActionError(`Couldn't close it: ${errorText(e)}`)
+      setBusy(false)
+    }
+  }
+
   // A skill button: into the open conversation, or start the conversation with it.
   const runSkill = async (skill: string) => {
     if (!detail) return
@@ -194,28 +245,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, detail])
 
-  const advance = async (force: boolean, to: Column | null = null) => {
-    if (!detail) return
-    setBusy(true)
-    setConfirm(null)
-    setActionError('')
-    try {
-      const wasLast = detail.column === 'done' && !to
-      const d = await backend.advance(repo, number, force, to)
-      if (wasLast) { onRemoved(); return }
-      setDetail(d)
-      onChanged()
-    } catch (e) {
-      setActionError(
-        e instanceof BackendError && e.status === 409
-          ? e.message || "The checklist isn't finished yet. Finish it, or use Skip."
-          : `Couldn't move on: ${errorText(e)}`,
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const remove = async () => {
     setBusy(true)
     try {
@@ -239,9 +268,14 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const past = viewColumn && viewColumn !== detail.column ? viewColumn : null
   const pastState: PhaseState | null = past ? detail.history?.[past] ?? null : null
   const scopeState: PhaseState | null = past ? pastState : focus.kind === 'column' ? detail.state : null
-  const shown: Column = past ?? detail.column
-  const scopeLabel = focus.kind === 'ticket' ? `build #${focus.t}` : focus.kind === 'spec' ? 'implement-spec'
-    : focus.kind === 'decision' ? `decision #${focus.t}` : COLUMN_LABELS[detail.column].toLowerCase()
+  const scopeLabel = focus.kind === 'ticket' ? `deliver #${focus.t}` : focus.kind === 'spec' ? 'implement-spec'
+    : focus.kind === 'decision' ? `decide #${focus.t}` : focus.kind === 'stage' ? COLUMN_LABELS[focus.column].toLowerCase()
+    : COLUMN_LABELS[detail.column].toLowerCase()
+  // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
+  const stage: Stage = detail.frontier?.stage ?? stageOfColumn(detail.column)
+  // Whose skills the panel shows: the open tile's, else the stage picked in the track.
+  const skillStage: Stage = viewStage ?? (focusTile ? focusTile.lane : stage)
+  const skills = focusTile && !viewStage ? TILE_SKILLS[focusTile.type] : stageSkills(skillStage)
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -261,11 +295,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           </div>
           {detail.frontier && (
             <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents}
-              openNumber={focusTile?.number ?? null} statuses={statuses} />
+              openNumber={focusTile?.number ?? null} statuses={statuses}
+              autopilot={autopilot} onAutopilot={setAutopilot}
+              onHandover={handover} onReview={openReview} onRetro={runRetro} reviewOpen={!!detail.sessions.review} />
           )}
           {focus.kind !== 'column' && (
             <div style={{ ...scrollRow, padding: '6px 16px', borderBottom: '1px solid var(--border)', fontSize: T.small, gap: 8 }}>
-              <TextButton onClick={() => setFocus({ kind: 'column' })}>← {COLUMN_LABELS[detail.column]}</TextButton>
+              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
               {(focusTile ?? ticket) && <a href={(focusTile ?? ticket)!.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>#{(focusTile ?? ticket)!.number}</a>}
               {(focusTile ?? ticket) && <span>{(focusTile ?? ticket)!.title}</span>}
             </div>
@@ -289,14 +325,16 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {/* Right: the columns, this column's skills, what it produces, what it waits on. */}
       <section style={{ flex: wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: wide ? undefined : rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 6px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-          <ColumnRow detail={detail} viewing={past} onPick={c => setViewColumn(c === detail.column ? null : c)} />
+          <StageTrack detail={detail} stage={stage} picked={viewStage} onPick={st => { setViewStage(st); setViewColumn(null) }} />
           <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the conversation' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
           {!past && (
-            <PrimaryAction detail={detail} busy={busy} confirm={confirm} setConfirm={setConfirm} onAdvance={advance} onRemove={remove} />
+            <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
+              onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
           )}
         </div>
+        <StepRow detail={detail} stage={skillStage} viewing={past} onPick={c => setViewColumn(c === detail.column ? null : c)} />
 
-        <SkillBar column={shown} used={scopeState?.skillsUsed ?? []} readOnly={!!past} disabled={starting} onRun={runSkill} />
+        <SkillBar buttons={skills.buttons} chips={skills.chips} used={scopeState?.skillsUsed ?? []} readOnly={!!past} disabled={starting} onRun={runSkill} />
 
         {actionError && <div style={{ padding: '8px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
@@ -311,14 +349,14 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               <Docs repo={repo} number={number} artifacts={pastState?.artifacts ?? []}
                 placeholder={pastState ? `${COLUMN_LABELS[past]} wrote no documents of its own.` : `Nothing was recorded for ${COLUMN_LABELS[past]}.`} />
             </>
-          ) : detail.column === 'build' ? (
+          ) : skillStage === 'deliver' && (detail.tickets.length > 0 || detail.prs.length === 0) ? (
             <>
               <BuildPanel detail={detail} focus={focus} starting={starting}
                 onOpen={f => setFocus(f)}
                 onStart={f => start(null, f)} />
               <Docs repo={repo} number={number} artifacts={detail.artifacts} placeholder="" compact />
             </>
-          ) : detail.column === 'review' ? (
+          ) : skillStage === 'deliver' || (skillStage === 'done' && detail.prs.length > 0) ? (
             <>
               <PrPanel detail={detail} />
               <Docs repo={repo} number={number} artifacts={detail.artifacts} placeholder="" compact />
@@ -494,11 +532,12 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
     body = 'Work through this decision ticket from the map in its own conversation.'
     action = 'Start this decision'
   } else {
-    const shared = detail.column === 'plan' && detail.sessions.grill
-    title = `${COLUMN_LABELS[detail.column]} hasn't started`
+    const col = focus.kind === 'stage' ? focus.column : detail.column
+    const shared = col === 'plan' && detail.sessions.grill
+    title = `${COLUMN_LABELS[col]} hasn't started`
     body = shared ? 'Plan continues the Grill conversation, so the spec and tickets are written with everything it learned.'
-      : `${COLUMN_HINTS[detail.column]} Start it, or press one of the skill buttons on the right.`
-    action = shared ? 'Continue in the Grill conversation' : `Start ${COLUMN_LABELS[detail.column]}`
+      : `${COLUMN_HINTS[col]} Start it, or press one of the skill buttons on the right.`
+    action = shared ? 'Continue in the Grill conversation' : `Start ${COLUMN_LABELS[col]}`
   }
   return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -516,58 +555,67 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
 
 // ---------------------------------------------------------------- right column: header
 
-// The seven columns as a row of buttons that scrolls sideways when it doesn't fit.
-// Columns off this effort's path are shown faded and can't be opened.
-function ColumnRow({ detail, viewing, onPick }: { detail: EffortDetail; viewing: Column | null; onPick: (c: Column) => void }) {
-  const row = useRef<HTMLDivElement>(null)
-  const shown = viewing ?? detail.column
-  const curIdx = COLUMNS.indexOf(detail.column)
-
-  useEffect(() => {
-    row.current?.querySelector<HTMLElement>('[data-shown="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [shown])
-
-  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const el = row.current
-    if (el && Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY
-  }
-
+// The track: Intake, then Matt's two halves, then Done. The stage is read from
+// the effort's tickets, so there's no Next: Decide and Deliver can both be lit
+// at once. Click a stage to see its skills and its steps.
+function StageTrack({ detail, stage, picked, onPick }: {
+  detail: EffortDetail
+  stage: Stage
+  picked: Stage | null
+  onPick: (s: Stage | null) => void
+}) {
+  const activeLanes = detail.frontier?.active
+  const curIdx = STAGES.indexOf(stage)
   return (
-    <div ref={row} role="tablist" aria-label="Columns" onWheel={onWheel} style={{ ...scrollRow, flex: 1, gap: 2, padding: '2px 0' }}>
-      {COLUMNS.map((c, i) => {
-        const onPath = detail.path.includes(c)
-        const state = c === detail.column ? 'current' : i < curIdx ? (onPath ? 'done' : 'skipped') : onPath ? 'next' : 'off'
-        const on = c === shown
-        const clickable = state === 'done' || state === 'current'
+    <div role="tablist" aria-label="Stages" style={{ ...scrollRow, flex: 1, gap: 2, padding: '2px 0' }}>
+      {STAGES.map((st, i) => {
+        const lit = st === stage || (st === 'decide' && activeLanes?.decide) || (st === 'deliver' && activeLanes?.deliver)
+        const done = !lit && i < curIdx
+        const on = picked === st
         return (
-          <button
-            key={c}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            data-shown={on}
-            disabled={!clickable}
-            onClick={() => onPick(c)}
-            title={state === 'skipped' || state === 'off' ? `${COLUMN_LABELS[c]} isn't on this effort's path` : COLUMN_HINTS[c]}
+          <button key={st} type="button" role="tab" aria-selected={on}
+            onClick={() => onPick(on ? null : st)}
+            title={`${STAGE_HINTS[st]} Steps: ${STAGE_COLUMNS[st].map(c => COLUMN_LABELS[c]).join(', ')}.`}
             style={{
-              flexShrink: 0,
-              height: 26,
-              padding: '0 10px',
-              borderRadius: 6,
-              whiteSpace: 'nowrap',
-              fontSize: T.small,
-              fontWeight: on ? 600 : 400,
+              flexShrink: 0, height: 26, padding: '0 10px', borderRadius: 6, whiteSpace: 'nowrap', fontSize: T.small,
+              fontWeight: on || lit ? 600 : 400,
               border: `1px solid ${on ? 'var(--border)' : 'transparent'}`,
               background: on ? 'var(--bg-elevated)' : 'transparent',
-              color: state === 'next' ? 'var(--muted)' : state === 'skipped' || state === 'off' ? 'var(--muted)' : 'var(--text)',
-              opacity: state === 'skipped' || state === 'off' ? 0.45 : 1,
-              textDecoration: state === 'skipped' ? 'line-through' : undefined,
-              cursor: clickable ? 'pointer' : 'default',
-            }}
-          >
-            <span aria-hidden style={{ color: state === 'done' ? 'var(--ok-text)' : state === 'current' ? 'var(--accent)' : 'var(--muted)', marginRight: 5, fontSize: T.tiny }}>
-              {state === 'done' ? '✓' : '●'}
+              color: lit || done ? 'var(--text)' : 'var(--muted)', cursor: 'pointer',
+            }}>
+            <span aria-hidden style={{ color: done ? 'var(--ok-text)' : lit ? 'var(--accent)' : 'var(--muted)', marginRight: 5, fontSize: T.tiny }}>
+              {done ? '✓' : '●'}
             </span>
+            {STAGE_LABELS[st]}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// The steps inside the shown stage (the old columns). One with a record opens it.
+function StepRow({ detail, stage, viewing, onPick }: {
+  detail: EffortDetail
+  stage: Stage
+  viewing: Column | null
+  onPick: (c: Column) => void
+}) {
+  const cols = STAGE_COLUMNS[stage]
+  if (cols.length < 2 && !detail.history?.[cols[0]] && cols[0] !== detail.column) return null
+  return (
+    <div style={{ ...scrollRow, gap: 4, padding: '4px 12px', borderBottom: '1px solid var(--border)', fontSize: T.tiny }}>
+      <span style={muted}>Steps:</span>
+      {cols.map(c => {
+        const has = c === detail.column || !!detail.history?.[c]
+        const on = (viewing ?? detail.column) === c
+        return (
+          <button key={c} type="button" disabled={!has} onClick={() => onPick(c)}
+            title={has ? `${COLUMN_HINTS[c]} Click to see what it recorded.` : `${COLUMN_HINTS[c]} Nothing recorded yet.`}
+            style={{
+              background: on ? 'var(--bg-elevated)' : 'transparent', borderRadius: 4, padding: '2px 6px',
+              color: has ? 'var(--text)' : 'var(--muted)', cursor: has ? 'pointer' : 'default', fontWeight: on ? 600 : 400,
+            }}>
             {COLUMN_LABELS[c]}
           </button>
         )
@@ -576,64 +624,74 @@ function ColumnRow({ detail, viewing, onPick }: { detail: EffortDetail; viewing:
   )
 }
 
-function PrimaryAction({ detail, busy, confirm, setConfirm, onAdvance, onRemove }: {
+// Remove, and once everything has landed, Close (which runs through Done).
+function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClose, onRemove }: {
   detail: EffortDetail
+  stage: Stage
   busy: boolean
   confirm: 'skip' | 'remove' | null
   setConfirm: (c: 'skip' | 'remove' | null) => void
-  onAdvance: (force: boolean, to?: Column | null) => void
+  onRetro: () => void
+  onClose: () => void
   onRemove: () => void
 }) {
   const group = { display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 } as const
   if (confirm) {
+    const closing = confirm === 'skip'
     return (
       <span style={{ ...group, fontSize: T.small }}>
-        <span style={{ ...muted, whiteSpace: 'nowrap' }}>{confirm === 'remove' ? 'Close its issue as not planned?' : 'Move on unfinished?'}</span>
-        <ActionButton danger disabled={busy} onClick={() => (confirm === 'remove' ? onRemove() : onAdvance(true))}>
-          {confirm === 'remove' ? 'Remove' : 'Skip'}
+        <span style={{ ...muted, whiteSpace: 'nowrap' }}>{closing ? 'Close the effort and its issue?' : 'Close its issue as not planned?'}</span>
+        <ActionButton danger={!closing} primary={closing} disabled={busy} onClick={() => (closing ? onClose() : onRemove())}>
+          {closing ? 'Close' : 'Remove'}
         </ActionButton>
         <ActionButton disabled={busy} onClick={() => setConfirm(null)}>Cancel</ActionButton>
       </span>
     )
   }
-  const idx = detail.path.indexOf(detail.column)
-  const next = detail.path[idx + 1] ?? null
-  const later = COLUMNS.filter(c => COLUMNS.indexOf(c) > COLUMNS.indexOf(detail.column) && c !== next)
   return (
     <span style={group}>
-      {later.length > 0 && (
-        <select
-          value=""
-          onChange={e => { if (e.target.value) onAdvance(true, e.target.value as Column) }}
-          disabled={busy}
-          title="Move this effort to a later column"
-          style={{ ...fieldStyle, width: 'auto', height: 28, padding: '0 6px', fontSize: T.small, color: 'var(--muted)' }}
-        >
-          <option value="">Move to…</option>
-          {later.map(c => <option key={c} value={c}>{COLUMN_LABELS[c]}</option>)}
-        </select>
-      )}
       <TextButton disabled={busy} onClick={() => setConfirm('remove')}>Remove</TextButton>
-      {!detail.gatePassed && <TextButton disabled={busy} onClick={() => setConfirm('skip')}>Skip</TextButton>}
-      <ActionButton primary disabled={busy || !detail.gatePassed} onClick={() => onAdvance(false)}>
-        {busy ? 'Moving on…' : next ? `${COLUMN_LABELS[next]} →` : 'Finish'}
-      </ActionButton>
+      {stage === 'done' && !detail.sessions.done && (
+        <ActionButton disabled={busy} onClick={onRetro}>Run /retro</ActionButton>
+      )}
+      {stage === 'done' && (
+        <ActionButton primary disabled={busy} onClick={() => setConfirm('skip')}>{busy ? 'Closing…' : 'Close effort'}</ActionButton>
+      )}
     </span>
   )
 }
 
-// This column's skills: the ones you start are buttons, the ones the agent reaches
-// for on its own are chips that tick once it has used them.
-function SkillBar({ column, used, readOnly, disabled, onRun }: {
-  column: Column
+// Skills for what's open: a tile's type, or a stage (its columns' buttons and chips).
+type SkillSet = { buttons: string[]; chips: string[] }
+const TILE_SKILLS: Record<Tile['type'], SkillSet> = {
+  grilling: { buttons: ['grill-with-docs', 'grill-me'], chips: ['grilling', 'domain-modeling'] },
+  prototype: { buttons: [], chips: ['prototype', 'codebase-design'] },
+  research: { buttons: [], chips: ['research'] },
+  task: { buttons: [], chips: ['wizard'] },
+  build: { buttons: ['implement'], chips: ['tdd', 'diagnosing-bugs', 'code-review', 'pr'] },
+  issue: { buttons: ['triage', 'implement'], chips: ['tdd', 'code-review'] },
+}
+const uniq = (xs: string[]) => [...new Set(xs)]
+function stageSkills(stage: Stage): SkillSet {
+  const cols = STAGE_COLUMNS[stage]
+  const buttons = uniq(cols.flatMap(c => BUTTONS[c]))
+  const chips = uniq(cols.flatMap(c => CHIPS[c])).filter(c => !buttons.includes(c))
+  // Matt retros each run, not only the whole effort.
+  if (stage === 'deliver' && !buttons.includes('retro')) buttons.push('retro')
+  return { buttons, chips }
+}
+
+// The skills you start are buttons; the ones the agent reaches for on its own are
+// chips that tick once it has used them.
+function SkillBar({ buttons, chips, used, readOnly, disabled, onRun }: {
+  buttons: string[]
+  chips: string[]
   used: string[]
   readOnly: boolean
   disabled: boolean
   onRun: (skill: string) => void
 }) {
   const set = new Set(used)
-  const buttons = BUTTONS[column]
-  const chips = CHIPS[column]
   if (!buttons.length && !chips.length) return null
   return (
     <div style={{ ...scrollRow, gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { T, muted } from './common'
-import { TILE_STATES, type Frontier, type FrontierCounts, type Tile, type TileState } from './types'
+import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
 // storage meter. Done fills from the left; amber is your move, teal the agent's;
@@ -51,6 +51,25 @@ export function FrontierBar({ counts, fog, height = 6, selected, onSelect }: {
           ? <button key={s} type="button" aria-label={title} title={title} aria-pressed={on} onClick={() => onSelect(s)} style={style} />
           : <span key={s} title={title} style={style} />
       })}
+    </div>
+  )
+}
+
+// The list's view of an effort: one thin bar per half that has anything in it,
+// Decide over Deliver. Falls back to one bar for frontiers saved before lanes.
+type Saved = { counts: FrontierCounts; fog: number; lanes?: Record<Lane, FrontierCounts> }
+
+export function LaneBars({ frontier, height = 4 }: { frontier: Saved; height?: number }) {
+  if (!frontier.lanes) return <FrontierBar counts={frontier.counts} fog={frontier.fog} height={height + 2} />
+  const rows = (['decide', 'deliver'] as Lane[]).filter(l =>
+    frontierTotal(frontier.lanes![l], l === 'decide' ? frontier.fog : 0) > 0)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {rows.map(l => (
+        <div key={l} title={l === 'decide' ? 'Decide: the front half' : 'Deliver: the back half'}>
+          <FrontierBar counts={frontier.lanes![l]} fog={l === 'decide' ? frontier.fog : 0} height={height} />
+        </div>
+      ))}
     </div>
   )
 }
@@ -113,65 +132,137 @@ export function TileButton({ tile, onClick, size = 34, open, status }: {
   )
 }
 
-// The effort's frontier, under its header: one line saying who's up, the bar,
-// a legend that doubles as segment buttons, and the chosen segment's tiles.
-type Group = TileState | 'fog' | 'open'
+// The effort's frontier, under its header: who's up, then Matt's two halves as
+// two bars (Decide: the front half, ending in a spec and tickets; Deliver: the
+// back half, ending in merged PRs), a legend that picks a segment, and that
+// segment's tiles. Banners mark the two moments that matter: the hand-over from
+// Decide to Deliver, and everything landed.
+type Pick = { lane: Lane | null; state: TileState | 'fog' | 'open' }
 
-export function FrontierPanel({ frontier, onTile, onStartAgents, starting, openNumber, statuses }: {
+const LANE_LABEL: Record<Lane, string> = { decide: 'Decide', deliver: 'Deliver' }
+const LANE_HINT: Record<Lane, string> = {
+  decide: 'The front half: grills, prototypes, research and tasks that settle what to build. Ends in a spec and tickets.',
+  deliver: 'The back half: tickets that end in a PR. Implement, review, merge.',
+}
+
+const btn = (bg: string, fg: string, disabled?: boolean) => ({
+  height: 24, padding: '0 10px', borderRadius: 6, border: 0, flexShrink: 0, whiteSpace: 'nowrap' as const,
+  background: bg, color: fg, fontWeight: 600, fontSize: T.small,
+  cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
+})
+
+export function FrontierPanel({
+  frontier, onTile, onStartAgents, starting, openNumber, statuses,
+  autopilot, onAutopilot, onHandover, onReview, onRetro, reviewOpen,
+}: {
   frontier: Frontier
   onTile: (t: Tile) => void
   onStartAgents: (tiles: Tile[]) => void
   starting: string | null
   openNumber: number | null               // the tile whose ticket is showing
   statuses: Record<number, SessionStatus> // tiles with a session, by ticket number
+  autopilot: boolean                      // keep agents on the Deliver frontier
+  onAutopilot: (on: boolean) => void
+  onHandover: () => void                  // /to-spec then /to-tickets
+  onReview: () => void                    // the effort's review conversation
+  onRetro: () => void
+  reviewOpen: boolean                     // a review conversation already exists
 }) {
-  const { counts, fog, tiles } = frontier
-  const [picked, setPicked] = useState<Group | null>(null)
+  const { counts, fog, tiles, lanes, handover, landed } = frontier
+  const [picked, setPicked] = useState<Pick | null>(null)
   const withSession = tiles.filter(t => t.sessionKey)
-  const auto: TileState | null = counts.you ? 'you' : counts.afk ? 'afk' : null
-  const sel: Group | null = picked ?? auto
+  const auto: Pick | null = counts.you ? { lane: null, state: 'you' } : counts.afk ? { lane: null, state: 'afk' } : null
+  const sel = picked ?? auto
   const ready = tiles.filter(t => t.state === 'afk')
+  const readyDeliver = ready.filter(t => t.lane === 'deliver')
   const total = frontierTotal(counts, fog)
-  if (!total) return null
-  const tilesShown = sel === 'open' ? withSession : sel && sel !== 'fog' ? tiles.filter(t => t.state === sel) : []
-  const ticketsTotal = tiles.length
+  if (!total && !handover && !landed) return null
+
+  const toggle = (p: Pick) => setPicked(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
+  const isSel = (lane: Lane | null, state: Pick['state']) => !!sel && sel.state === state && (sel.lane === null || sel.lane === lane)
+  const tilesShown = !sel ? []
+    : sel.state === 'open' ? withSession
+    : sel.state === 'fog' ? []
+    : tiles.filter(t => t.state === sel.state && (sel.lane === null || t.lane === sel.lane))
+  const laneTotal = (l: Lane) => TILE_STATES.reduce((n, s) => n + (lanes[l][s] || 0), 0) + (l === 'decide' ? fog : 0)
 
   return (
-    <div style={{ padding: '8px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+    <div style={{ padding: '8px 16px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.body, minWidth: 0 }}>
         {counts.you > 0 && <span><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
         {counts.afk > 0 && <span><b style={{ color: STATE_META.afk.text }}>Agent's move:</b> {counts.afk}</span>}
         <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {counts.done} of {ticketsTotal} done{fog ? ` · ${fog} in the fog` : ''}
+          {counts.done} of {tiles.length} done{fog ? ` · ${fog} in the fog` : ''}
         </span>
         <span style={{ flex: 1 }} />
         {ready.length > 0 && (
-          <button
-            type="button"
-            disabled={!!starting}
-            onClick={() => onStartAgents(ready)}
+          <button type="button" disabled={!!starting} onClick={() => onStartAgents(ready)}
             title={`Start a session for each: ${ready.map(t => `#${t.number}`).join(', ')}`}
-            style={{
-              height: 26, padding: '0 11px', borderRadius: 6, border: 0, flexShrink: 0, whiteSpace: 'nowrap',
-              background: STATE_META.afk.color, color: '#062621', fontWeight: 600, fontSize: T.small,
-              cursor: starting ? 'default' : 'pointer', opacity: starting ? 0.6 : 1,
-            }}
-          >
+            style={btn(STATE_META.afk.color, '#062621', !!starting)}>
             {starting ?? `Start ${ready.length} agent${ready.length === 1 ? '' : 's'}`}
           </button>
         )}
       </div>
 
-      <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
-      <FrontierBar counts={counts} fog={fog} height={12} selected={sel === 'open' ? null : sel} onSelect={s => setPicked(p => (p === s ? null : s))} />
+      {handover && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 8, fontSize: T.small,
+          border: `1px solid ${STATE_META.afk.color}`, background: 'var(--bg-elevated)' }}>
+          <span style={{ flex: 1 }}><b>The map is clear.</b> <span style={muted}>Every decision is closed and the fog is gone: write the spec and cut the tickets.</span></span>
+          <button type="button" onClick={onHandover} style={btn(STATE_META.afk.color, '#062621')}>Write the spec</button>
+        </div>
+      )}
+      {landed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 8, fontSize: T.small,
+          border: `1px solid ${STATE_META.done.color}`, background: 'var(--bg-elevated)' }}>
+          <span style={{ flex: 1 }}><b>Everything delivered is merged.</b> <span style={muted}>Retro the run, then close the effort.</span></span>
+          <button type="button" onClick={onRetro} style={btn(STATE_META.done.color, '#062010')}>Run /retro</button>
+        </div>
+      )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: T.tiny }}>
+      {(['decide', 'deliver'] as Lane[]).map(lane => {
+        const c = lanes[lane]
+        const n = laneTotal(lane)
+        return (
+          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr) auto', alignItems: 'center', gap: 10 }}>
+            <span title={LANE_HINT[lane]} style={{ fontSize: T.small, fontWeight: 600, color: frontier.active[lane] ? 'var(--text)' : 'var(--muted)' }}>
+              {LANE_LABEL[lane]}
+            </span>
+            {n > 0 ? (
+              <FrontierBar counts={c} fog={lane === 'decide' ? fog : 0} height={10}
+                selected={sel && (sel.lane === lane || sel.lane === null) && sel.state !== 'open' ? sel.state : null}
+                onSelect={s => toggle({ lane, state: s })} />
+            ) : (
+              <span style={{ ...muted, fontSize: T.tiny }}>
+                {lane === 'deliver' ? (handover ? 'No tickets yet: write the spec first.' : 'No tickets yet.') : 'Nothing left to decide.'}
+              </span>
+            )}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: T.tiny, whiteSpace: 'nowrap' }}>
+              {lane === 'deliver' && c.review > 0 && (
+                <button type="button" onClick={onReview} title="Review the open PRs, fix what it finds, merge the two-way doors"
+                  style={btn(STATE_META.review.color, '#160b33')}>
+                  {reviewOpen ? 'Open review' : `Review ${c.review} PR${c.review === 1 ? '' : 's'}`}
+                </button>
+              )}
+              {lane === 'deliver' && (readyDeliver.length > 0 || autopilot) && (
+                <label title="When a ticket closes and frees the next one an agent can take, start it. Runs while KiPo is open."
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: autopilot ? STATE_META.afk.text : 'var(--muted)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autopilot} onChange={e => onAutopilot(e.target.checked)} style={{ margin: 0 }} />
+                  Keep agents on the frontier
+                </label>
+              )}
+            </span>
+          </div>
+        )
+      })}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: T.tiny, paddingLeft: 68 }}>
         {([...TILE_STATES, 'fog'] as const).map(s => {
           const n = s === 'fog' ? fog : counts[s]
           if (!n) return null
-          const on = sel === s
+          const on = isSel(null, s) && (!sel || sel.lane === null)
           return (
-            <button key={s} type="button" onClick={() => setPicked(p => (p === s ? null : s))}
+            <button key={s} type="button" onClick={() => toggle({ lane: null, state: s })}
               style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: on ? STATE_META[s].text : 'var(--muted)', fontWeight: on ? 600 : 400 }}>
               <span style={{
                 display: 'inline-block', width: 8, height: 8, borderRadius: 2, marginRight: 5,
@@ -182,22 +273,22 @@ export function FrontierPanel({ frontier, onTile, onStartAgents, starting, openN
           )
         })}
         {withSession.length > 0 && (
-          <button type="button" onClick={() => setPicked(p => (p === 'open' ? null : 'open'))}
+          <button type="button" onClick={() => toggle({ lane: null, state: 'open' })}
             title="Tickets with a conversation: flip between them"
-            style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel === 'open' ? 600 : 400 }}>
+            style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel?.state === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel?.state === 'open' ? 600 : 400 }}>
             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 5, background: STATE_META.building.color }} />
             {withSession.length} open
           </button>
         )}
       </div>
 
-      {sel === 'fog' && (
-        <div style={{ ...muted, fontSize: T.small }}>
+      {sel?.state === 'fog' && (
+        <div style={{ ...muted, fontSize: T.small, paddingLeft: 68 }}>
           {fog} question{fog === 1 ? '' : 's'} in the map's "Not yet specified": in scope, not sharp enough to ticket yet.
         </div>
       )}
       {tilesShown.length > 0 && (
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'thin' }}>
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, paddingLeft: 68, scrollbarWidth: 'thin' }}>
           {tilesShown.map(t => (
             <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
           ))}

@@ -505,3 +505,34 @@ class MapArtifactLabelTests(Columns):
     def test_a_numbered_map_label_names_the_map(self):
         self.make_effort(column="build", artifacts=[{"label": "Wayfinder map #20", "href": f"https://github.com/{REPO}/issues/20"}])
         self.assertEqual(self.get()[1]["mapIssue"], 20)
+
+
+class TwoLaneDetailTests(Columns):
+    def test_stage_and_lanes_in_the_detail_and_list(self):
+        self.make_effort(column="build", meta={"mapIssue": 20})
+        self.fake.add_issue(REPO, 20, title="Map", labels=["wayfinder:map"])
+        self.fake.add_issue(REPO, 24, title="Grill", labels=["wayfinder:grilling"])
+        self.fake.add_issue(REPO, 22, title="Code", labels=["wayfinder:task", "ready-for-agent"])
+        self.fake.sub_issues[(REPO, 20)] = [22, 24]
+        f = self.get()[1]["frontier"]
+        self.assertEqual((f["stage"], f["active"]), ("decide", {"decide": True, "deliver": True}))
+        self.assertEqual(f["lanes"]["deliver"]["afk"], 1)
+        listed = self.app.dispatch("GET", "/initiatives", "")[1]["initiatives"][0]
+        self.assertEqual(listed["stage"], "decide")
+
+    def test_a_map_child_can_be_built(self):
+        self.make_effort(column="build", meta={"mapIssue": 20})
+        self.fake.add_issue(REPO, 20, title="Map", labels=["wayfinder:map"])
+        self.fake.add_issue(REPO, 22, title="Code", labels=["wayfinder:task", "ready-for-agent"])
+        self.fake.sub_issues[(REPO, 20)] = [22]
+        status, out = self.post("/session", {"column": "build", "ticket": 22, "skill": "implement"})
+        self.assertEqual(status, 200, out)
+        self.assertIn("build-t22", self.get()[1]["sessions"])
+
+    def test_the_source_issue_is_a_tile_and_can_be_built(self):
+        self.make_effort(start="issue", column="build", meta={"sourceIssue": 22})
+        self.fake.add_issue(REPO, 22, title="Bug", labels=["ready-for-agent"])
+        tiles = self.get()[1]["frontier"]["tiles"]
+        self.assertEqual([(t["number"], t["lane"], t["source"]) for t in tiles], [(22, "deliver", True)])
+        status, out = self.post("/session", {"column": "build", "ticket": 22})
+        self.assertEqual(status, 200, out)

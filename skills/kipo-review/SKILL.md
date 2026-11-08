@@ -1,6 +1,6 @@
 ---
 name: kipo-review
-description: KiPo Review column. Loaded by a KiPo column session seed ("Load the skill `kipo-review`"); reviews the effort's open PRs against the spec or ticket with /code-review, fixes what it finds, shapes PR bodies with /pr, then merges each PR once it's clean and green.
+description: KiPo Review column. Loaded by a KiPo column session seed ("Load the skill `kipo-review`"); reviews the effort's open PRs against the spec or ticket with /code-review, fixes what it finds, shapes PR bodies with /pr, then merges each two-way-door PR once it's clean and green, and asks on one-way doors (Matt's Merge Danger).
 ---
 
 # Column 6 of 7: Review
@@ -18,7 +18,7 @@ A PR is open. Review makes each PR worth merging (reviewed against what was aske
 - **Record every skill** (button, chip or session control) by appending its name to `skillsUsed` the moment you load it.
 - The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), tell the human to run `setup-matt-pocock-skills` (Intake's first button).
 - Session controls (`handoff`, `wait-what`, `teach`, `writing-for-agents`) can arrive in any column as "Run /<skill>: …": follow and record them, then resume.
-- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. The human moves on by clicking Next (or Skip). When every gate item is done, say so in one line and stop.
+- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. There is no Next: KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. When every gate item is done, say so in one line and stop.
 
 ## Buttons
 
@@ -35,17 +35,15 @@ None. Review's skills are chips: run them yourself.
 2. For each open PR: run `code-review`. Fix every finding on the PR's own branch, in its worktree, test-first where it's behaviour. Re-run the suite; push as its own command.
 3. Rewrite the body with `pr` (`gh pr edit <pr> --body-file <file>`), and mark a draft ready (`gh pr ready <pr>`).
 4. Post the review result as one PR comment: what each axis found and what was fixed.
-5. **Merge it.** A PR is ready when every finding is fixed or answered, its checks are green (`gh pr checks <pr> --watch`), and nothing in the "Before merging" list below applies. Then:
-   - Say "Merging #<pr>." in one line, and merge with the repo's allowed method, squash first: `gh pr merge <pr> --squash` (fall back to `--merge` or `--rebase` only if squash is refused). Never pass `--delete-branch` and never chain anything onto the merge: Done deletes branches.
+5. **Read its Merge Danger.** `/pr` writes a "Merge Danger" section into every PR body. It answers two questions; if the body lacks it, rewrite the body with `pr` first.
+   - **One-way or two-way door?** A two-way door you can walk back through: revert the commit and you're where you started. A one-way door does something out in the world a revert won't undo: a migration that drops or reshapes data, a run against a live environment, emails or webhooks sent, a published package or API other code depends on, a secret or permission change.
+   - **Blast radius:** how much goes wrong if it's wrong. One screen, or every consumer of the code.
+6. **Merge the two-way doors.** When the door is two-way, the blast radius is small, every finding is fixed or answered, and checks are green (`gh pr checks <pr> --watch`):
+   - Say "Merging #<pr>: two-way door, small blast radius." in one line, and merge with the repo's allowed method, squash first: `gh pr merge <pr> --squash` (fall back to `--merge` or `--rebase` only if squash is refused). Never pass `--delete-branch` and never chain anything onto the merge: Done deletes branches.
    - Confirm it landed: `gh pr view <pr> --json state -q .state` must print `MERGED`. If it doesn't, say why in one line and stop on that PR.
    - Its "Closes #<t>" lines close the tickets. Say which tickets closed and what that unblocked.
-6. When every PR is merged, say so in one line: the human clicks Next to move to Done.
-
-**Before merging, ask instead.** Write a decision card (options "Merge now", "Hold") and wait when:
-- the PR needs something only the human can do first: a migration or config change on a live environment, a secret, a deploy order, a feature flag;
-- a review finding is a judgement call you didn't fix (scope, product behaviour, an API change other code depends on);
-- checks are red or missing and the cause isn't in this PR.
-Put the reason in `blocking`. On "Merge now", run step 5. On "Hold", leave it open and say what would unblock it.
+7. **Ask on the one-way doors.** A one-way door, a large blast radius, a review finding that's a judgement call you didn't fix, or checks that are red for a reason outside the PR: write a decision card titled "Merge #<pr>?" (options "Merge now", "Hold") whose recommendation names the door and what has to happen first (for example "run migration 013 on Production, then merge"). Put that in `blocking`. On "Merge now", run step 6. On "Hold", leave it open and say what would unblock it.
+8. When every PR is merged, say so in one line, and suggest `/retro` on this run: Matt retros each run, not only the whole effort.
 
 Never close a PR, never force-push to main, and never merge a PR that doesn't belong to this effort.
 

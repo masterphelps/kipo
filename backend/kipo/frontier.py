@@ -78,28 +78,58 @@ def fog_count(map_body):
     return len(items) or 1
 
 
-def build(build_nodes, map_nodes, prs, sessions, map_body=None):
-    """``{tiles, counts, fog}`` for an effort.
+LANES = ("decide", "deliver")
+
+# Matt's two halves. The front half (grill, wayfinder, /to-spec, /to-tickets)
+# decides; the back half (implement, /pr, review, /retro) delivers. A ticket is
+# in Deliver when it ends in a PR: a build ticket, anything with a PR, or a
+# task or issue an agent can take (ready-for-agent). Everything else decides.
+LEGACY_STAGE = {
+    "intake": "intake", "shape": "decide", "grill": "decide", "plan": "decide",
+    "build": "deliver", "review": "deliver", "done": "done",
+}
+
+
+def lane_for(kind, labels, has_pr):
+    if kind == "build" or has_pr:
+        return "deliver"
+    if kind in ("task", "issue") and "ready-for-agent" in set(labels):
+        return "deliver"
+    return "decide"
+
+
+def _counts(tiles):
+    return {s: sum(1 for t in tiles if t["state"] == s) for s in STATES}
+
+
+def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None):
+    """``{tiles, counts, lanes, fog}`` for an effort.
 
     ``build_nodes`` are its ``kipo:<n>`` tickets and ``map_nodes`` its map's
-    children, each ``{number, title, url, state, labels, blockers, assigned}``.
-    A ticket in both lists is counted once, as a build ticket. ``prs`` are the
-    effort's PRs (``{number, state, tickets}``); ``sessions`` maps session keys
-    (``build-t<t>``, ``shape-t<t>``) to session names.
+    children, each ``{number, title, url, state, labels, blockers, assigned}``;
+    ``source_node`` is the issue an ``issue`` effort started from. A ticket in
+    several lists is counted once (build first). ``prs`` are the effort's PRs
+    (``{number, state, tickets}``); ``sessions`` maps session keys
+    (``build-t<t>`` for Deliver, ``shape-t<t>`` for Decide) to session names.
     """
     tiles, seen = [], set()
-    for nodes, is_build in ((build_nodes, True), (map_nodes, False)):
+    sources = ((build_nodes, True, False), (map_nodes, False, False), ([source_node] if source_node else [], False, True))
+    for nodes, is_build, is_source in sources:
         for node in nodes:
             number = node["number"]
             if number in seen:
                 continue
             seen.add(number)
             labels = node.get("labels") or []
-            kind = ticket_type(labels, is_build)
+            kind = "issue" if is_source else ticket_type(labels, is_build)
             who = who_for(kind, labels)
-            key = f"build-t{number}" if kind == "build" else f"shape-t{number}"
             mine = [p for p in prs if number in p.get("tickets", [])]
-            state = state_for(node, who, mine, key in sessions)
+            lane = lane_for(kind, labels, bool(mine))
+            key = f"build-t{number}" if lane == "deliver" else f"shape-t{number}"
+            # A session started under the other lane's key still counts.
+            other = f"shape-t{number}" if lane == "deliver" else f"build-t{number}"
+            has = key if key in sessions else other if other in sessions else None
+            state = state_for(node, who, mine, has is not None)
             tiles.append({
                 "number": number,
                 "title": node.get("title") or "",
@@ -107,11 +137,61 @@ def build(build_nodes, map_nodes, prs, sessions, map_body=None):
                 "type": kind,
                 "code": CODES[kind],
                 "who": who,
+                "lane": lane,
                 "state": state,
+                "source": is_source,
                 "blockedBy": [b["number"] for b in node.get("blockers") or [] if b.get("state") == "OPEN" and "number" in b],
-                "sessionKey": key if key in sessions else None,
+                "sessionKey": has,
                 "prs": [p["number"] for p in mine],
             })
     tiles.sort(key=lambda t: (STATES.index(t["state"]), t["number"]))
-    counts = {s: sum(1 for t in tiles if t["state"] == s) for s in STATES}
-    return {"tiles": tiles, "counts": counts, "fog": fog_count(map_body)}
+    return {
+        "tiles": tiles,
+        "counts": _counts(tiles),
+        "lanes": {lane: _counts([t for t in tiles if t["lane"] == lane]) for lane in LANES},
+        "fog": fog_count(map_body),
+    }
+
+
+def _open(counts):
+    return sum(n for s, n in counts.items() if s != "done")
+
+
+def stage_of(front, legacy_column, effort_prs=()):
+    """Where the effort is, read from its tickets rather than moved by hand.
+
+    Returns ``{stage, active: {decide, deliver}, handover, landed}``:
+
+    - ``active``: which halves still have work. Both can be on at once.
+    - ``stage``: the earliest active half; ``done`` once nothing is open and
+      something was delivered (or the effort was finished); efforts with no
+      tickets and no PRs fall back to their legacy column.
+    - ``handover``: the map is clear (every decision closed, no fog) but no
+      tickets are cut yet: time for /to-spec and /to-tickets.
+    - ``landed``: everything delivered is merged or closed: time for /retro.
+    """
+    lanes, fog = front["lanes"], front["fog"]
+    decide_any = sum(lanes["decide"].values()) > 0 or fog > 0
+    deliver_any = sum(lanes["deliver"].values()) > 0
+    open_pr = any(p.get("state") == "OPEN" for p in effort_prs)
+    any_pr = bool(effort_prs)
+    decide_open = _open(lanes["decide"]) > 0 or fog > 0
+    deliver_open = _open(lanes["deliver"]) > 0 or open_pr
+    active = {"decide": decide_open, "deliver": deliver_open}
+    handover = decide_any and not decide_open and not deliver_any
+    landed = (deliver_any or any_pr) and not deliver_open and not decide_open
+
+    if legacy_column == "done":
+        stage = "done"
+    elif not decide_any and not deliver_any and not any_pr:
+        stage = LEGACY_STAGE.get(legacy_column, "intake")
+        active = {"decide": stage == "decide", "deliver": stage == "deliver"}
+    elif decide_open:
+        stage = "decide"
+    elif deliver_open:
+        stage = "deliver"
+    elif landed:
+        stage = "done"
+    else:
+        stage = "decide"  # decisions all made, tickets not cut yet: the hand-over
+    return {"stage": stage, "active": active, "handover": handover, "landed": landed}

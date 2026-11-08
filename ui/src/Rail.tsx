@@ -1,16 +1,16 @@
 import { useMemo, useState } from 'react'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
-import { FrontierBar, frontierTotal, whoIsUp } from './Frontier'
-import { COLUMN_LABELS, type Column, type Effort } from './types'
+import { LaneBars, frontierTotal, whoIsUp } from './Frontier'
+import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
 // filter, and jump between efforts. One flat list, most recently touched first;
-// each row names its column once. The Board is where efforts sit by column.
+// each row shows its Decide and Deliver bars, or its stage before it has tickets.
 
 export type RailView = 'board' | 'repos'
 
-// Once an effort has tickets (or a mapped fog), its bar says where it is; before
-// that, its column does.
+// Once an effort has tickets (or a mapped fog), its bars say where it is; before
+// that, its stage does.
 const hasFrontier = (e: Effort) => !!e.frontier && frontierTotal(e.frontier.counts, e.frontier.fog) > 0
 
 function progress(e: Effort): string {
@@ -24,13 +24,13 @@ function progress(e: Effort): string {
   return `${repo}, ${c.closed} of ${c.open + c.closed} tickets done`
 }
 
-function ColumnTag({ column }: { column: Column }) {
+function StageTag({ stage }: { stage: Stage }) {
   return (
     <span style={{
       flexShrink: 0, fontSize: 10, lineHeight: '15px', padding: '0 6px', borderRadius: 999,
       border: '1px solid var(--accent)', color: 'var(--accent)', whiteSpace: 'nowrap',
     }}>
-      {COLUMN_LABELS[column]}
+      {STAGE_LABELS[stage]}
     </span>
   )
 }
@@ -126,10 +126,10 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
                       {i.title}
                     </div>
                     {hasFrontier(i) && (
-                      <div style={{ marginTop: 5 }}><FrontierBar counts={i.frontier!.counts} fog={i.frontier!.fog} /></div>
+                      <div style={{ marginTop: 5 }}><LaneBars frontier={i.frontier!} /></div>
                     )}
                     <div style={{ ...muted, fontSize: T.tiny, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {!hasFrontier(i) && <ColumnTag column={i.column} />}
+                      {!hasFrontier(i) && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
                       <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>

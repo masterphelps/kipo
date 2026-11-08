@@ -82,3 +82,68 @@ class Fog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Lanes(unittest.TestCase):
+    def test_lane_rule(self):
+        self.assertEqual(fr.lane_for("build", [], False), "deliver")
+        self.assertEqual(fr.lane_for("grilling", [], False), "decide")
+        self.assertEqual(fr.lane_for("task", [], False), "decide")
+        self.assertEqual(fr.lane_for("task", ["ready-for-agent"], False), "deliver")
+        self.assertEqual(fr.lane_for("task", [], True), "deliver")  # it ends in a PR
+        self.assertEqual(fr.lane_for("research", [], False), "decide")
+
+    def test_lanes_and_keys(self):
+        maps = [node(22, labels=["wayfinder:task", "ready-for-agent"]), node(24, labels=["wayfinder:grilling"])]
+        out = fr.build([node(40)], maps, [], {})
+        by = {t["number"]: t for t in out["tiles"]}
+        self.assertEqual({n: by[n]["lane"] for n in by}, {22: "deliver", 24: "decide", 40: "deliver"})
+        self.assertEqual(out["lanes"]["deliver"]["afk"], 2)
+        self.assertEqual(out["lanes"]["decide"]["you"], 1)
+
+    def test_source_issue_is_a_tile(self):
+        src = node(22, labels=["needs-triage"])
+        out = fr.build([], [], [], {}, source_node=src)
+        t = out["tiles"][0]
+        self.assertEqual((t["type"], t["lane"], t["who"], t["source"]), ("issue", "decide", "you", True))
+        ready = fr.build([], [], [], {}, source_node=node(22, labels=["ready-for-agent"]))["tiles"][0]
+        self.assertEqual((ready["lane"], ready["state"]), ("deliver", "afk"))
+
+
+class Stage(unittest.TestCase):
+    def front(self, builds=(), maps=(), prs=(), fog_body=None):
+        return fr.build(list(builds), list(maps), list(prs), {}, fog_body)
+
+    def test_both_halves_active(self):
+        f = self.front([node(40)], [node(24, labels=["wayfinder:grilling"])])
+        s = fr.stage_of(f, "build")
+        self.assertEqual((s["stage"], s["active"]), ("decide", {"decide": True, "deliver": True}))
+
+    def test_fog_keeps_decide_open(self):
+        f = self.front([], [node(24, state="CLOSED")], fog_body="## Not yet specified\n- x\n")
+        self.assertEqual(fr.stage_of(f, "shape")["stage"], "decide")
+        self.assertFalse(fr.stage_of(f, "shape")["handover"])
+
+    def test_handover_when_the_map_is_clear(self):
+        f = self.front([], [node(24, state="CLOSED")])
+        s = fr.stage_of(f, "shape")
+        self.assertTrue(s["handover"])
+        self.assertEqual(s["stage"], "decide")
+
+    def test_deliver_then_landed(self):
+        f = self.front([node(40, state="CLOSED"), node(41)], [node(24, state="CLOSED")])
+        self.assertEqual(fr.stage_of(f, "plan")["stage"], "deliver")
+        f = self.front([node(40, state="CLOSED"), node(41, state="CLOSED")], [node(24, state="CLOSED")])
+        s = fr.stage_of(f, "plan")
+        self.assertEqual((s["stage"], s["landed"]), ("done", True))
+
+    def test_no_tickets_falls_back_to_the_column(self):
+        empty = self.front()
+        self.assertEqual(fr.stage_of(empty, "grill")["stage"], "decide")
+        self.assertEqual(fr.stage_of(empty, "intake")["stage"], "intake")
+        self.assertEqual(fr.stage_of(empty, "build")["stage"], "deliver")
+        # A small change's own PR on kipo/<n> is its Deliver half.
+        s = fr.stage_of(empty, "grill", [{"number": 5, "state": "OPEN", "tickets": []}])
+        self.assertEqual(s["stage"], "deliver")
+        s = fr.stage_of(empty, "review", [{"number": 5, "state": "MERGED", "tickets": []}])
+        self.assertEqual((s["stage"], s["landed"]), ("done", True))

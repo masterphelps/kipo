@@ -179,3 +179,46 @@ fog), with the column shown only for efforts that have no tickets yet. "Start N
 agents" opens one session per `afk` tile: build tiles as `build-t<t>` sessions
 running `implement`, map children as `shape-t<t>` sessions running their
 type's skill.
+
+
+## The two halves (stage read from the tickets)
+
+Matt's own framing (skills v1.3 notes): "The front half of the main flow …
+/grill-with-docs → /to-spec → /to-tickets. It ends with a spec and a set of
+tickets. … the back half: /implement-spec … /pr … /retro." KiPo shows those
+halves as two lanes, with Intake before and Done after. The seven columns stay
+as the steps inside them and as the skill files; efforts are no longer moved
+between columns, and there is no Next or Skip.
+
+| Stage | Steps (columns) | Ends when |
+|---|---|---|
+| Intake | intake | there's a destination |
+| Decide | shape · grill · plan | spec written and tickets cut, no fog |
+| Deliver | build · review | every PR merged (two-way doors merge on their own) |
+| Done | done | `/retro`, then the human closes the effort |
+
+- **Lane** per tile: `deliver` when it ends in a PR (a `kipo:<n>` build ticket,
+  anything with a PR, or a task/issue labelled `ready-for-agent`); else
+  `decide`. Deliver tiles use `build-t<t>` sessions running `implement` (a map
+  child or the source issue may be built); Decide tiles use `shape-t<t>`.
+- **Source issue**: an `issue` effort's source issue is a tile of type `issue`
+  (Decide while it needs triage, Deliver once `ready-for-agent`).
+- **Stage** (`frontier.stage`): `done` if the column label is `done`; with no
+  tiles and no PRs, the column's stage; else the earliest half with open work;
+  `done` once everything is merged or closed. `frontier.active` says which halves
+  have open work: both can be on.
+- **`handover`**: Decide tiles exist, all closed, no fog, and no Deliver tiles yet:
+  KiPo offers "Write the spec" (`/to-spec`, then `/to-tickets`, in the Plan
+  conversation, which continues the Grill one when there is one).
+- **`landed`**: everything delivered is merged or closed: KiPo offers `/retro`
+  (the Done conversation) and "Close effort" (moves the label to `done`, then
+  closes the issue). Matt retros each run, so `/retro` is also a Deliver button.
+- `/initiatives` returns each effort's `stage` (from its last-seen frontier,
+  else its column) and the saved `frontier: {counts, lanes, fog, stage, active}`.
+- **Review** merges by Merge Danger, the section `/pr` writes into every PR body:
+  a two-way door with a small blast radius merges once findings are fixed and
+  checks are green; a one-way door (migration, live environment, sent messages,
+  published API, secrets) or a large blast radius gets a "Merge #<pr>?" card.
+- **Keep agents on the frontier** (per effort, in the browser): Matt's
+  deterministic loop, run by KiPo while the page is open. Each Deliver tile that
+  becomes `afk` (its blockers closed) gets an `implement` session, once.

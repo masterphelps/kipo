@@ -106,12 +106,44 @@ export type Tile = {
   type: 'grilling' | 'prototype' | 'research' | 'task' | 'build' | 'issue'
   code: string
   who: 'you' | 'afk'
+  lane: 'decide' | 'deliver'
+  source?: boolean
   state: TileState
   blockedBy: number[]
   sessionKey: string | null
   prs: number[]
 }
-export type Frontier = { tiles: Tile[]; counts: FrontierCounts; fog: number }
+export type Lane = 'decide' | 'deliver'
+export type Frontier = {
+  tiles: Tile[]
+  counts: FrontierCounts
+  lanes: Record<Lane, FrontierCounts>
+  fog: number
+  stage: Stage
+  active: Record<Lane, boolean>
+  handover: boolean // the map is clear and no tickets are cut yet: /to-spec, /to-tickets
+  landed: boolean   // everything delivered is merged: /retro, then close
+}
+
+// Matt's two halves, with Intake before and Done after. The seven columns are
+// the steps inside them; an effort's stage is read from its tickets.
+export const STAGES = ['intake', 'decide', 'deliver', 'done'] as const
+export type Stage = typeof STAGES[number]
+export const STAGE_LABELS: Record<Stage, string> = { intake: 'Intake', decide: 'Decide', deliver: 'Deliver', done: 'Done' }
+export const STAGE_COLUMNS: Record<Stage, Column[]> = {
+  intake: ['intake'],
+  decide: ['shape', 'grill', 'plan'],
+  deliver: ['build', 'review'],
+  done: ['done'],
+}
+export const STAGE_HINTS: Record<Stage, string> = {
+  intake: 'A raw issue or request: triage it, or set the repo up for the skills.',
+  decide: "The front half: grill, map, prototype and research until the fog clears, then /to-spec and /to-tickets.",
+  deliver: 'The back half: implement each ticket, review it, and merge the two-way doors.',
+  done: 'Everything delivered is merged: /retro the run, then close the effort.',
+}
+export const stageOfColumn = (c: Column): Stage =>
+  (STAGES.find(s => STAGE_COLUMNS[s].includes(c)) ?? 'intake')
 
 export type Effort = {
   repo: string
@@ -125,7 +157,8 @@ export type Effort = {
   updatedAt: string
   ticketCounts?: { open: number; closed: number } | null
   // The last frontier seen in this effort's detail (no tiles), for the list's bar.
-  frontier?: { counts: FrontierCounts; fog: number } | null
+  frontier?: { counts: FrontierCounts; fog: number; lanes?: Record<'decide' | 'deliver', FrontierCounts>; stage?: Stage } | null
+  stage?: Stage
 }
 
 export type Decision = { id: string; title: string; options: string[]; recommended: string | null; answer: string | null }

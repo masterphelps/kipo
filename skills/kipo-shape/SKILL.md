@@ -18,7 +18,7 @@ There are open questions: a wayfinder map, a prototype branch, a research file, 
 - **Record every skill** (button, chip or session control) by appending its name to `skillsUsed` the moment you load it.
 - The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), tell the human to run `setup-matt-pocock-skills` (Intake's first button).
 - Session controls (`handoff`, `wait-what`, `teach`, `writing-for-agents`) can arrive in any column as "Run /<skill>: …": follow and record them, then resume.
-- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. The human moves on by clicking Next (or Skip). When every gate item is done, say so in one line and stop.
+- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. There is no Next: KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. When every gate item is done, say so in one line and stop.
 - Shape ticket sessions (`shape-t<t>`) run in parallel and may share the state file: re-read it before every write and change only your own entries.
 
 ## Buttons
@@ -43,7 +43,7 @@ Read `Start:` and the `Column:` line.
 
 - **`huge`** (shape → plan → build → review → done): start with `wayfinder`. Name the destination as the effort's `## Destination`, chart the map, then work the frontier one decision ticket per session.
 - **A ticket session** (the seed has `Ticket:`): claim that one decision ticket first (assign it), resolve it per `wayfinder`, record the answer on the ticket and close it, update the map's Decisions-so-far, then stop. Don't take a second ticket in the same session.
-- **The hand-off.** Wayfinder hands off, it doesn't build. When the frontier is empty and Not yet specified holds nothing in scope, the way is clear: say the human can click Next to Plan, where `/to-spec` collapses the map into a spec. Go straight to Build only if the effort turned out genuinely small, and then tell the human to use "Move to…".
+- **The hand-off.** Wayfinder hands off, it doesn't build. When the frontier is empty and Not yet specified holds nothing in scope, the way is clear: KiPo shows "The map is clear" and a "Write the spec" button, which runs `/to-spec` and then `/to-tickets` (Matt: the front half ends with a spec and a set of tickets). Say so in one line. If the effort turned out genuinely small, say so instead: the human can `/implement` it directly.
 - On any other path an effort lands here only by "Move to…": ask which open question brought it here before recommending a button.
 
 ## Gate
