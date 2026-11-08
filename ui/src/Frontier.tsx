@@ -1,6 +1,6 @@
 
-import { useState } from 'react'
-import { T, muted } from './common'
+import { Fragment, type ReactNode } from 'react'
+import { T } from './common'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
@@ -159,68 +159,87 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // agent's). Picking a segment shows that segment's tickets instead: only that
 // half's, the segment stays marked, and the other bar dims. Click it again to
 // go back to the frontier.
-export function FrontierSummary({ frontier, onTile, openNumber, statuses }: {
+// Every ticket of the effort as a tile, in a grid: Decide and Deliver as rows,
+// whose move it is as columns. Nothing hides behind a bar segment; a tile opens
+// its conversation. `next` is the one thing to do now, above it all.
+const GROUPS: { key: string; label: string; states: TileState[]; hint: string }[] = [
+  { key: 'you', label: 'Your move', states: ['you'], hint: 'Open and unblocked, and it needs you: a grilling, a prototype, a ticket marked for a human.' },
+  { key: 'afk', label: "Agent's move", states: ['afk'], hint: 'Open and unblocked, and an agent can take it on its own.' },
+  { key: 'working', label: 'Working', states: ['building', 'review'], hint: 'An agent is building it, or its PR is open for review.' },
+  { key: 'blocked', label: 'Waiting', states: ['blocked'], hint: 'Blocked by a ticket that is still open.' },
+  { key: 'done', label: 'Done', states: ['done'], hint: 'Closed.' },
+]
+
+export function FrontierSummary({ frontier, onTile, openNumber, statuses, next }: {
   frontier: Frontier
   onTile: (t: Tile) => void
   openNumber: number | null
   statuses: Record<number, SessionStatus>
+  next?: ReactNode
 }) {
   const { counts, fog, tiles } = frontier
-  const [pick, setPick] = useState<Pick | null>(null)
-  if (!frontierTotal(counts, fog)) return null
-  const toggle = (p: Pick) => setPick(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
-  const row = !pick
-    ? tiles.filter(t => t.state === 'you' || t.state === 'afk')
-    : pick.state === 'fog' ? []
-    : tiles.filter(t => t.state === pick.state && (pick.lane === null || t.lane === pick.lane))
-  const caption = !pick
-    ? 'Frontier: open and unblocked'
-    : pick.state === 'fog'
-      ? `${fog} question${fog === 1 ? '' : 's'} not yet specified: in scope, not sharp enough to ticket yet`
-      : `${STATE_META[pick.state].label[0].toUpperCase()}${STATE_META[pick.state].label.slice(1)}${pick.lane ? ` · ${LANE_LABEL[pick.lane]}` : ''}`
+  if (!frontierTotal(counts, fog)) return next ? <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>{next}</div> : null
+  const lanes = (['decide', 'deliver'] as Lane[]).filter(l => tiles.some(t => t.lane === l) || (l === 'decide' && fog > 0))
+  const groups = GROUPS.filter(g => tiles.some(t => g.states.includes(t.state)))
+  const cols = groups.length + (fog ? 1 : 0)
+  const headColor = (g: typeof GROUPS[number]) => STATE_META[g.states[0]].text
+  const cellTiles = (lane: Lane, g: typeof GROUPS[number]) =>
+    tiles.filter(t => t.lane === lane && g.states.includes(t.state)).sort((a, b) => a.number - b.number)
   return (
-    <div style={{ padding: '6px 16px 8px', display: 'flex', flexDirection: 'column', gap: 4, borderBottom: '1px solid var(--border)' }}>
+    <div style={{ padding: '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border)' }}>
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.small, minWidth: 0 }}>
-        {counts.you > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
-        {counts.afk > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.afk.text }}>Agent's move:</b> {counts.afk}</span>}
-        <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-          {counts.done} of {tiles.length} done{fog ? ` · ${fog} in the fog` : ''}
-        </span>
-      </div>
-      {(['decide', 'deliver'] as Lane[]).map(lane => {
-        if (!laneTotal(frontier, lane)) return null
-        const mine = pick?.lane === lane
-        const other = !!pick && pick.lane !== null && !mine
-        return (
-          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '50px minmax(0, 1fr)', alignItems: 'center', gap: 8,
-            opacity: other ? 0.35 : 1, transition: 'opacity .15s' }}>
-            <span title={LANE_HINT[lane]} style={{ fontSize: T.tiny, color: mine ? 'var(--text)' : frontier.active[lane] ? 'var(--text)' : 'var(--muted)', fontWeight: mine ? 600 : 400 }}>
-              {LANE_LABEL[lane]}
+      {next}
+      <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
+        <div role="grid" aria-label="Tickets by lane and whose move"
+          style={{ display: 'grid', gridTemplateColumns: `58px repeat(${cols}, minmax(max-content, auto))`, columnGap: 6, rowGap: 4, alignItems: 'start', minWidth: 'min-content' }}>
+          <span />
+          {groups.map(g => {
+            const n = tiles.filter(t => g.states.includes(t.state)).length
+            return (
+              <span key={g.key} role="columnheader" title={g.hint}
+                style={{ fontSize: T.tiny, fontWeight: 600, color: headColor(g), whiteSpace: 'nowrap', padding: '0 6px' }}>
+                {g.label} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>{n}</span>
+              </span>
+            )
+          })}
+          {fog > 0 && (
+            <span role="columnheader" title="In the map's Not yet specified: in scope, but not sharp enough to ticket yet."
+              style={{ fontSize: T.tiny, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', padding: '0 6px' }}>
+              Fog <span style={{ fontWeight: 400 }}>{fog}</span>
             </span>
-            <FrontierBar counts={frontier.lanes[lane]} fog={lane === 'decide' ? fog : 0} height={7}
-              selected={mine ? pick!.state : null} onSelect={st => toggle({ lane, state: st })} />
-          </div>
-        )
-      })}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, paddingLeft: 58, fontSize: T.tiny, marginTop: 2 }}>
-        <span style={{ color: pick && pick.state !== 'fog' ? STATE_META[pick.state].text : 'var(--muted)' }}>{caption}</span>
-        {pick && (
-          <button type="button" onClick={() => setPick(null)}
-            style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: 'var(--muted)', textDecoration: 'underline', fontSize: T.tiny }}>
-            back to the frontier
-          </button>
-        )}
-        {!pick && !row.length && <span style={muted}>· nothing to act on right now</span>}
-      </div>
-      {row.length > 0 && (
-        // Padding inside the scroller leaves room for the open tile's outline.
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '5px 6px 4px 4px', margin: '0 -6px 0 54px', scrollbarWidth: 'thin' }}>
-          {row.map(t => (
-            <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
+          )}
+          {lanes.map(lane => (
+            <Fragment key={lane}>
+              <span role="rowheader" title={LANE_HINT[lane]}
+                style={{ fontSize: T.tiny, fontWeight: 600, color: frontier.active[lane] ? 'var(--text)' : 'var(--muted)', alignSelf: 'center' }}>
+                {LANE_LABEL[lane]}
+              </span>
+              {groups.map(g => {
+                const ts = cellTiles(lane, g)
+                return (
+                  <div key={g.key} role="gridcell"
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '5px 6px', minHeight: 46, borderRadius: 8,
+                      background: ts.length ? 'var(--bg-elevated)' : 'transparent', border: `1px solid ${ts.length ? 'var(--border)' : 'transparent'}`,
+                      maxWidth: g.key === 'done' ? 200 : 260 }}>
+                    {ts.length
+                      ? ts.map(t => <TileButton key={t.number} tile={t} size={32} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)
+                      : <span style={{ color: 'var(--border)', fontSize: T.small, alignSelf: 'center', paddingLeft: 4 }}>–</span>}
+                  </div>
+                )
+              })}
+              {fog > 0 && (
+                <div role="gridcell" style={{ display: 'flex', gap: 5, padding: '5px 6px', minHeight: 46 }}>
+                  {lane === 'decide' && Array.from({ length: Math.min(fog, 3) }).map((_, i) => (
+                    <span key={i} title={`${fog} question${fog === 1 ? '' : 's'} not yet specified`}
+                      style={{ width: 32, height: 36, borderRadius: 6, border: '1.5px dashed var(--border)', color: 'var(--muted)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>?</span>
+                  ))}
+                </div>
+              )}
+            </Fragment>
           ))}
         </div>
-      )}
+      </div>
     </div>
   )
 }

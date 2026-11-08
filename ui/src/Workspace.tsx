@@ -8,7 +8,7 @@ import {
 import { cached, remember } from './cache'
 import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
 import { TileGraph } from './Graph'
-import { EffortInspector, TicketChain, TicketInspector, nextStep } from './Inspector'
+import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
@@ -363,7 +363,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           </div>
           {detail.frontier?.lanes && (<>
             <div ref={summarySplit.ref} style={summarySplit.style}>
-              <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses} />
+              <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
+                next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
             </div>
             <Divider direction="horizontal" label="Resize the bars and the conversation"
               onDrag={summarySplit.onDrag} onReset={summarySplit.reset} />
@@ -409,8 +410,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
               decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />} />
           ) : (
-            <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}
-              busy={busy || starting || !!startingAgents} autopilot={autopilot} onAutopilot={setAutopilot}
+            <EffortInspector repo={repo} number={number} detail={detail} stage={stage} autopilot={autopilot} onAutopilot={setAutopilot}
               showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
               decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />}
               onOpenTile={openTile} />

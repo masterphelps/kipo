@@ -264,6 +264,24 @@ export function nextStep(detail: EffortDetail, h: {
     : { text: <>Nothing has started yet.</>, actions: [{ label: 'Start the conversation', onClick: h.startMain, kind: 'afk' }] }
 }
 
+// The one next step, shown above the tickets whichever conversation is open.
+export function NextStrip({ next, busy }: { next: NextStep; busy: boolean }) {
+  const kindColor = { you: STATE_META.you.color, afk: STATE_META.afk.color, done: STATE_META.done.color, review: STATE_META.review.color }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
+      border: '1px solid var(--border)', background: 'var(--bg-elevated)', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: T.tiny, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--accent)', flexShrink: 0 }}>Next</span>
+      <span style={{ flex: 1, minWidth: 200, fontSize: T.body, lineHeight: 1.45 }}>{next.text}</span>
+      {next.actions.map(a => (
+        <button key={a.label} type="button" disabled={busy} onClick={a.onClick}
+          style={a.kind && a.kind !== 'quiet' ? btn(kindColor[a.kind], '#14121c', busy) : quietBtn}>
+          {a.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // A document the agents linked, with its live state when KiPo knows it.
 function docRow(a: Artifact, detail: EffortDetail) {
   const pr = a.href.match(/\/pull\/(\d+)/)
@@ -333,22 +351,19 @@ function Documents({ repo, number, detail, onOpenTile }: { repo: string; number:
   )
 }
 
-// The effort's facts, and its one next action. Skills live above the chat box;
-// moving between conversations happens in the middle.
-export function EffortInspector({ repo, number, detail, stage, next, busy, autopilot, onAutopilot, showAutopilot, decisions, onOpenTile }: {
+// The effort's facts. Its next step sits above the tickets in the middle;
+// moving between conversations happens there too.
+export function EffortInspector({ repo, number, detail, stage, autopilot, onAutopilot, showAutopilot, decisions, onOpenTile }: {
   repo: string
   number: number
   detail: EffortDetail
   stage: Stage
-  next: NextStep
-  busy: boolean
   autopilot: boolean
   onAutopilot: (on: boolean) => void
   showAutopilot: boolean
   decisions: ReactNode
   onOpenTile: (t: Tile) => void
 }) {
-  const kindColor = { you: STATE_META.you.color, afk: STATE_META.afk.color, done: STATE_META.done.color, review: STATE_META.review.color }
   return (
     <div>
       <div style={{ padding: '14px 16px 12px' }}>
@@ -362,29 +377,18 @@ export function EffortInspector({ repo, number, detail, stage, next, busy, autop
         <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{detail.title}</div>
       </div>
 
-      <Section title="Next">
-        <div style={{ fontSize: T.body, lineHeight: 1.5 }}>{next.text}</div>
-        {next.actions.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-            {next.actions.map(a => (
-              <button key={a.label} type="button" disabled={busy} onClick={a.onClick}
-                style={a.kind && a.kind !== 'quiet' ? btn(kindColor[a.kind], '#14121c', busy) : quietBtn}>
-                {a.label}
-              </button>
-            ))}
-          </div>
-        )}
-        {showAutopilot && (
+      {showAutopilot && (
+        <Section title="Autopilot">
           <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
             title="When a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
-            style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, background: 'transparent', padding: 0, cursor: 'pointer',
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', padding: 0, cursor: 'pointer',
               fontSize: T.small, color: autopilot ? STATE_META.afk.text : 'var(--muted)' }}>
             <span aria-hidden className={autopilot ? 'kipo-pulse' : undefined}
               style={{ width: 8, height: 8, borderRadius: 999, background: autopilot ? STATE_META.afk.color : 'var(--muted)' }} />
             Autopilot {autopilot ? 'on' : 'off'}: {autopilot ? 'new agent tickets start on their own' : 'start new agent tickets as they free up'}
           </button>
-        )}
-      </Section>
+        </Section>
+      )}
 
       {decisions}
 
