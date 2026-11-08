@@ -136,10 +136,10 @@ class Gh:
             "--limit", str(limit), "--json", fields,
         ]) or []
 
-    def search_open_maps(self, owners):
-        """Every open wayfinder map in these owners' repos, from one search:
-        ``[{repo, number, title, url, updatedAt}]``."""
-        args = ["search", "issues", "--label", "wayfinder:map", "--state", "open",
+    def search_open_maps(self, owners, state="open"):
+        """Every wayfinder map in these owners' repos in ``state`` (open or
+        closed), from one search: ``[{repo, number, title, url, updatedAt}]``."""
+        args = ["search", "issues", "--label", "wayfinder:map", "--state", state,
                 "--json", "repository,number,title,url,updatedAt", "--limit", "500"]
         for owner in sorted(set(owners)):
             args += ["--owner", owner]

@@ -96,7 +96,8 @@ export type TreeItem = {
   onSidebar: boolean
   map: number | null // an effort's wayfinder map
   // A map's tickets read from GitHub; an effort's from the last time KiPo read it (null: never).
-  progress?: { counts: FrontierCounts; lanes?: Record<'decide' | 'deliver', FrontierCounts>; fog: number } | null
+  progress?: { counts: FrontierCounts; lanes?: Record<'decide' | 'deliver', FrontierCounts>; fog: number; fogLeft?: number } | null
+  closed?: boolean // completed: the map or effort issue is closed
 }
 export type TreeRepo = { slug: string; path: string; items: TreeItem[]; error?: string }
 export type AvailableRepo = { slug: string; path: string; name: string; maps: number }
@@ -142,6 +143,7 @@ export type Frontier = {
   lanes: Record<Lane, FrontierCounts>
   fog: number
   fogItems?: string[] // the map's Not yet specified items, as text
+  fogLeft?: string[]  // a closed map's leftover Not yet specified items: not pending, kept for the record
   stage: Stage
   active: Record<Lane, boolean>
   handover: boolean // the map is clear and no tickets are cut yet: /to-spec, /to-tickets

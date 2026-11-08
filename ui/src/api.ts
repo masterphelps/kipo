@@ -71,7 +71,7 @@ export const backend = {
   skillMessage: (repo: string, n: number, skill: string) =>
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
-  tree: () => call<RepoTree>('/tree'),
+  tree: (completed = false) => call<RepoTree>(completed ? '/tree?completed=1' : '/tree'),
   // The green dot: on the sidebar or off. Nothing changes on GitHub.
   setOnSidebar: (repo: string, number: number, kind: 'effort' | 'map', on: boolean) =>
     call<{ onSidebar: boolean }>('/sidebar', 'POST', { repo, number, kind, on }),

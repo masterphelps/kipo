@@ -505,6 +505,16 @@ class FrontierDetailTests(Columns):
         self.assertEqual(listed[0]["frontier"]["fog"], 2)
 
 
+class ClosedMapTests(Columns):
+    def test_a_closed_maps_fog_doesnt_hold_the_effort_in_decide(self):
+        self.make_effort(column="build", meta={"mapIssue": 20})
+        self.fake.add_issue(REPO, 20, title="Map", body="## Not yet specified\n- later\n- maybe\n", labels=["wayfinder:map"], state="CLOSED")
+        self.fake.add_issue(REPO, 24, title="Done grill", labels=["wayfinder:grilling"], state="CLOSED")
+        self.fake.sub_issues[(REPO, 20)] = [24]
+        f = self.get()[1]["frontier"]
+        self.assertEqual((f["fog"], f["fogLeft"], f["active"]["decide"]), (0, ["later", "maybe"], False))
+
+
 class MapArtifactLabelTests(Columns):
     def test_a_numbered_map_label_names_the_map(self):
         self.make_effort(column="build", artifacts=[{"label": "Wayfinder map #20", "href": f"https://github.com/{REPO}/issues/20"}])

@@ -108,6 +108,15 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual((p["lanes"]["decide"]["done"], p["lanes"]["deliver"]["afk"]), (1, 1))
         self.assertEqual(sum(items[9]["progress"]["counts"].values()), 0)
 
+    def test_completed_maps_and_efforts_show_only_when_asked(self):
+        self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
+        self.fake.add_issue("acme/widgets", 5, title="Map: open", labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 6, title="Map: closed", labels=["wayfinder:map"], state="CLOSED")
+        self.fake.add_issue("acme/widgets", 7, title="Effort: closed", labels=["kipo:effort"], state="CLOSED")
+        nums = lambda q: {(i["number"], i["closed"]) for i in self.app.dispatch("GET", "/tree" + q, "")[1]["repos"][0]["items"]}
+        self.assertEqual(nums(""), {(5, False)})
+        self.assertEqual(nums("?completed=1"), {(5, False), (6, True), (7, True)})
+
     def test_the_green_dot_puts_things_on_and_off_the_sidebar(self):
         self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
         self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])

@@ -474,7 +474,8 @@ class Initiatives:
 
     def _map_children(self, repo, map_issue):
         """Every child of the wayfinder map, open and closed, plus the map's body
-        (for the fog). Returns ``(nodes, body)``; nodes as in ``_ticket_nodes``."""
+        (for the fog) and whether the map is closed. Returns ``(nodes, body,
+        closed)``; nodes as in ``_ticket_nodes``."""
         owner, name = repo.split("/", 1)
         try:
             data = self.gh.graphql(_MAP_QUERY.replace("BLOCKED", _TICKET_BLOCKED_FIELD), owner=owner, name=name, number=map_issue)
@@ -495,7 +496,7 @@ class Initiatives:
                 "blockers": [{"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b],
                 "assigned": bool((node.get("assignees") or {}).get("totalCount")),
             })
-        return nodes, issue.get("body") or ""
+        return nodes, issue.get("body") or "", (issue.get("state") or "OPEN").upper() == "CLOSED"
 
     def _prs(self, repo, number, ticket_numbers_):
         """The repo's PRs that belong to this effort, each with the tickets it closes."""
@@ -569,12 +570,12 @@ class Initiatives:
         tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
 
         # The frontier: build tickets and the map's children, each in its real state.
-        map_nodes, map_body = [], None
+        map_nodes, map_body, map_closed = [], None, False
         if meta.get("mapIssue"):
             try:
-                map_nodes, map_body = self._map_children(repo, int(meta["mapIssue"]))
+                map_nodes, map_body, map_closed = self._map_children(repo, int(meta["mapIssue"]))
             except KipoError:
-                map_nodes, map_body = [], None
+                map_nodes, map_body, map_closed = [], None, False
         source_node = None
         source = source_issue_of(repo, meta, artifacts)
         if source and source not in {n["number"] for n in nodes} | {n["number"] for n in map_nodes}:
@@ -587,7 +588,7 @@ class Initiatives:
                     "number": source, "title": found.get("title") or "", "url": found.get("url") or "",
                     "state": (found.get("state") or "OPEN").upper(), "labels": label_names(found), "blockers": [],
                 }
-        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body, source_node)
+        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body, source_node, map_closed=map_closed)
         front.update(frontier_mod.stage_of(front, column, prs))
         self.storage.save_frontier(repo, number, {
             "counts": front["counts"], "lanes": front["lanes"], "fog": front["fog"],
@@ -679,7 +680,7 @@ class Initiatives:
 
             def query(blocked):
                 parts = " ".join(
-                    f"m{n}: issue(number: {n}) {{ body subIssues(first: 100) {{ nodes {{ number title url state"
+                    f"m{n}: issue(number: {n}) {{ body state subIssues(first: 100) {{ nodes {{ number title url state"
                     f" assignees(first: 1) {{ totalCount }} labels(first: 50) {{ nodes {{ name }} }} {blocked} }} }} }}"
                     for n in chunk
                 )
@@ -706,8 +707,9 @@ class Initiatives:
                         "blockers": [{"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b],
                         "assigned": bool((node.get("assignees") or {}).get("totalCount")),
                     })
-                f = frontier_mod.build([], nodes, [], {}, issue.get("body") or "")
-                out[n] = {"counts": f["counts"], "lanes": f["lanes"], "fog": f["fog"]}
+                closed = (issue.get("state") or "OPEN").upper() == "CLOSED"
+                f = frontier_mod.build([], nodes, [], {}, issue.get("body") or "", map_closed=closed)
+                out[n] = {"counts": f["counts"], "lanes": f["lanes"], "fog": f["fog"], "fogLeft": len(f["fogLeft"])}
         return out
 
     def wrapped_maps(self, repo):
@@ -963,7 +965,7 @@ class Initiatives:
             )
             meta = derive_meta(meta, artifacts)
             if meta.get("mapIssue"):
-                children, _ = self._map_children(repo, int(meta["mapIssue"]))
+                children, _, _ = self._map_children(repo, int(meta["mapIssue"]))
                 found = next((n for n in children if n["number"] == ticket), None)
             if not found and source_issue_of(repo, meta, artifacts) == ticket:
                 seen = self.gh.view_issue(repo, ticket) or {}
@@ -1071,7 +1073,7 @@ _FRONTIER_QUERY = (
 _TICKET_BLOCKED_FIELD = "blockedBy(first: 50) { nodes { number state } }"
 _MAP_QUERY = (
     "query($owner: String!, $name: String!, $number: Int!) {"
-    " repository(owner: $owner, name: $name) { issue(number: $number) { body"
+    " repository(owner: $owner, name: $name) { issue(number: $number) { body state"
     " subIssues(first: 100) { nodes { number title url state"
     " assignees(first: 1) { totalCount } labels(first: 50) { nodes { name } } BLOCKED } } } } }"
 )

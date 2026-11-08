@@ -392,6 +392,16 @@ export function EffortInspector({ repo, number, detail, stage, autopilot, onAuto
 
       {decisions}
 
+      {(detail.frontier?.fogLeft?.length ?? 0) > 0 && (
+        <Section title="Left unspecified" aside="when its map closed: not pending, kept so nothing is lost">
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {detail.frontier!.fogLeft!.map((t, i) => (
+              <li key={i} style={{ fontSize: T.small, lineHeight: 1.45 }}><MarkdownRenderer content={t} /></li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section title="Destination" aside="where this effort is going">
         <div style={{ fontSize: T.body, lineHeight: 1.55 }}>
           {detail.destination.trim() ? <MarkdownRenderer content={detail.destination} /> : <span style={muted}>Not written yet.</span>}

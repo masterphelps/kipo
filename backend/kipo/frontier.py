@@ -115,7 +115,7 @@ def _counts(tiles):
     return {s: sum(1 for t in tiles if t["state"] == s) for s in STATES}
 
 
-def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None):
+def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None, map_closed=False):
     """``{tiles, counts, lanes, fog}`` for an effort.
 
     ``build_nodes`` are its ``kipo:<n>`` tickets and ``map_nodes`` its map's
@@ -164,8 +164,11 @@ def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None
         "tiles": tiles,
         "counts": _counts(tiles),
         "lanes": {lane: _counts([t for t in tiles if t["lane"] == lane]) for lane in LANES},
-        "fog": fog_count(map_body),
-        "fogItems": fog_items(map_body),
+        # A closed map's "Not yet specified" lines aren't pending work any more:
+        # they're what was left unspecified when it closed (fogLeft).
+        "fog": 0 if map_closed else fog_count(map_body),
+        "fogItems": [] if map_closed else fog_items(map_body),
+        "fogLeft": fog_items(map_body) if map_closed else [],
     }
 
 

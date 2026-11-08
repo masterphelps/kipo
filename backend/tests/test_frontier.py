@@ -89,6 +89,12 @@ class Fog(unittest.TestCase):
         f = fr.build([], [], [], {}, "## Not yet specified\n- a\n- b\n")
         self.assertEqual((f["fog"], f["fogItems"]), (2, ["a", "b"]))
 
+    def test_a_closed_maps_fog_is_left_over_not_pending(self):
+        f = fr.build([], [], [], {}, "## Not yet specified\n- a\n- b\n", map_closed=True)
+        self.assertEqual((f["fog"], f["fogItems"], f["fogLeft"]), (0, [], ["a", "b"]))
+        open_map = fr.build([], [], [], {}, "## Not yet specified\n- a\n")
+        self.assertEqual((open_map["fog"], open_map["fogLeft"]), (1, []))
+
     def test_none(self):
         self.assertEqual(fr.fog_count("## Not yet specified\n<!-- empty -->\n\n## Out of scope\n"), 0)
         self.assertEqual(fr.fog_count(None), 0)

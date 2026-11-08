@@ -270,11 +270,16 @@ class App:
         config = self.storage.get_config()["repos"]
         found = repos.discover(roots=self.repo_roots, configured=self._configured_paths())
         owners = {r["slug"].split("/")[0] for r in config} | {r["slug"].split("/")[0] for r in found if r.get("slug")}
+        # Completed (closed) maps and efforts only when asked: "Show completed".
+        completed = str((body or {}).get("completed") or "") in ("1", "true")
         search_error = None
         try:
             hits = self.gh.search_open_maps(owners) if owners else []
+            closed_hits = self.gh.search_open_maps(owners, state="closed") if owners and completed else []
         except KipoError as e:
-            hits, search_error = [], e.message
+            hits, closed_hits, search_error = [], [], e.message
+        closed_maps = {(h["repo"].lower(), h["number"]) for h in closed_hits}
+        hits = hits + closed_hits
         by_repo = {}
         for h in hits:
             by_repo.setdefault(h["repo"].lower(), []).append(h)
@@ -286,7 +291,9 @@ class App:
             opened = self.storage.opened_maps(slug)
             items, wrapped, error = [], set(), None
             try:
-                efforts = self.gh.list_issues(slug, EFFORT_LABEL)
+                efforts = [dict(i, closed=False) for i in self.gh.list_issues(slug, EFFORT_LABEL)]
+                if completed:
+                    efforts += [dict(i, closed=True) for i in self.gh.list_issues(slug, EFFORT_LABEL, state="closed")]
             except KipoError as e:
                 efforts, error = [], e.message
             for issue in efforts:
@@ -296,7 +303,8 @@ class App:
                 items.append({
                     "kind": "effort", "number": issue["number"], "title": issue.get("title") or "",
                     "url": issue.get("url") or "", "updatedAt": issue.get("updatedAt") or "",
-                    "onSidebar": issue["number"] not in hidden, "map": m,
+                    "onSidebar": issue["number"] not in hidden and not issue["closed"], "map": m,
+                    "closed": issue["closed"],
                 })
             for h in by_repo.get(slug.lower(), []):
                 if h["number"] in wrapped:
@@ -304,6 +312,7 @@ class App:
                 items.append({
                     "kind": "map", "number": h["number"], "title": h["title"], "url": h["url"],
                     "updatedAt": h["updatedAt"], "onSidebar": h["number"] in opened and h["number"] not in hidden, "map": None,
+                    "closed": (slug.lower(), h["number"]) in closed_maps,
                 })
             # Progress: a map's from its children (one query per repo); an
             # effort's from the last time KiPo read it.

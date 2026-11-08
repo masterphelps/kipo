@@ -37,10 +37,13 @@ export function ReposPage({ onOpen, onChanged }: {
   const [pop, setPop] = useState<Popover | null>(null)
   const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  // Completed (closed) maps and efforts are hidden unless you ask for them.
+  const [showCompleted, setShowCompleted] = useState(() => localStorage.getItem('kipo.repoTree.completed') === '1')
+  useEffect(() => { localStorage.setItem('kipo.repoTree.completed', showCompleted ? '1' : '0') }, [showCompleted])
 
-  const load = useCallback(() => backend.tree()
+  const load = useCallback(() => backend.tree(showCompleted)
     .then(t => { setTree(t); setError('') })
-    .catch(e => { setError(errorText(e)); setTree(t => t ?? { repos: [], available: [] }) }), [])
+    .catch(e => { setError(errorText(e)); setTree(t => t ?? { repos: [], available: [] }) }), [showCompleted])
   useEffect(() => { void load() }, [load])
   useEffect(() => { localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded)) }, [expanded])
 
@@ -73,6 +76,7 @@ export function ReposPage({ onOpen, onChanged }: {
   }
 
   const openItem = async (repo: TreeRepo, item: TreeItem) => {
+    if (item.closed) { window.open(item.url, '_blank', 'noreferrer'); return }
     if (!item.onSidebar) await flip(repo, item)
     onOpen(repo.slug, item.number)
   }
@@ -123,6 +127,16 @@ export function ReposPage({ onOpen, onChanged }: {
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter" aria-label="Filter repos, efforts and maps"
             className="text-xs" style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)' }} />
         </label>
+        <button type="button" role="switch" aria-checked={showCompleted} onClick={() => setShowCompleted(v => !v)}
+          title="Also list closed maps and efforts"
+          className="flex items-center gap-2 text-xs" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+          <span aria-hidden style={{ width: 28, height: 16, borderRadius: 999, position: 'relative', flexShrink: 0, transition: 'background .15s',
+            background: showCompleted ? 'var(--accent)' : 'var(--border)' }}>
+            <span style={{ position: 'absolute', top: 2, left: showCompleted ? 14 : 2, width: 12, height: 12, borderRadius: 999,
+              background: 'var(--text-strong, #fff)', transition: 'left .15s' }} />
+          </span>
+          Show completed
+        </button>
         <span onClick={e => setPop({ kind: 'add', ...at(e) })}>
           <Btn primary><span className="inline-flex items-center gap-1.5"><FolderPlus size={14} />Add repo</span></Btn>
         </span>
@@ -170,9 +184,14 @@ export function ReposPage({ onOpen, onChanged }: {
                     {repo.items.map(item => (
                       <Row key={`${item.kind}-${item.number}`} small
                         onClick={() => void openItem(repo, item)}
-                        lead={<DotButton on={item.onSidebar} kind={item.kind} onToggle={() => void flip(repo, item)} />}
+                        lead={item.closed
+                          ? <span title="Closed on GitHub. Reopen it there to work on it." style={{ width: 18, display: 'inline-flex', justifyContent: 'center', color: 'var(--ok, #3fae6a)', fontSize: 12 }}>✓</span>
+                          : <DotButton on={item.onSidebar} kind={item.kind} onToggle={() => void flip(repo, item)} />}
                         icon={item.kind === 'map' ? <MapIcon size={13} /> : <Target size={13} />}
-                        title={<span style={{ color: item.onSidebar ? 'var(--text)' : 'var(--muted)' }}>{item.title}</span>}
+                        title={<span style={{ color: item.onSidebar ? 'var(--text)' : 'var(--muted)' }}>
+                          {item.closed && <span className="text-xs" style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '0 5px', marginRight: 6, color: 'var(--muted)' }}>Closed</span>}
+                          {item.title}
+                        </span>}
                         progress={<Progress p={item.progress} />}
                         meta={`${item.kind === 'map' ? 'Map' : item.map ? `Effort · map #${item.map}` : 'Effort'} · #${item.number} · ${timeAgo(item.updatedAt)}`}
                         onMenu={() => { window.open(item.url, '_blank', 'noreferrer') }}
@@ -263,10 +282,10 @@ function Progress({ p }: { p: TreeItem['progress'] }) {
   }
   const done = p.counts.done || 0
   return (
-    <span style={width} title={`${done} of ${total} tickets done${p.fog ? `, ${p.fog} not yet specified` : ''}`}>
+    <span style={width} title={`${done} of ${total} tickets done${p.fog ? `, ${p.fog} not yet specified` : ''}${p.fogLeft ? `, ${p.fogLeft} left unspecified when it closed` : ''}`}>
       <span style={{ width: 110, flexShrink: 0 }}><LaneBars frontier={{ counts: p.counts, fog: p.fog, lanes: p.lanes }} height={3} /></span>
       <span className="text-xs" style={{ whiteSpace: 'nowrap', color: done === total ? 'var(--ok, #3fae6a)' : 'var(--text)' }}>
-        {done}/{total}<span className="text-muted"> done{p.fog ? ` · ${p.fog} fog` : ''}</span>
+        {done}/{total}<span className="text-muted"> done{p.fog ? ` · ${p.fog} fog` : ''}{p.fogLeft ? ` · ${p.fogLeft} left over` : ''}</span>
       </span>
     </span>
   )

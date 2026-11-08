@@ -92,7 +92,7 @@ class FakeGh:
             out = [
                 {"number": i["number"], "repository": {"nameWithOwner": r}}
                 for (r, _), i in self.issues.items()
-                if r.split("/")[0].lower() in owners and i["state"] == "OPEN"
+                if r.split("/")[0].lower() in owners and i["state"] == (_flag(args, "--state", "open") or "open").upper()
                 and label in {l["name"] for l in i["labels"]}
             ]
             return 0, json.dumps(out), ""
@@ -184,4 +184,5 @@ class FakeGh:
             n["assignees"] = {"totalCount": issue.get("assignees") or 0}
             nodes.append(n)
         body = (self.issues.get((repo, number)) or {}).get("body") or ""
-        return {"data": {"repository": {"issue": {"body": body, "subIssues": {"nodes": nodes}}}}}
+        state = (self.issues.get((repo, number)) or {}).get("state") or "OPEN"
+        return {"data": {"repository": {"issue": {"body": body, "state": state, "subIssues": {"nodes": nodes}}}}}
