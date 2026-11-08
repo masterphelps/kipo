@@ -6,8 +6,7 @@ import {
   ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, strong,
 } from './common'
 import { cached, remember } from './cache'
-import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
-import { NetworkMap } from './Network'
+import { FrontierSummary, type SessionStatus } from './Frontier'
 import { Abbr } from './glossary'
 import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
@@ -60,8 +59,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const chainSplit = useFitSplit('chain', 100, 0.75)
   // The middle shows one thing at a time: the conversation, or the map of the
   // effort's tickets (where you pick one to open).
-  const [view, setView] = useState<'conversation' | 'map'>('conversation')
-  const [mapPick, setMapPick] = useState<Pick | null>(null)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -78,7 +75,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   const column = detail?.column
   // Opening a conversation (from the map, Next, or ← Effort) shows it.
-  useEffect(() => { setConfirm(null); setActionError(''); setView('conversation') }, [column, focus])
+  useEffect(() => { setConfirm(null); setActionError('') }, [column, focus])
   // Back to the column view when the effort moves on, but not on first load, so
   // the remembered ticket or decision stays open when you come back to KiPo.
   const lastColumn = useRef(column)
@@ -303,7 +300,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
-  const hasMap = !!detail.frontier?.lanes && (detail.frontier.tiles.length > 0 || detail.frontier.fog > 0)
   const next = nextStep(detail, {
     openTile,
     startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
@@ -322,40 +318,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {/* Middle: the conversation. */}
       {!wide && (
         <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Two tabs: the conversation, or the map of the effort's tickets. One
-              at a time, each with the full height. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 16px 0', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-            {(['conversation', 'map'] as const).filter(v => v === 'conversation' || hasMap).map(v => {
-              const on = view === v
-              return (
-                <button key={v} type="button" role="tab" aria-selected={on} onClick={() => setView(v)}
-                  style={{ background: 'transparent', padding: '6px 10px 8px', marginBottom: -1, cursor: 'pointer', fontSize: T.small,
-                    color: on ? 'var(--text)' : 'var(--muted)', fontWeight: on ? 600 : 400,
-                    borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}>
-                  {v === 'conversation' ? 'Conversation' : `Map · ${detail.frontier!.tiles.length}`}
-                </button>
-              )
-            })}
-            <span style={{ flex: 1 }} />
-            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', paddingBottom: 6 }} title={detail.repoPath}>{detail.repo}</span>
-          </div>
-
-          {view === 'map' && hasMap ? (
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '10px 16px 8px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border)' }}>
-                <span style={{ ...muted, fontSize: T.tiny }}>The effort's map, its spec tickets and its source issue as rings; what blocks what, which PR closes what. Hover a ticket to trace its chain, click it to open its conversation, drag anything to arrange it.</span>
-                <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
-              </div>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <NetworkMap tiles={detail.frontier!.tiles} prs={detail.prs} fogItems={detail.frontier!.fogItems ?? []}
-                  mapIssue={detail.mapIssue ?? null} effort={detail.number} storageKey={`kipo.net.${repo}#${number}`}
-                  highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
-                  statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
-              </div>
-            </div>
-          ) : (<>
           {/* The conversation's own header: the one place to go back to the effort's
-              conversation; tickets are opened from the map. */}
+              conversation; tickets are opened from the board above it. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
             {focus.kind !== 'column' && (
               <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
@@ -364,10 +328,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
               : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
             {slotKey && running.length > 0 && <Running skills={running} />}
+            <span style={{ flex: 1 }} />
+            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
           </div>
           {detail.frontier?.lanes && (<>
             <div ref={summarySplit.ref} style={summarySplit.style}>
-              <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
+              <FrontierSummary frontier={detail.frontier} prs={detail.prs} effort={detail.number} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
                 mapUrl={detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null}
                 next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
             </div>
@@ -383,7 +349,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                 alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
             )}
           </div>
-          </>)}
         </section>
       )}
 
