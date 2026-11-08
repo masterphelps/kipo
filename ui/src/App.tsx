@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { backend, errorText } from './api'
 import { Board } from './Board'
 import { Divider, useStoredSize } from './layout'
+import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
 import { Rail, type RailView } from './Rail'
 import { Settings } from './Settings'
@@ -22,9 +23,14 @@ export default function KiPo() {
   const info = useAppInfo()
   const active = info?.active !== false
   const api = useAppApi()
-  const [items, setItems] = useState<Effort[] | null>(null)
+  // Start from the last answer and the last open view, then refresh.
+  const [items, setItems] = useState<Effort[] | null>(() => cached<Effort[]>('initiatives'))
   const [error, setError] = useState('')
-  const [main, setMain] = useState<Main | null>(null)
+  const [main, setMain] = useState<Main | null>(() => {
+    const m = cached<Main>('main')
+    return m && m.kind === 'initiative' ? { ...m, autoStart: undefined } : m
+  })
+  useEffect(() => { if (main) remember('main', main) }, [main])
   const [railWidth, setRailWidth] = useStoredSize('rail', 228, 168, 400)
 
   // Sessions started before KiPo filed them are moved into its folder once.
@@ -32,7 +38,7 @@ export default function KiPo() {
 
   const load = useCallback(() => {
     backend.listInitiatives()
-      .then(r => { setItems(r.initiatives); setError('') })
+      .then(r => { setItems(r.initiatives); remember('initiatives', r.initiatives); setError('') })
       .catch(e => setError(errorText(e)))
   }, [])
 
@@ -44,8 +50,11 @@ export default function KiPo() {
   }, [load, active])
 
   // First load: open the most recently touched initiative, or the start form.
+  // A remembered effort that has since left the board falls back the same way.
   useEffect(() => {
-    if (main || items === null) return
+    if (items === null) return
+    const gone = main?.kind === 'initiative' && !items.some(i => i.repo === main.repo && i.number === main.number)
+    if (main && !gone) return
     const first = items[0]
     setMain(first ? { kind: 'initiative', repo: first.repo, number: first.number } : { kind: 'new' })
   }, [items, main])

@@ -5,6 +5,7 @@ import { BackendError, backend, errorText } from './api'
 import {
   ActionButton, ErrorLine, PathChip, StartBadge, T, TextButton, fieldStyle, isUrl, muted, pathText, scrollRow, strong, timeAgo,
 } from './common'
+import { cached, remember } from './cache'
 import { Divider, useStoredSize } from './layout'
 import { openSession } from './sessions'
 import {
@@ -34,10 +35,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   onChanged: () => void
 }) {
   const api = useAppApi()
-  const [detail, setDetail] = useState<EffortDetail | null>(null)
+  // Show the last answer for this effort straight away; the first load replaces it.
+  const cacheKey = `effort:${repo}#${number}`
+  const [detail, setDetail] = useState<EffortDetail | null>(() => cached<EffortDetail>(cacheKey))
   const [loadError, setLoadError] = useState('')
   const [actionError, setActionError] = useState('')
-  const [focus, setFocus] = useState<Focus>({ kind: 'column' })
+  const [focus, setFocus] = useState<Focus>(() => cached<Focus>(`${cacheKey}:focus`) ?? { kind: 'column' })
+  useEffect(() => { remember(`${cacheKey}:focus`, focus) }, [cacheKey, focus])
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'skip' | 'remove' | null>(null)
@@ -49,9 +53,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
-      .then(d => { setDetail(d); setLoadError('') })
+      .then(d => { setDetail(d); remember(cacheKey, d); setLoadError('') })
       .catch(e => setLoadError(errorText(e)))
-  }, [repo, number])
+  }, [repo, number, cacheKey])
 
   useEffect(() => {
     load()
@@ -62,7 +66,15 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   const column = detail?.column
   useEffect(() => { setConfirm(null); setActionError(''); setViewColumn(null) }, [column, focus])
-  useEffect(() => { setFocus({ kind: 'column' }) }, [column])
+  // Back to the column view when the effort moves on, but not on first load, so
+  // the remembered ticket or decision stays open when you come back to KiPo.
+  const lastColumn = useRef(column)
+  useEffect(() => {
+    if (column === undefined || lastColumn.current === column) { lastColumn.current = column; return }
+    const moved = lastColumn.current !== undefined
+    lastColumn.current = column
+    if (moved) setFocus({ kind: 'column' })
+  }, [column])
   useEffect(() => { if (!sent) return; const id = setTimeout(() => setSent(null), 4000); return () => clearTimeout(id) }, [sent])
 
   const key = detail ? focusKey(focus, detail.column) : null
