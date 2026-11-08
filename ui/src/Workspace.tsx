@@ -6,7 +6,7 @@ import {
   ActionButton, ErrorLine, PathChip, StartBadge, T, TextButton, fieldStyle, isUrl, muted, pathText, scrollRow, strong, timeAgo,
 } from './common'
 import { cached, remember } from './cache'
-import { FrontierPanel } from './Frontier'
+import { FrontierPanel, type SessionStatus } from './Frontier'
 import { Divider, useStoredSize } from './layout'
 import { openSession } from './sessions'
 import {
@@ -122,15 +122,39 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     t.type === 'build' ? 'implement' : t.type === 'research' ? 'research' : t.type === 'prototype' ? 'prototype' : t.type === 'issue' ? 'triage' : null
   const [startingAgents, setStartingAgents] = useState<string | null>(null)
 
-  const openTile = (t: Tile) => {
-    if (t.state === 'done' || (t.state === 'blocked' && !t.sessionKey && t.type !== 'build')) {
-      window.open(t.url, '_blank', 'noreferrer')
-      return
+  // Clicking a tile only shows its ticket; starting it is the Start button on
+  // the card that appears (or "Start N agents" for the whole AFK frontier).
+  const openTile = (t: Tile) => { setFocus(tileFocus(t)) }
+  const focusTile = detail?.frontier && (focus.kind === 'ticket' || focus.kind === 'decision')
+    ? detail.frontier.tiles.find(t => t.number === focus.t) ?? null
+    : null
+
+  // Each tile's session status, for the dots: is its agent working right now?
+  const [statuses, setStatuses] = useState<Record<number, SessionStatus>>({})
+  const sessionTiles = useMemo(
+    () => (detail?.frontier?.tiles ?? []).filter(t => t.sessionKey && detail?.sessions[t.sessionKey]),
+    [detail],
+  )
+  useEffect(() => {
+    if (!sessionTiles.length) { setStatuses({}); return }
+    let live = true
+    const poll = () => {
+      void Promise.all(sessionTiles.map(t =>
+        api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
+          .then(r => [t.number, r?.running ? 'running' : 'waiting'] as const)
+          .catch(() => null),
+      )).then(rows => {
+        if (!live) return
+        const next: Record<number, SessionStatus> = {}
+        for (const row of rows) if (row) next[row[0]] = row[1]
+        setStatuses(next)
+      })
     }
-    // A session already exists, or the ticket can't start yet: just show it.
-    if (t.sessionKey || t.state === 'blocked' || t.state === 'review') { setFocus(tileFocus(t)); return }
-    void start(tileSkill(t), tileFocus(t))
-  }
+    poll()
+    if (!active) return () => { live = false }
+    const id = setInterval(poll, 5000)
+    return () => { live = false; clearInterval(id) }
+  }, [api, sessionTiles, active, detail])
 
   // "Start N agents": one session per AFK ticket on the frontier, in parallel,
   // leaving this conversation where it is.
@@ -236,20 +260,22 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             </span>
           </div>
           {detail.frontier && (
-            <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents} />
+            <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents}
+              openNumber={focusTile?.number ?? null} statuses={statuses} />
           )}
           {focus.kind !== 'column' && (
             <div style={{ ...scrollRow, padding: '6px 16px', borderBottom: '1px solid var(--border)', fontSize: T.small, gap: 8 }}>
               <TextButton onClick={() => setFocus({ kind: 'column' })}>← {COLUMN_LABELS[detail.column]}</TextButton>
-              {ticket && <a href={ticket.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>#{ticket.number}</a>}
-              {ticket && <span>{ticket.title}</span>}
+              {(focusTile ?? ticket) && <a href={(focusTile ?? ticket)!.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>#{(focusTile ?? ticket)!.number}</a>}
+              {(focusTile ?? ticket) && <span>{(focusTile ?? ticket)!.title}</span>}
             </div>
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
               <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
             ) : (
-              <NotStarted detail={detail} focus={focus} ticket={ticket} starting={starting} onStart={() => start()} />
+              <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
+                onStart={() => start(focusTile ? tileSkill(focusTile) : null)} />
             )}
           </div>
         </section>
@@ -408,17 +434,44 @@ function PhaseChat({ slotKey, onSkill, sent }: { slotKey: string; onSkill: (s: s
   return <ChatEmbed slotKey={slotKey} onSend={onSend} startAtBottom frameless aboveComposer={controls} placeholder="Reply to the agent…" />
 }
 
-function NotStarted({ detail, focus, ticket, starting, onStart }: {
+const TILE_ACTIONS: Record<Tile['type'], { what: string; action: string; body: string }> = {
+  grilling: { what: 'Grill', action: 'Start the grill', body: 'An interview with you to settle this decision. It updates GLOSSARY.md and the ADRs as answers land.' },
+  prototype: { what: 'Prototype', action: 'Start a prototype', body: 'Throwaway code or an outline to react to, so the decision gets made against something concrete.' },
+  research: { what: 'Research', action: 'Run the research', body: 'The agent reads primary sources and leaves a cited note on a research branch. Nothing for you to do.' },
+  task: { what: 'Task', action: 'Start this task', body: 'Work that has to happen before a decision can be made. The agent does what it can and hands you a checklist for the rest.' },
+  build: { what: 'Build', action: 'Implement this ticket', body: '/implement builds this ticket test-first in its own conversation, then reviews it.' },
+  issue: { what: 'Issue', action: 'Triage it', body: 'A follow-up filed on the map. Triage moves it to an agent-ready brief, or asks you what it needs.' },
+}
+
+function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
   detail: EffortDetail
   focus: Focus
   ticket: TicketInfo | null
+  tile: Tile | null
   starting: boolean
   onStart: () => void
 }) {
   let title: string
   let body: string
   let action: string | null
-  if (focus.kind === 'ticket') {
+  if (tile) {
+    const a = TILE_ACTIONS[tile.type]
+    const who = tile.who === 'you' ? 'Your move' : "Agent's move"
+    title = `${a.what} #${tile.number}: ${tile.title}`
+    if (tile.state === 'done') {
+      body = 'Closed. Its resolution is on the issue.'
+      action = null
+    } else if (tile.state === 'blocked') {
+      body = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those are closed.`
+      action = null
+    } else if (tile.state === 'review') {
+      body = `PR ${tile.prs.map(n => `#${n}`).join(', ')} is open for it. Review merges it once it's clean.`
+      action = null
+    } else {
+      body = `${who}. ${a.body}`
+      action = a.action
+    }
+  } else if (focus.kind === 'ticket') {
     if (ticket?.blockedBy.length) {
       title = `#${focus.t} is waiting on ${ticket.blockedBy.map(n => `#${n}`).join(', ')}`
       body = 'It can start once those are closed.'
@@ -452,7 +505,10 @@ function NotStarted({ detail, focus, ticket, starting, onStart }: {
       <div style={{ maxWidth: 400, textAlign: 'center' }}>
         <div style={{ ...strong, fontSize: T.title }}>{title}</div>
         <div style={{ ...muted, fontSize: T.body, margin: '6px 0 14px', lineHeight: 1.5 }}>{body}</div>
-        {action && <Btn primary disabled={starting} onClick={onStart}>{starting ? 'Starting…' : action}</Btn>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
+          {action && <Btn primary disabled={starting} onClick={onStart}>{starting ? 'Starting…' : action}</Btn>}
+          {tile && <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>}
+        </div>
       </div>
     </div>
   )

@@ -67,20 +67,29 @@ export function whoIsUp(counts: FrontierCounts): string {
   return counts.done ? 'all done' : ''
 }
 
-export function TileButton({ tile, onClick, size = 34 }: { tile: Tile; onClick?: () => void; size?: number }) {
+// A session's status dot: pulsing blue while the agent works, amber when it has
+// stopped and the conversation is waiting on you.
+export type SessionStatus = 'running' | 'waiting'
+
+export function TileButton({ tile, onClick, size = 34, open, status }: {
+  tile: Tile; onClick?: () => void; size?: number; open?: boolean; status?: SessionStatus
+}) {
   const c = STATE_META[tile.state]
   const solid = tile.state !== 'blocked'
   const done = tile.state === 'done'
   const hint = tile.state === 'blocked' && tile.blockedBy.length
     ? `#${tile.number} ${tile.title}: waiting on ${tile.blockedBy.map(b => `#${b}`).join(', ')}`
     : `#${tile.number} ${tile.title}: ${c.label}`
+  const sessionHint = status === 'running' ? ' · agent working' : status === 'waiting' ? ' · waiting on you' : ''
   return (
     <button
       type="button"
       onClick={onClick}
-      title={hint}
+      title={hint + sessionHint}
+      aria-current={open ? 'true' : undefined}
       style={{
         position: 'relative', width: size, height: size + 6, flexShrink: 0, borderRadius: 6, padding: 0,
+        outline: open ? '2px solid var(--text-strong, #fff)' : undefined, outlineOffset: 2,
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: onClick ? 'pointer' : 'default',
         fontWeight: 800, fontSize: 13,
         background: done ? 'rgba(63,174,106,.22)' : solid ? c.color : 'transparent',
@@ -90,26 +99,41 @@ export function TileButton({ tile, onClick, size = 34 }: { tile: Tile; onClick?:
     >
       <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>
       {tile.code}
+      {status && (
+        <span
+          className={status === 'running' ? 'kipo-pulse' : undefined}
+          style={{
+            position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 999,
+            background: status === 'running' ? STATE_META.building.color : STATE_META.you.color,
+            boxShadow: '0 0 0 2px var(--bg)',
+          }}
+        />
+      )}
     </button>
   )
 }
 
 // The effort's frontier, under its header: one line saying who's up, the bar,
 // a legend that doubles as segment buttons, and the chosen segment's tiles.
-export function FrontierPanel({ frontier, onTile, onStartAgents, starting }: {
+type Group = TileState | 'fog' | 'open'
+
+export function FrontierPanel({ frontier, onTile, onStartAgents, starting, openNumber, statuses }: {
   frontier: Frontier
   onTile: (t: Tile) => void
   onStartAgents: (tiles: Tile[]) => void
   starting: string | null
+  openNumber: number | null               // the tile whose ticket is showing
+  statuses: Record<number, SessionStatus> // tiles with a session, by ticket number
 }) {
   const { counts, fog, tiles } = frontier
-  const [picked, setPicked] = useState<TileState | 'fog' | null>(null)
+  const [picked, setPicked] = useState<Group | null>(null)
+  const withSession = tiles.filter(t => t.sessionKey)
   const auto: TileState | null = counts.you ? 'you' : counts.afk ? 'afk' : null
-  const sel = picked ?? auto
+  const sel: Group | null = picked ?? auto
   const ready = tiles.filter(t => t.state === 'afk')
   const total = frontierTotal(counts, fog)
   if (!total) return null
-  const tilesShown = sel && sel !== 'fog' ? tiles.filter(t => t.state === sel) : []
+  const tilesShown = sel === 'open' ? withSession : sel && sel !== 'fog' ? tiles.filter(t => t.state === sel) : []
   const ticketsTotal = tiles.length
 
   return (
@@ -138,7 +162,8 @@ export function FrontierPanel({ frontier, onTile, onStartAgents, starting }: {
         )}
       </div>
 
-      <FrontierBar counts={counts} fog={fog} height={12} selected={sel} onSelect={s => setPicked(p => (p === s ? null : s))} />
+      <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
+      <FrontierBar counts={counts} fog={fog} height={12} selected={sel === 'open' ? null : sel} onSelect={s => setPicked(p => (p === s ? null : s))} />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: T.tiny }}>
         {([...TILE_STATES, 'fog'] as const).map(s => {
@@ -156,6 +181,14 @@ export function FrontierPanel({ frontier, onTile, onStartAgents, starting }: {
             </button>
           )
         })}
+        {withSession.length > 0 && (
+          <button type="button" onClick={() => setPicked(p => (p === 'open' ? null : 'open'))}
+            title="Tickets with a conversation: flip between them"
+            style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel === 'open' ? 600 : 400 }}>
+            <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 5, background: STATE_META.building.color }} />
+            {withSession.length} open
+          </button>
+        )}
       </div>
 
       {sel === 'fog' && (
@@ -165,7 +198,9 @@ export function FrontierPanel({ frontier, onTile, onStartAgents, starting }: {
       )}
       {tilesShown.length > 0 && (
         <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'thin' }}>
-          {tilesShown.map(t => <TileButton key={t.number} tile={t} onClick={() => onTile(t)} />)}
+          {tilesShown.map(t => (
+            <TileButton key={t.number} tile={t} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />
+          ))}
         </div>
       )}
     </div>
