@@ -1,22 +1,19 @@
 import { useMemo, useState } from 'react'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
-import { COLUMN_LABELS, type Column, type Effort } from './types'
+import { COLUMNS, COLUMN_LABELS, type Column, type Effort } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
-// filter, and jump between efforts, grouped by where they are in the flow.
-const GROUPS: { title: string; columns: Column[] }[] = [
-  { title: 'Shaping', columns: ['intake', 'shape', 'grill', 'plan'] },
-  { title: 'Building', columns: ['build', 'review'] },
-  { title: 'Done', columns: ['done'] },
-]
+// filter, and jump between efforts, grouped by column, in the board's order.
+const GROUPS: { title: string; columns: Column[] }[] = COLUMNS.map(c => ({ title: COLUMN_LABELS[c], columns: [c] }))
 
 export type RailView = 'board' | 'repos'
 
+// The heading already names the column, so the row shows the repo and tickets.
 function progress(e: Effort): string {
-  const label = COLUMN_LABELS[e.column]
+  const repo = e.repo.split('/').pop() || e.repo
   const c = e.ticketCounts
-  if (!c || !(c.open + c.closed)) return label
-  return `${label}, ${c.closed} of ${c.open + c.closed} tickets done`
+  if (!c || !(c.open + c.closed)) return repo
+  return `${repo}, ${c.closed} of ${c.open + c.closed} tickets done`
 }
 
 export function Rail({ width, items, error, selected, view, onNew, onSelect, onView }: {
