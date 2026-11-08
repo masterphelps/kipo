@@ -114,6 +114,11 @@ class RepoRoutesTest(unittest.TestCase):
         self.storage.record_session("acme/gadgets", 2, "intake", "lp-c")
         status, out = self.app.dispatch("GET", "/sessions", "")
         self.assertEqual((status, sorted(out["sessions"])), (200, ["lp-a", "lp-b", "lp-c"]))
+        # Each session with the repo it works in, so the UI can file it in that repo's subfolder.
+        self.assertEqual(
+            sorted((s["slot"], s["repo"]) for s in out["byRepo"]),
+            [("lp-a", "acme/widgets"), ("lp-b", "acme/widgets"), ("lp-c", "acme/gadgets")],
+        )
 
     def test_start_requires_a_description(self):
         path = os.path.join(self.root, "widgets")

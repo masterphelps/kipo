@@ -89,7 +89,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         // Grill and Plan share one conversation: carry on in it.
         await api.post('/api/chat?ws=1', { slot: res.slotName, message: res.seed })
       } else {
-        await openSession(api, res.slotName, res.seed, title)
+        await openSession(api, repo, res.slotName, res.seed, title)
       }
       if (override) setFocus(override)
       load()

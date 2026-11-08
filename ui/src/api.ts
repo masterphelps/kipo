@@ -70,7 +70,7 @@ export const backend = {
   // The "Run /<skill>: …" line, to send into a session that already exists.
   skillMessage: (repo: string, n: number, skill: string) =>
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
-  listSessions: () => call<{ sessions: string[] }>('/sessions'),
+  listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
   removeInitiative: (repo: string, n: number) =>
     call<{ removed: boolean }>(`${issuePath(repo, n)}/remove`, 'POST', {}),
   frontier: (repo: string, n: number) =>

@@ -112,6 +112,8 @@ Same conventions as Launchpad (prefixes `/apps/kipo/api`, `/api/apps/kipo`, `/ap
 `{error, code}` errors; GET handlers read the query string). Kept unchanged from Launchpad:
 `/health`, `/config`, `/repos/discover`, `POST /repos`, `/repos/remove`, `/browse`, `/sessions`,
 `…/remove`, `…/doc?href=`, `…/frontier` (wayfinder map, Shape only).
+`/sessions` also returns `byRepo: [{slot, repo}]`, so the UI can file each session in the
+sidebar folder `KiPo / <repo name>`.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|

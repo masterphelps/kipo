@@ -77,6 +77,22 @@ class Storage:
                 names += [v for v in entry.values() if isinstance(v, str) and v not in names]
         return names
 
+    def sessions_by_repo(self):
+        """Every session KiPo has started, each with the repo slug it works in."""
+        data = self._read("sessions.json", {})
+        if not isinstance(data, dict):
+            return []
+        out, seen = [], set()
+        for key, entry in data.items():
+            repo = str(key).rsplit("#", 1)[0]
+            if not isinstance(entry, dict):
+                continue
+            for slot in entry.values():
+                if isinstance(slot, str) and slot not in seen:
+                    seen.add(slot)
+                    out.append({"slot": slot, "repo": repo})
+        return out
+
     def record_session(self, repo, number, key, slot_name):
         with self._lock:
             data = self._read("sessions.json", {})

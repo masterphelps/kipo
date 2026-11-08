@@ -32,7 +32,7 @@
       {
         "route": "/apps/kipo",
         "label": "KiPo",
-        "icon": "Columns3"
+        "icon": "FlaskConical"
       }
     ]
   },

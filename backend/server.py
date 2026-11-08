@@ -176,7 +176,7 @@ class App:
         return self.storage.save_config({"repos": kept})
 
     def list_sessions(self, body):
-        return {"sessions": self.storage.all_sessions()}
+        return {"sessions": self.storage.all_sessions(), "byRepo": self.storage.sessions_by_repo()}
 
     def list_initiatives(self, body):
         return self.initiatives.list()
