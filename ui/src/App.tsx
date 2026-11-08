@@ -1,21 +1,17 @@
 import { useAppApi, useAppInfo } from '@kirocrew/app-sdk'
 import { useCallback, useEffect, useState } from 'react'
 import { backend, errorText } from './api'
-import { Board } from './Board'
 import { Divider, useStoredSize } from './layout'
 import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
-import { Rail, RailStrip, type RailView } from './Rail'
+import { Rail, RailStrip } from './Rail'
 import { MapsPage } from './MapsPage'
-import { Settings } from './Settings'
 import { StartPlan } from './StartPlan'
 import type { Effort } from './types'
 import { Workspace } from './Workspace'
 
 type Main =
   | { kind: 'new' }
-  | { kind: 'board' }
-  | { kind: 'repos' }
   | { kind: 'maps' }
   | { kind: 'initiative'; repo: string; number: number; autoStart?: boolean }
 
@@ -30,7 +26,9 @@ export default function KiPo() {
   const [error, setError] = useState('')
   const [main, setMain] = useState<Main | null>(() => {
     const m = cached<Main>('main')
-    return m && m.kind === 'initiative' ? { ...m, autoStart: undefined } : m
+    // Board and Repos pages are gone; a remembered one falls back to the first effort.
+    if (!m || !['new', 'maps', 'initiative'].includes(m.kind)) return null
+    return m.kind === 'initiative' ? { ...m, autoStart: undefined } : m
   })
   useEffect(() => { if (main) remember('main', main) }, [main])
   const [railWidth, setRailWidth] = useStoredSize('rail', 228, 168, 400)
@@ -84,12 +82,11 @@ export default function KiPo() {
         items={items}
         error={error}
         selected={selected}
-        view={main?.kind === 'board' || main?.kind === 'repos' || main?.kind === 'maps' ? main.kind : null}
+        view={main?.kind === 'maps' ? 'maps' : null}
         onNew={() => setMain({ kind: 'new' })}
         onMaps={() => setMain({ kind: 'maps' })}
         onSelect={i => open(i)}
         onHide={hide}
-        onView={(v: RailView) => setMain({ kind: v })}
       />
       <Divider direction="vertical" label="Resize the effort list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
       </>) : (
@@ -101,7 +98,7 @@ export default function KiPo() {
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '40px 24px' }}>
             <StartPlan
               onStarted={i => { load(); open(i, true) }}
-              onCancel={items && items.length ? () => setMain(items[0] ? { kind: 'initiative', repo: items[0].repo, number: items[0].number } : { kind: 'board' }) : undefined}
+              onCancel={items && items.length ? () => setMain(items[0] ? { kind: 'initiative', repo: items[0].repo, number: items[0].number } : { kind: 'new' }) : undefined}
             />
           </div>
         )}
@@ -109,12 +106,6 @@ export default function KiPo() {
           <MapsPage
             onOpened={first => { load(); if (first) setMain({ kind: 'initiative', repo: first.repo, number: first.number }) }}
             onRestored={load} />
-        )}
-        {main?.kind === 'board' && <Board items={items} onOpen={i => open(i)} onRemoved={load} />}
-        {main?.kind === 'repos' && (
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px' }}>
-            <Settings onSaved={load} />
-          </div>
         )}
         {main?.kind === 'initiative' && (
           <Workspace
@@ -124,7 +115,7 @@ export default function KiPo() {
             autoStart={main.autoStart}
             active={active}
             onChanged={load}
-            onRemoved={() => { load(); setMain({ kind: 'board' }) }}
+            onRemoved={() => { load(); setMain(null) }}
           />
         )}
       </main>

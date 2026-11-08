@@ -7,7 +7,7 @@ import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
 // filter, and jump between efforts. One flat list, most recently touched first;
 // each row shows its Decide and Deliver bars, or its stage before it has tickets.
 
-export type RailView = 'board' | 'repos' | 'maps'
+export type RailView = 'maps'
 
 // Once an effort has tickets (or a mapped fog), its bars say where it is; before
 // that, its stage does.
@@ -35,7 +35,7 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, view, onNew, onMaps, onSelect, onHide, onView, onCollapse }: {
+export function Rail({ width, items, error, selected, view, onNew, onMaps, onSelect, onHide, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
@@ -46,7 +46,6 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
   onMaps: () => void
   onSelect: (i: Effort) => void
   onHide: (i: Effort) => void
-  onView: (v: RailView) => void
 }) {
   const [filter, setFilter] = useState('')
   const [hover, setHover] = useState<string | null>(null)
@@ -172,27 +171,6 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
         )}
       </div>
 
-      <div style={{ borderTop: '1px solid var(--border)', padding: '6px 8px', display: 'flex', gap: 2 }}>
-        {(['board', 'repos'] as const).map(v => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => onView(v)}
-            style={{
-              fontSize: T.small,
-              padding: '4px 8px',
-              borderRadius: 4,
-              cursor: 'pointer',
-              background: view === v ? 'var(--bg-elevated)' : 'transparent',
-              color: view === v ? 'var(--text)' : 'var(--muted)',
-            }}
-          >
-            {v === 'board' ? 'Board' : 'Repos'}
-          </button>
-        ))}
-        <span style={{ flex: 1 }} />
-        <span style={{ ...muted, fontSize: T.tiny, alignSelf: 'center' }}>KiPo</span>
-      </div>
     </nav>
   )
 }

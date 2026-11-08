@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { backend, errorText } from './api'
 import { ActionButton, ErrorLine, T, fieldStyle, muted, strong, timeAgo } from './common'
-import type { HiddenEffort, MapListing } from './types'
+import type { HiddenEffort, MapListing, RepoConfig } from './types'
 
 // Pick the wayfinder maps to work on. Every open map in your repos is listed,
 // grouped by repo; tick the ones you want and open them. A map whose repo KiPo
@@ -20,10 +20,27 @@ export function MapsPage({ onOpened, onRestored }: {
   const [filter, setFilter] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [repos, setRepos] = useState<RepoConfig[]>([])
 
-  const load = () => backend.listMaps()
-    .then(r => { setMaps(r.maps); setHidden(r.hidden); setError('') })
-    .catch(e => { setError(errorText(e)); setMaps([]) })
+  const load = () => Promise.all([
+    backend.listMaps()
+      .then(r => { setMaps(r.maps); setHidden(r.hidden); setError('') })
+      .catch(e => { setError(errorText(e)); setMaps([]) }),
+    backend.getConfig().then(c => setRepos(c?.repos ?? [])).catch(() => undefined),
+  ])
+
+  // Stop watching a repo: its efforts and maps leave the sidebar. Nothing on
+  // GitHub or on disk changes; opening one of its maps adds it back.
+  const removeRepo = async (slug: string) => {
+    try {
+      const c = await backend.removeRepo(slug)
+      setRepos(c.repos)
+      onRestored()
+      await load()
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
   useEffect(() => { void load() }, [])
 
   const key = (m: { repo: string; number: number }) => `${m.repo}#${m.number}`
@@ -150,6 +167,24 @@ export function MapsPage({ onOpened, onRestored }: {
                   <span style={{ flex: 1, minWidth: 0, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.title}</span>
                   <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>{h.repo.split('/').pop()} #{h.number}</span>
                   <ActionButton onClick={() => void restore(h)}>Restore</ActionButton>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {repos.length > 0 && (
+          <section style={box}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+              <span style={{ ...strong, fontSize: T.body }}>Repos KiPo watches</span>
+              <span style={{ ...muted, fontSize: T.tiny }}>Added when you open a map or start an effort in one. Removing only stops KiPo watching it.</span>
+            </div>
+            <ul style={{ ...plainList, gap: 2 }}>
+              {repos.map(r => (
+                <li key={r.slug} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px' }}>
+                  <span style={{ fontSize: T.body }}>{r.slug}</span>
+                  <span style={{ ...muted, fontSize: T.tiny, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.path}</span>
+                  <ActionButton danger onClick={() => void removeRepo(r.slug)}>Remove</ActionButton>
                 </li>
               ))}
             </ul>
