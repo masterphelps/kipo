@@ -11,6 +11,25 @@ def state_path(repo_path, number):
     return os.path.join(state_dir(repo_path, number), "state.json")
 
 
+def session_state_path(repo_path, number, key):
+    """A ticket conversation's own state file: <repoPath>/.kipo/<n>/<key>.json
+    (``build-t22``, ``shape-t24``, ``build-spec``). The effort's own conversation
+    keeps state.json, so conversations running side by side don't overwrite
+    each other's decisions or skills."""
+    return os.path.join(state_dir(repo_path, number), f"{key}.json")
+
+
+def read_session_state(repo_path, number, key):
+    if not repo_path:
+        return None
+    try:
+        with open(session_state_path(repo_path, number, key), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def read_state(repo_path, number):
     """The parsed state.json, or None when it is missing or unreadable."""
     if not repo_path:

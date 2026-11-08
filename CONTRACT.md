@@ -222,3 +222,16 @@ between columns, and there is no Next or Skip.
 - **Keep agents on the frontier** (per effort, in the browser): Matt's
   deterministic loop, run by KiPo while the page is open. Each Deliver tile that
   becomes `afk` (its blockers closed) gets an `implement` session, once.
+
+## One state file per conversation
+
+The effort's own conversation writes `.kipo/<n>/state.json`. A ticket's conversation
+writes its own `.kipo/<n>/<key>.json` (`build-t22.json`, `shape-t24.json`,
+`build-spec.json`); the seed's `State file:` line names it. The detail returns them
+as `sessionStates: {key: state}` and merges their artifacts into `artifacts`.
+
+The UI shows the open conversation's `skillsUsed` as "Running …" in its header and
+its own decision cards on the right. There is no skill menu: KiPo starts each
+conversation with the right skill, the effort's next step is on the right, and the
+chat box offers only `/wait-what` (a reaction to the last message). A grill can be
+started with `/grill-me` instead (no docs); any other skill can be typed.

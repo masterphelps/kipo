@@ -228,14 +228,14 @@ class ListTests(Columns):
 
 
 class SessionTests(Columns):
-    def seed(self, column, k, path, extra=(), run=None, n=7):
+    def seed(self, column, k, path, extra=(), run=None, n=7, state="state.json"):
         lines = [
             f'[KiPo] Effort #{n} "Widgets" in {REPO}',
             f"Column: {column} ({k} of {len(path)} on this path: {' → '.join(path)})",
             "Start: idea",
             f"Repo checkout: {self.checkout}",
             f"Effort issue: https://github.com/{REPO}/issues/{n}",
-            f"State file: {self.checkout}/.kipo/{n}/state.json",
+            f"State file: {self.checkout}/.kipo/{n}/{state}",
             *extra,
             f"Load the skill `kipo-{column}` and follow it. Destination: Ship widgets.",
         ]
@@ -286,6 +286,7 @@ class SessionTests(Columns):
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual(out["seed"], self.seed(
             "build", 3, PATHS["idea"], extra=['Ticket: #20 "Add export"', "Blocked by: #19 (closed)"], run="implement",
+            state="build-t20.json",
         ))
         d = self.get()[1]
         self.assertEqual(d["sessions"]["build-t20"], "kipo-acme-widgets-7-build-t20")
@@ -550,3 +551,24 @@ class TicketCardTests(Columns):
         self.assertEqual(status, 200, card)
         self.assertEqual((card["state"], card["body"], card["comments"]), ("CLOSED", "Make it so.", 2))
         self.assertEqual(card["lastComment"]["body"], "Resolved: done in #36.")
+
+
+class SessionStateTests(Columns):
+    """Each ticket conversation has its own state file, read back per session."""
+
+    def test_ticket_state_is_its_own_and_read_back(self):
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        out = self.post("/session", {"column": "build", "ticket": 20})[1]
+        path = f"{self.checkout}/.kipo/7/build-t20.json"
+        self.assertIn(f"State file: {path}", out["seed"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"skillsUsed": ["implement", "tdd"], "decisions": [], "gate": [],
+                       "artifacts": [{"label": "Notes", "href": "docs/notes.md"}]}, f)
+        d = self.get()[1]
+        self.assertEqual(d["sessionStates"]["build-t20"]["skillsUsed"], ["implement", "tdd"])
+        self.assertIn("docs/notes.md", [a["href"] for a in d["artifacts"]])
+        # The effort's own conversation still uses state.json.
+        main = self.post("/session", {"column": "build"})[1]
+        self.assertIn(f"State file: {self.checkout}/.kipo/7/state.json", main["seed"])

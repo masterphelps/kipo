@@ -241,7 +241,9 @@ def session_name(repo, number, key):
     return slugify(f"kipo-{owner}-{name}-{number}-{key}")
 
 
-def render_seed(effort, repo_path, column, ticket=None, skill=None):
+def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=None):
+    """The first message of a KiPo conversation. ``state_key`` gives a ticket's
+    conversation its own state file; the effort's own conversation uses state.json."""
     n, path = effort["number"], effort["path"]
     k, total = position(column, path)
     lines = [
@@ -250,7 +252,7 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None):
         f"Start: {effort['start']}",
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
-        f"State file: {col_state.state_path(repo_path, n)}",
+        f"State file: {col_state.session_state_path(repo_path, n, state_key) if state_key else col_state.state_path(repo_path, n)}",
     ]
     if ticket is not None:
         lines.append(f'Ticket: #{ticket["number"]} "{ticket["title"]}"')
@@ -494,6 +496,14 @@ class Initiatives:
         artifacts = merge_artifacts(body["artifacts"], col_state.state_artifacts(st))
         meta = derive_meta(meta, artifacts)
         sessions = self.storage.get_sessions(repo, number)
+        # Each ticket conversation's own state: its skills, decisions and documents.
+        session_states = {}
+        for key in sessions:
+            if key not in COLUMNS:
+                ss = col_state.read_session_state(repo_path, number, key)
+                if ss:
+                    session_states[key] = ss
+                    artifacts = merge_artifacts(artifacts, col_state.state_artifacts(ss))
 
         nodes, tickets_note, tickets_error = [], None, None
         try:
@@ -556,6 +566,7 @@ class Initiatives:
             "tickets": tickets,
             "prs": prs,
             "frontier": front,
+            "sessionStates": session_states,
         }
         if tickets_note:
             detail["ticketsNote"] = tickets_note
@@ -788,7 +799,8 @@ class Initiatives:
         self.storage.record_session(repo, number, key, slot)
         return {
             "slotName": slot,
-            "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill),
+            "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill,
+                                state_key=None if key in COLUMNS else key),
             "existing": False,
         }
 

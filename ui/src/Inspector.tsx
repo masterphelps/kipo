@@ -73,13 +73,14 @@ function TileList({ tiles, onOpen, empty }: { tiles: Tile[]; onOpen: (t: Tile) =
 
 // Read-only: the ticket's facts. Starting it and running skills on it happen
 // with its conversation, on the left.
-export function TicketInspector({ repo, number, detail, tile, hasSession, onOpenTile }: {
+export function TicketInspector({ repo, number, detail, tile, hasSession, onOpenTile, decisions }: {
   repo: string
   number: number
   detail: EffortDetail
   tile: Tile
   hasSession: boolean
   onOpenTile: (t: Tile) => void
+  decisions: ReactNode // this ticket's conversation's decision cards
 }) {
   const [card, setCard] = useState<TicketCard | null>(null)
   const [error, setError] = useState('')
@@ -124,6 +125,8 @@ export function TicketInspector({ repo, number, detail, tile, hasSession, onOpen
           <a href={tile.url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: 'var(--accent)', fontSize: T.small, marginTop: 8 }}>Open on GitHub</a>
         </div>
       </div>
+
+      {decisions}
 
       {prs.length > 0 && (
         <Section title={prs.length === 1 ? 'Pull request' : 'Pull requests'}>

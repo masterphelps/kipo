@@ -3,7 +3,7 @@ import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
 import {
-  ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, scrollRow, strong,
+  ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, strong,
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierPanel, type SessionStatus } from './Frontier'
@@ -11,8 +11,8 @@ import { EffortInspector, TicketInspector, nextStep } from './Inspector'
 import { Divider, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
-  BUTTONS, CHIPS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
-  STAGES, STAGE_COLUMNS, stageOfColumn,
+  COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
+  STAGES, stageOfColumn,
   type Column, type Decision, type EffortDetail, type PhaseState, type Stage, type TicketInfo, type Tile,
 } from './types'
 
@@ -289,10 +289,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
   const stage: Stage = (detail.frontier?.stage && STAGES.includes(detail.frontier.stage) ? detail.frontier.stage : null) ?? stageOfColumn(detail.column)
-  // Skills for what's open: the tile's type, else the effort's stage. The any-time
-  // controls already sit above the chat box, so they aren't repeated.
-  const rawSkills = (focusTile ? TILE_SKILLS[focusTile.type] : null) ?? stageSkills(stage)
-  const skills = { buttons: rawSkills.buttons.filter(b => !SESSION_CONTROLS.includes(b)), chips: rawSkills.chips }
+  // The open conversation's own state (CONTRACT.md: one state file per
+  // conversation): the effort's own uses state.json, a ticket's its own file.
+  const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
+  const running = convState?.skillsUsed ?? []
   const next = nextStep(detail, {
     openTile,
     startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
@@ -320,6 +320,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             {slotKey
               ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
               : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
+            {slotKey && running.length > 0 && <Running skills={running} />}
             <span style={{ flex: 1 }} />
             <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
           </div>
@@ -328,12 +329,11 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
-              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent}
-                skills={skills.buttons} skillsLabel={focusTile ? `For #${focusTile.number}:` : 'For this effort:'} />
+              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
             ) : (
               <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
                 onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
-                skills={skills.buttons.filter(s => !focusTile || s !== tileSkill(focusTile))} onSkill={s => start(s)} />
+                alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
             )}
           </div>
         </section>
@@ -358,12 +358,13 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
           {focusTile ? (
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              hasSession={!!slotKey} onOpenTile={openTile} />
+              hasSession={!!slotKey} onOpenTile={openTile}
+              decisions={<Decisions state={convState} slotKey={slotKey} onError={setActionError} />} />
           ) : (
             <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}
               busy={busy || starting || !!startingAgents} autopilot={autopilot} onAutopilot={setAutopilot}
               showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
-              decisions={focus.kind === 'column' ? <Decisions state={detail.state} slotKey={slotKey} onError={setActionError} /> : null}
+              decisions={<Decisions state={convState} slotKey={slotKey} onError={setActionError} />}
               onOpenTile={openTile} />
           )}
         </div>
@@ -481,47 +482,26 @@ function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string 
   )
 }
 
-function PhaseChat({ slotKey, onSkill, sent, skills, skillsLabel }: {
+function PhaseChat({ slotKey, onSkill, sent }: {
   slotKey: string
   onSkill: (s: string) => void
   sent: string | null
-  skills: string[]      // the skills that fit what's open
-  skillsLabel: string
 }) {
   const api = useAppApi()
   const onSend = useCallback(
     (message: string, meta?: ChatEmbedSendMeta) => api.post('/api/chat?ws=1', { slot: slotKey, message, meta }),
     [api, slotKey],
   )
-  // Every skill you can press lives here, one click above the chat box: the ones
-  // that fit what's open, then the ones that work any time. Each sends
-  // "Run /<skill>" into this conversation.
-  const pill = (s: string, accent: boolean) => (
-    <button key={s} type="button" onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
-      style={{
-        flexShrink: 0, height: 22, padding: '0 8px', borderRadius: 999, fontSize: T.tiny, cursor: 'pointer', whiteSpace: 'nowrap',
-        border: `1px solid ${accent ? 'var(--accent)' : 'var(--border)'}`, background: 'transparent', color: accent ? 'var(--accent)' : 'var(--text)',
-      }}>
-      /{s}
-    </button>
-  )
+  // No skill menu: KiPo starts each conversation with the right skill, and the
+  // effort's next step is on the right. One reaction is worth a click, because
+  // it answers the agent's last message: /wait-what. Any other skill can be typed.
   const controls = (
-    <div style={{ ...scrollRow, gap: 2, padding: '0 2px 4px' }}>
-      {skills.length > 0 && (
-        <>
-          <span style={{ ...muted, fontSize: T.tiny, marginRight: 4 }}>{skillsLabel}</span>
-          {skills.map(s => pill(s, true))}
-          <span aria-hidden style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 6px', flexShrink: 0 }} />
-        </>
-      )}
-      <span style={{ ...muted, fontSize: T.tiny, marginRight: 4 }}>Any time:</span>
-      {SESSION_CONTROLS.map(s => (
-        <button key={s} type="button" onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
-          style={{ flexShrink: 0, height: 22, padding: '0 8px', borderRadius: 999, fontSize: T.tiny, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          /{s}
-        </button>
-      ))}
-      {sent && <span style={{ ...muted, fontSize: T.tiny, marginLeft: 6 }}>Sent /{sent}</span>}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px 4px', fontSize: T.tiny }}>
+      <button type="button" onClick={() => onSkill('wait-what')} title={SKILL_HINTS['wait-what']}
+        style={{ background: 'transparent', padding: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: T.tiny, textDecoration: 'underline dotted' }}>
+        /wait-what: say that again in plain words
+      </button>
+      {sent && <span style={muted}>· sent /{sent}</span>}
     </div>
   )
   return <ChatEmbed slotKey={slotKey} onSend={onSend} startAtBottom frameless aboveComposer={controls} placeholder="Reply to the agent…" />
@@ -537,16 +517,16 @@ const TILE_ACTIONS: Record<Tile['type'], { what: string; action: string; body: s
 }
 
 // Where a conversation would be, when there isn't one: why not, and the one
-// button that starts it (plus the other skills it could start with). The
+// button that starts it (plus a real alternative, where there is one). The
 // ticket's own details are on the right; this doesn't repeat them.
-function NotStarted({ detail, focus, ticket, tile, starting, onStart, skills, onSkill }: {
+function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternatives, onSkill }: {
   detail: EffortDetail
   focus: Focus
   ticket: TicketInfo | null
   tile: Tile | null
   starting: boolean
   onStart: () => void
-  skills: string[]
+  alternatives: Alternative[]
   onSkill: (s: string) => void
 }) {
   let title: string
@@ -611,17 +591,16 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, skills, on
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', alignItems: 'center' }}>
           {action && <Btn primary disabled={starting} onClick={onStart}>{starting ? 'Starting…' : action}</Btn>}
         </div>
-        {action && skills.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', alignItems: 'center', marginTop: 12 }}>
-            <span style={{ ...muted, fontSize: T.tiny, marginRight: 2 }}>or start with</span>
-            {skills.map(s => (
-              <button key={s} type="button" disabled={starting} onClick={() => onSkill(s)} title={SKILL_HINTS[s]}
-                style={{ height: 22, padding: '0 8px', borderRadius: 999, fontSize: T.tiny, border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)', cursor: starting ? 'default' : 'pointer' }}>
-                /{s}
-              </button>
-            ))}
+        {action && alternatives.map(a => (
+          <div key={a.skill} style={{ marginTop: 10, fontSize: T.small }}>
+            <span style={muted}>or </span>
+            <button type="button" disabled={starting} onClick={() => onSkill(a.skill)} title={SKILL_HINTS[a.skill]}
+              style={{ background: 'transparent', padding: 0, color: 'var(--accent)', cursor: starting ? 'default' : 'pointer', fontSize: T.small }}>
+              /{a.skill}
+            </button>
+            <span style={muted}> {a.label}</span>
           </div>
-        )}
+        ))}
       </div>
     </div>
   )
@@ -666,24 +645,30 @@ function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClos
   )
 }
 
-// Skills for what's open: a tile's type, or a stage (its columns' buttons and chips).
-type SkillSet = { buttons: string[]; chips: string[] }
-const TILE_SKILLS: Record<Tile['type'], SkillSet> = {
-  grilling: { buttons: ['grill-with-docs', 'grill-me'], chips: ['grilling', 'domain-modeling'] },
-  prototype: { buttons: [], chips: ['prototype', 'codebase-design'] },
-  research: { buttons: [], chips: ['research'] },
-  task: { buttons: [], chips: ['wizard'] },
-  build: { buttons: ['implement'], chips: ['tdd', 'diagnosing-bugs', 'code-review', 'pr'] },
-  issue: { buttons: ['triage', 'implement'], chips: ['tdd', 'code-review'] },
+const isColumn = (key: string) => (COLUMNS as readonly string[]).includes(key)
+
+// The one real choice when starting: how to start it. Only where Matt's skills
+// offer a genuine alternative; everywhere else Start runs the right skill.
+type Alternative = { skill: string; label: string }
+function startAlternatives(tile: Tile | null, column: Column | null): Alternative[] {
+  const grill = tile ? tile.type === 'grilling' : column === 'grill'
+  return grill ? [{ skill: 'grill-me', label: 'without writing docs' }] : []
 }
-const uniq = (xs: string[]) => [...new Set(xs)]
-function stageSkills(stage: Stage): SkillSet {
-  const cols = STAGE_COLUMNS[stage]
-  const buttons = uniq(cols.flatMap(c => BUTTONS[c]))
-  const chips = uniq(cols.flatMap(c => CHIPS[c])).filter(c => !buttons.includes(c))
-  // Matt retros each run, not only the whole effort.
-  if (stage === 'deliver' && !buttons.includes('retro')) buttons.push('retro')
-  return { buttons, chips }
+
+// What the open conversation is running: the skills its agent has loaded, from
+// its own state file. Hover a name for what it does.
+function Running({ skills }: { skills: string[] }) {
+  return (
+    <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+      Running{' '}
+      {skills.map((s, i) => (
+        <span key={s}>
+          {i > 0 && ' · '}
+          <span title={SKILL_HINTS[s] ?? s} style={{ color: 'var(--text)', cursor: 'help' }}>{s}</span>
+        </span>
+      ))}
+    </span>
+  )
 }
 
 function Block({ title, aside, children, collapsible, defaultOpen = true }: {

@@ -215,6 +215,8 @@ export type EffortDetail = Effort & {
   gatePassed: boolean
   sessions: Record<string, string>
   history?: Partial<Record<Column, PhaseState>>
+  // Each ticket conversation's own state file, by session key (build-t22, shape-t24).
+  sessionStates?: Record<string, PhaseState>
   tickets: TicketInfo[]
   prs: PrInfo[]
   frontier?: Frontier
