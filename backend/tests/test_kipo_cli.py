@@ -1,0 +1,79 @@
+"""The conductor's command line: frontier and dispatch, against a fake effort."""
+import contextlib
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+from fakes import FakeGh  # noqa: F401  (puts the backend on sys.path)
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import kipo_cli  # noqa: E402
+
+
+def fake_detail(repo_path):
+    tiles = [
+        {"number": 4, "title": "T4", "type": "build", "lane": "deliver", "state": "afk", "blockedBy": []},
+        {"number": 5, "title": "T5", "type": "build", "lane": "deliver", "state": "blocked", "blockedBy": [4]},
+    ]
+    return {"repoPath": repo_path, "frontier": {"tiles": tiles, "fogItems": [], "fogLeft": []}, "prs": []}
+
+
+class Cli(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        svc = mock.MagicMock()
+        svc.detail.return_value = fake_detail(self.tmp)
+        self.patches = [mock.patch.object(kipo_cli, "Initiatives", return_value=svc),
+                        mock.patch.object(kipo_cli, "Gh"), mock.patch.object(kipo_cli, "Storage")]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = kipo_cli.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def queue(self):
+        with open(os.path.join(self.tmp, ".kipo", "7", "conductor.json")) as f:
+            return json.load(f)["dispatch"]
+
+    def test_frontier_prints_threads(self):
+        code, out, _ = self.run_cli("frontier", "acme/widgets", "7")
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual([t["id"] for t in data["threads"]], ["t4", "t5", "retro"])
+
+    def test_dispatch_queues_once(self):
+        code, out, _ = self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4")
+        self.assertEqual((code, json.loads(out)["queued"]), (0, True))
+        code, out, _ = self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4")
+        self.assertEqual(json.loads(out)["queued"], False)
+        self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review")
+        self.assertEqual([(e.get("ticket"), e.get("stage")) for e in self.queue()], [(4, None), (None, "review")])
+
+    def test_dispatch_refuses_blocked_or_unknown(self):
+        self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "5")[0], 2)
+        self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "99")[0], 2)
+
+    def test_dispatch_keeps_the_rest_of_the_state_file(self):
+        os.makedirs(os.path.join(self.tmp, ".kipo", "7"))
+        with open(os.path.join(self.tmp, ".kipo", "7", "conductor.json"), "w") as f:
+            json.dump({"decisions": [{"id": "d1"}]}, f)
+        self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4")
+        with open(os.path.join(self.tmp, ".kipo", "7", "conductor.json")) as f:
+            data = json.load(f)
+        self.assertEqual(data["decisions"], [{"id": "d1"}])
+        self.assertEqual(len(data["dispatch"]), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

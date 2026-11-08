@@ -107,10 +107,15 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   (or right-click) opens it on GitHub or removes it from the sidebar (nothing changes on
   GitHub). **Repos** shows each watched repo as a tree of its efforts and open maps; a green dot
   means it's on the sidebar, and clicking the dot adds or removes it. Repos are added there.
-- **Middle**: the **Next** line (the one next step, with its button), then every ticket as a
-  tile in a grid: Decide and Deliver by HITL, Agent (AFK), In progress, Blocked, Done, and
-  the fog. A tile opens its ticket's conversation. Below: the open conversation. A **Map** tab
-  draws the blocking graph.
+- **Middle**: the **Next** line (the one next step, with its button); the **conductor strip**
+  (Watch, Dispatch, Ask you, Merge, Close, each with the effort's numbers now, and whether
+  the conductor is not started, watching or running); then the seven **KiPo skill columns**
+  (Intake, Shape, Grill, Plan, Build, Review, Done) under Decide and Deliver, each with Matt's
+  skills as chips (a chip runs that skill in that stage's own conversation) and the effort's
+  tickets where they stand, each with its state (HITL, Agent, In progress, In review, Blocked,
+  Done). Loose ends sit where they're dealt with: fog and a closed map's leftovers in Shape,
+  the hand-over in Plan, a PR closing no ticket in Review. A ticket opens its conversation.
+  Below: the open conversation, which by default is the conductor.
 - **Right**: what's open. A ticket: its card, where it sits (everything upstream and
   downstream, and what closing it opens up), its decisions, PRs, how it ended, what it asks.
   The effort: its decisions, Autopilot, Destination and Documents.
@@ -121,11 +126,31 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
+## The conductor
+
+One long-lived agent per effort (`agents/kipo-conductor.json`, skill `kipo-conductor`). It is
+the effort's own conversation and never does the work itself.
+
+- **Watch**: on every wake it runs `python3 <app>/backend/kipo_cli.py frontier <repo> <n>`,
+  which prints the open threads (`kipo/conductor.py`: each with its stage, KiPo skill, owner
+  HITL / Agent / Running / Blocked, and next action) from GitHub through KiPo's own frontier
+  code. It works from that output only. It wakes when the human writes, and when the page sees
+  a ticket's or PR's state change (`[KiPo] Frontier changed: …`, sent only if it's not mid-turn;
+  what it last saw is remembered per effort in the browser).
+- **Dispatch**: `kipo_cli.py dispatch <repo> <n> --ticket <t> | --stage shape|plan|review|done`
+  appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`); the page starts each
+  queued session once while it's open (skipping a ticket that's done, blocked or already has
+  its conversation, and a stage conversation that exists).
+- **Ask you**: every HITL thread as one batch of decision cards in its state file.
+- **Merge**: through the kipo-review conversation it dispatches (Merge Danger).
+- **Close**: dispatches kipo-done when the retro is the only thread, then closes the effort issue.
+
 ## Conversations, keys and seeds
 
 | Conversation | Key | Skill | State file |
 |---|---|---|---|
-| The effort's own | its legacy label (`intake`, `grill`, `shape`, `build`) | `kipo-<label>` | `.kipo/<n>/state.json` |
+| The effort's own: the conductor | `conductor` (agent `kipo-conductor`) | `kipo-conductor` | `.kipo/<n>/conductor.json` |
+| An earlier effort conversation | its legacy label (`intake`, `grill`, `shape`, `build`) | `kipo-<label>` | `.kipo/<n>/state.json` |
 | A Decide ticket | `shape-t<t>` | `kipo-shape`, plus its type's skill | `.kipo/<n>/shape-t<t>.json` |
 | A Deliver ticket | `build-t<t>` | `kipo-build` + `implement` | `.kipo/<n>/build-t<t>.json` |
 | Every ready ticket | `build-spec` | `kipo-build` + `implement-spec` | `.kipo/<n>/build-spec.json` |

@@ -2,10 +2,14 @@
   "name": "kipo",
   "version": "0.1.0",
   "displayName": "KiPo",
-  "description": "Matt Pocock's engineering flow for your repos: each effort's tickets as tiles in two lanes, Decide and Deliver, with the next step on top and a conversation per ticket that runs the right Pocock skills. Open wayfinder maps from your repos as efforts.",
+  "description": "Matt Pocock's engineering flow for your repos: each effort run by a conductor agent, its tickets in seven columns (one per KiPo skill), and a conversation per ticket that runs the right Pocock skills. Open wayfinder maps from your repos as efforts.",
   "author": "masterphelps",
   "iconPath": "assets/icon.png",
+  "agents": [
+    "agents/kipo-conductor.json"
+  ],
   "skills": [
+    "skills/kipo-conductor",
     "skills/kipo-intake",
     "skills/kipo-shape",
     "skills/kipo-grill",

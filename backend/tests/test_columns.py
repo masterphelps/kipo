@@ -327,6 +327,16 @@ class SessionTests(Columns):
         status, out = self.post("/session", {"column": "grill", "mode": "implement-spec"})
         self.assertEqual((status, out["code"]), (400, "invalid_mode"))
 
+    def test_conductor_session(self):
+        self.make_effort(column="build")
+        status, out = self.post("/session", {"column": "build", "mode": "conductor"})
+        self.assertEqual(status, 200, out)
+        self.assertEqual((out["slotName"], out["agent"]), ("kipo-acme-widgets-7-conductor", "kipo-conductor"))
+        self.assertIn("Load the skill `kipo-conductor`", out["seed"])
+        self.assertIn("kipo_cli.py frontier acme/widgets 7", out["seed"])
+        self.assertIn("conductor.json", out["seed"])
+        self.assertIn("conductor", self.get()[1]["sessions"])
+
     def test_shape_decision_ticket(self):
         self.make_effort(start="huge")
         self.fake.add_issue(REPO, 31, title="Pick auth", labels=["wayfinder:decision"])

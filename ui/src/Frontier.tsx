@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { Popover } from './Menu'
 import { T } from './common'
 import { tileMeaning } from './glossary'
-import { StageBoard } from './StageBoard'
+import { StageBoard, type ColId } from './StageBoard'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type PrInfo, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
@@ -144,7 +144,7 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // every ticket of the effort on the board, one column per KiPo skill, each
 // with its state. A ticket opens its conversation.
 
-export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, statuses, next, mapUrl }: {
+export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, statuses, conductor, onSkill, next, mapUrl }: {
   mapUrl?: string | null // the wayfinder map, for the fog popover
   frontier: Frontier
   prs: PrInfo[]
@@ -152,11 +152,14 @@ export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, sta
   onTile: (t: Tile) => void
   openNumber: number | null
   statuses: Record<number, SessionStatus>
+  conductor: 'none' | 'idle' | 'running'
+  onSkill: (stage: ColId, skill: string) => void
   next?: ReactNode
 }) {
-  const { counts, fog, tiles } = frontier
+  // Always shown, even before the effort has tickets: the conductor and the
+  // seven skills are where an effort starts.
+  const { fog, tiles } = frontier
   const [fogAt, setFogAt] = useState<{ x: number; y: number } | null>(null)
-  if (!frontierTotal(counts, fog) && !frontier.fogLeft?.length) return next ? <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>{next}</div> : null
   const fogList = frontier.fogItems?.length ? frontier.fogItems : frontier.fogLeft ?? []
   const left = !frontier.fogItems?.length && !!frontier.fogLeft?.length
   return (
@@ -165,7 +168,7 @@ export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, sta
       {next}
       <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
         <StageBoard tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []} effort={effort}
-          openNumber={openNumber} statuses={statuses} onTile={onTile} onFog={setFogAt} />
+          openNumber={openNumber} statuses={statuses} conductor={conductor} onTile={onTile} onFog={setFogAt} onSkill={onSkill} />
       </div>
       {fogAt && (
         <Popover x={fogAt.x} y={fogAt.y} label="Not yet specified" onClose={() => setFogAt(null)}>

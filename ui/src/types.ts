@@ -201,7 +201,11 @@ export type PhaseState = {
   gate: GateItem[]
   artifacts: Artifact[]
   skillsUsed?: string[]
+  // The conductor's queue (kipo_cli.py dispatch): sessions for KiPo's page to start, once each.
+  dispatch?: DispatchEntry[]
 }
+
+export type DispatchEntry = { ticket?: number; stage?: 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string }
 
 export type TicketInfo = {
   number: number
@@ -243,4 +247,4 @@ export type EffortDetail = Effort & {
 
 export type Ticket = { number: number; title: string; url: string; labels: string[]; type: string | null }
 export type Doc = { href: string; title: string; kind: 'markdown'; text: string; url: string | null }
-export type SessionStart = { slotName: string; seed: string; existing?: boolean }
+export type SessionStart = { slotName: string; seed: string; existing?: boolean; agent?: string }

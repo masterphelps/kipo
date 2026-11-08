@@ -14,7 +14,7 @@ import { closeFinished, isClosed, openSession } from './sessions'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
   STAGES, stageOfColumn,
-  type Column, type Decision, type EffortDetail, type PhaseState, type Stage, type TicketInfo, type Tile,
+  type Column, type Decision, type DispatchEntry, type EffortDetail, type PhaseState, type Stage, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -28,9 +28,9 @@ type Focus =
   | { kind: 'decision'; t: number } // a Decide ticket: a map child, or the source issue being triaged
   | { kind: 'stage'; column: Column } // one column's own conversation: review, plan (the hand-over), done (retro)
 
-const focusKey = (f: Focus, column: Column) =>
+const focusKey = (f: Focus) =>
   f.kind === 'ticket' ? `build-t${f.t}` : f.kind === 'spec' ? 'build-spec' : f.kind === 'decision' ? `shape-t${f.t}`
-    : f.kind === 'stage' ? f.column : column
+    : f.kind === 'stage' ? f.column : 'conductor' // the effort's own conversation is its conductor
 
 export function Workspace({ repo, number, active, autoStart, onRemoved, onChanged }: {
   repo: string
@@ -87,7 +87,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   }, [column])
   useEffect(() => { if (!sent) return; const id = setTimeout(() => setSent(null), 4000); return () => clearTimeout(id) }, [sent])
 
-  const key = detail ? focusKey(focus, detail.column) : null
+  const key = detail ? focusKey(focus) : null
   const recorded = detail && key ? detail.sessions[key] ?? null : null
   // A session KiPo closed (its ticket is done) isn't opened again: the card says
   // where its conversation went instead.
@@ -105,18 +105,18 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         : f.kind === 'spec' ? { column: 'build' as Column, mode: 'implement-spec' as const, skill: skill ?? 'implement-spec' }
         : f.kind === 'decision' ? { column: 'shape' as Column, ticket: f.t, skill }
         : f.kind === 'stage' ? { column: f.column, skill }
-        : { column: detail.column, skill }
+        : { column: detail.column, mode: 'conductor' as const }
       const res = await backend.startSession(repo, number, body)
       const title = f.kind === 'ticket' ? `${detail.title}: #${f.t}`
         : f.kind === 'spec' ? `${detail.title}: implement-spec`
         : f.kind === 'decision' ? `${detail.title}: decision #${f.t}`
         : f.kind === 'stage' ? `${detail.title}: ${COLUMN_LABELS[f.column]}`
-        : `${detail.title}: ${COLUMN_LABELS[detail.column]}`
+        : `${detail.title}: conductor`
       if (res.existing) {
         // Grill and Plan share one conversation: carry on in it.
         await api.post('/api/chat?ws=1', { slot: res.slotName, message: res.seed })
       } else {
-        await openSession(api, repo, res.slotName, res.seed, title)
+        await openSession(api, repo, res.slotName, res.seed, title, res.agent)
       }
       if (override && moveFocus) setFocus(override)
       if (moveFocus) { load(); onChanged() }
@@ -203,6 +203,75 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilot, active, startingAgents, detail])
 
+  // The conductor's Dispatch: start each session it queued (kipo_cli.py dispatch),
+  // once, while this page is open. A ticket that's done, blocked or already has
+  // its conversation, or a stage conversation that exists, is skipped.
+  const dispatchSeenKey = `kipo.dispatched:${repo}#${number}`
+  const dispatching = useRef(new Set<string>())
+  useEffect(() => {
+    if (!active || starting || startingAgents || !detail?.frontier) return
+    const queue = detail.sessionStates?.conductor?.dispatch ?? []
+    let seen: string[] = []
+    try { seen = JSON.parse(localStorage.getItem(dispatchSeenKey) || '[]') } catch { seen = [] }
+    const idOf = (e: DispatchEntry) => `${e.ticket ?? e.stage}@${e.at}`
+    const todo = queue.filter(e => !seen.includes(idOf(e)) && !dispatching.current.has(idOf(e)))
+    if (!todo.length) return
+    for (const e of todo) { dispatching.current.add(idOf(e)); seen.push(idOf(e)) }
+    try { localStorage.setItem(dispatchSeenKey, JSON.stringify(seen.slice(-300))) } catch { /* full: fine */ }
+    void (async () => {
+      let started = 0
+      for (const e of todo) {
+        if (e.ticket != null) {
+          const t = detail.frontier!.tiles.find(x => x.number === e.ticket)
+          if (!t || t.state === 'done' || t.state === 'blocked' || (t.sessionKey && detail.sessions[t.sessionKey])) continue
+          await start(e.skill ?? tileSkill(t), tileFocus(t), false)
+          started++
+        } else if (e.stage) {
+          if (detail.sessions[e.stage]) continue
+          await start(e.skill ?? null, { kind: 'stage', column: e.stage }, false)
+          started++
+        }
+      }
+      if (started) { load(); onChanged() }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, starting, startingAgents, detail])
+
+  // The conductor's Watch: when a ticket's or PR's state changed since it last
+  // heard (remembered per effort, so changes while the page was closed count
+  // too), tell it, unless it's mid-turn; it re-reads the frontier itself.
+  const conductorSlot = detail?.sessions.conductor && !isClosed(detail.sessions.conductor) ? detail.sessions.conductor : null
+  const frontierSig = detail?.frontier
+    ? JSON.stringify({ t: detail.frontier.tiles.map(t => [t.number, t.state]), p: detail.prs.map(p => [p.number, p.state]) })
+    : ''
+  useEffect(() => {
+    if (!frontierSig || !conductorSlot || !active) return
+    const sigKey = `kipo.conductorSaw:${repo}#${number}`
+    const prev = localStorage.getItem(sigKey)
+    if (prev === frontierSig) return
+    if (prev === null) { localStorage.setItem(sigKey, frontierSig); return } // it read the frontier when it started
+    const changes: string[] = []
+    try {
+      const was = JSON.parse(prev) as { t: [number, string][]; p: [number, string][] }
+      const now = JSON.parse(frontierSig) as typeof was
+      const before = new Map(was.t), prBefore = new Map(was.p)
+      for (const [n, s] of now.t) if (before.get(n) !== s) changes.push(`#${n} ${before.get(n) ?? 'new'} → ${s}`)
+      for (const [n, s] of now.p) if (prBefore.get(n) !== s) changes.push(`PR #${n} ${(prBefore.get(n) ?? 'new').toLowerCase()} → ${s.toLowerCase()}`)
+    } catch { /* an old shape: just say it changed */ }
+    void (async () => {
+      try {
+        const info = await api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(conductorSlot)}?limit=1`)
+        if (info?.running) return // mid-turn: it re-reads the frontier on its next wake
+        await api.post('/api/chat?ws=1', {
+          slot: conductorSlot,
+          message: `[KiPo] Frontier changed${changes.length ? `: ${changes.slice(0, 12).join('; ')}` : ''}. Run the frontier and carry on.`,
+        })
+        localStorage.setItem(sigKey, frontierSig)
+      } catch { /* try again on the next change */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontierSig, conductorSlot, active])
+
   // A column's own conversation: open it if it exists, else start it with a skill.
   const openStage = (column: Column, skill: string | null) => {
     if (!detail) return
@@ -265,6 +334,38 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       setActionError(`Couldn't start /${skill}: ${errorText(e)}`)
     }
   }
+
+  // A skill chip on the board: run it in that stage's own conversation (never the
+  // conductor's): send it into the stage's conversation, or start the stage with it.
+  const runStageSkill = async (stage: Column, skill: string) => {
+    if (!detail) return
+    const slot = detail.sessions[stage]
+    if (!slot || isClosed(slot)) { await start(skill, { kind: 'stage', column: stage }); return }
+    try {
+      const { message } = await backend.skillMessage(repo, number, skill)
+      await api.post('/api/chat?ws=1', { slot, message })
+      setFocus({ kind: 'stage', column: stage })
+      setSent(skill)
+    } catch (e) {
+      setActionError(`Couldn't start /${skill}: ${errorText(e)}`)
+    }
+  }
+
+  // The conductor's status for the board: not started, waiting, or mid-turn.
+  const [conductorRunning, setConductorRunning] = useState(false)
+  useEffect(() => {
+    if (!conductorSlot) { setConductorRunning(false); return }
+    let live = true
+    const poll = () => {
+      api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(conductorSlot)}?limit=1`)
+        .then(r => { if (live) setConductorRunning(!!r?.running) })
+        .catch(() => { /* keep the last status */ })
+    }
+    poll()
+    if (!active) return () => { live = false }
+    const id = setInterval(poll, 5000)
+    return () => { live = false; clearInterval(id) }
+  }, [api, conductorSlot, active])
 
   const autoStarted = useRef(false)
   useEffect(() => {
@@ -334,6 +435,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {detail.frontier?.lanes && (<>
             <div ref={summarySplit.ref} style={summarySplit.style}>
               <FrontierSummary frontier={detail.frontier} prs={detail.prs} effort={detail.number} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
+                conductor={!conductorSlot ? 'none' : conductorRunning ? 'running' : 'idle'} onSkill={(s, k) => { void runStageSkill(s, k) }}
                 mapUrl={detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null}
                 next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
             </div>
@@ -669,8 +771,13 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     title = `Decision #${focus.t}`
     body = 'Work through this decision ticket from the map in its own conversation.'
     action = 'Start this decision'
+  } else if (focus.kind === 'column') {
+    title = 'Start the conductor'
+    body = "The conductor runs this effort: it reads the frontier from GitHub, starts one stage-skill conversation per open thread, "
+      + 'asks you in one batched message, and closes the effort when the frontier is empty. It never does the work itself.'
+    action = 'Start the conductor'
   } else {
-    const col = focus.kind === 'stage' ? focus.column : detail.column
+    const col = focus.column
     const shared = col === 'plan' && detail.sessions.grill
     title = `${COLUMN_LABELS[col]} hasn't started`
     body = shared ? 'Plan continues the Grill conversation, so the spec and tickets are written with everything it learned.'

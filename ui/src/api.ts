@@ -65,7 +65,7 @@ export const backend = {
   advance: (repo: string, n: number, force: boolean, to: Column | null = null) =>
     call<EffortDetail>(`${issuePath(repo, n)}/advance`, 'POST', { force, to }),
   // A column's session; `skill` makes its seed end with that skill's Run line.
-  startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | null }) =>
+  startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | 'conductor' | null }) =>
     call<SessionStart>(`${issuePath(repo, n)}/session`, 'POST', { skill: null, ticket: null, mode: null, ...body }),
   // The "Run /<skill>: …" line, to send into a session that already exists.
   skillMessage: (repo: string, n: number, skill: string) =>

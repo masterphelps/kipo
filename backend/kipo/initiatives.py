@@ -309,6 +309,27 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
     return "\n".join(lines)
 
 
+CONDUCTOR_AGENT = "kipo-conductor"
+# KiPo's command line, beside the backend that's running it (the installed app's copy).
+KIPO_CLI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kipo_cli.py")
+
+
+def render_conductor_seed(effort, repo_path):
+    """The first message of the effort's conductor: what to read and how to dispatch."""
+    n, repo = effort["number"], effort["repo"]
+    return "\n".join([
+        f'[KiPo] Effort #{n} "{effort["title"]}" in {repo}',
+        "Conversation: the conductor, the effort's own conversation",
+        f"Repo checkout: {repo_path}",
+        f"Effort issue: {effort['url']}",
+        f"State file: {col_state.session_state_path(repo_path, n, 'conductor')}",
+        f"Frontier: python3 {KIPO_CLI} frontier {repo} {n}",
+        f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage shape|plan|review|done)",
+        f"Load the skill `kipo-conductor` and follow it. Destination: {effort['destination']}",
+        "Start with a wake: run the frontier, then report where the effort stands.",
+    ])
+
+
 def render_plan_handoff(effort, skill=None):
     """What goes into the grilling conversation when the human chooses to write the spec."""
     text = ("The hand-over: write the spec, then the tickets, from what this conversation decided. "
@@ -911,10 +932,17 @@ class Initiatives:
         summary = self._summary(repo, issue, body)
         column = validate_column(column or summary["column"])
         skill = validate_skill(skill)
-        if mode not in (None, "implement-spec"):
+        if mode not in (None, "implement-spec", "conductor"):
             raise KipoError(f"{mode!r} is not a session mode.", "invalid_mode", 400)
         repo_path = self._repo_path(repo, body["meta"]) or ""
         sessions = self.storage.get_sessions(repo, number)
+
+        if mode == "conductor":
+            # The effort's own conversation, run by the kipo-conductor agent.
+            slot = session_name(repo, number, "conductor")
+            self.storage.record_session(repo, number, "conductor", slot)
+            return {"slotName": slot, "agent": CONDUCTOR_AGENT, "existing": False,
+                    "seed": render_conductor_seed(summary, repo_path)}
 
         if mode == "implement-spec":
             if column != "build":

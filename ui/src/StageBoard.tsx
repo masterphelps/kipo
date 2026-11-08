@@ -9,15 +9,17 @@ import type { PrInfo, Tile } from './types'
 // Done). Loose ends sit where they'd be dealt with: a PR that closes no ticket
 // in Review, a closed map's unspecified leftovers in Shape.
 
-type ColId = 'intake' | 'shape' | 'grill' | 'plan' | 'build' | 'review' | 'done'
-const COLUMNS: { id: ColId; label: string; skill: string; matt: string[]; what: string }[] = [
-  { id: 'intake', label: 'Intake', skill: 'kipo-intake', matt: ['triage', 'setup-matt-pocock-skills'], what: 'The source issue or request: triaged, and the repo set up' },
-  { id: 'shape', label: 'Shape', skill: 'kipo-shape', matt: ['wayfinder', 'prototype', 'research'], what: 'The wayfinder map: prototype, research and task tickets, and the fog still to chart' },
-  { id: 'grill', label: 'Grill', skill: 'kipo-grill', matt: ['grilling', 'grill-with-docs', 'domain-modeling'], what: 'Grilling tickets: an interview settles each decision' },
-  { id: 'plan', label: 'Plan', skill: 'kipo-plan', matt: ['to-spec', 'to-tickets'], what: 'The hand-over: the decisions become a spec, the spec becomes natively blocked tickets' },
-  { id: 'build', label: 'Build', skill: 'kipo-build', matt: ['implement', 'implement-spec', 'tdd', 'diagnosing-bugs'], what: 'Tickets built test-first until their PR opens' },
-  { id: 'review', label: 'Review', skill: 'kipo-review', matt: ['code-review', 'pr'], what: 'Open PRs: reviewed, fixed, merged when clean (one-way doors ask you)' },
-  { id: 'done', label: 'Done', skill: 'kipo-done', matt: ['retro'], what: 'Closed; the retro turns lessons into checks and cleans up' },
+export type ColId = 'intake' | 'shape' | 'grill' | 'plan' | 'build' | 'review' | 'done'
+// Matt's 27 under the KiPo skill that runs them (4 + 6 + 5 + 3 + 5 + 2 + 2);
+// `any` ones are also usable from any stage.
+const COLUMNS: { id: ColId; label: string; skill: string; matt: string[]; any?: string[]; what: string }[] = [
+  { id: 'intake', label: 'Intake', skill: 'kipo-intake', matt: ['setup-matt-pocock-skills', 'ask-matt', 'triage', 'improve-codebase-architecture'], what: 'Set the repo up, triage the issue, pick a start' },
+  { id: 'shape', label: 'Shape', skill: 'kipo-shape', matt: ['wayfinder', 'research', 'prototype', 'to-questionnaire'], any: ['handoff', 'teach'], what: "Huge, foggy: chart the map, work its decision tickets" },
+  { id: 'grill', label: 'Grill', skill: 'kipo-grill', matt: ['grill-with-docs', 'grill-me', 'grilling', 'domain-modeling'], any: ['wait-what'], what: "An idea: interview until it's sharp" },
+  { id: 'plan', label: 'Plan', skill: 'kipo-plan', matt: ['to-spec', 'to-tickets', 'codebase-design'], what: 'Hand-over: spec, then tickets' },
+  { id: 'build', label: 'Build', skill: 'kipo-build', matt: ['implement', 'implement-spec', 'tdd', 'diagnosing-bugs', 'wizard'], what: 'One ticket per session, test-first, open a PR' },
+  { id: 'review', label: 'Review', skill: 'kipo-review', matt: ['code-review', 'pr'], what: 'Review, then merge by Merge Danger' },
+  { id: 'done', label: 'Done', skill: 'kipo-done', matt: ['retro', 'writing-for-agents'], what: 'Retro the run, tidy the docs' },
 ]
 const STAGES: { label: string; cols: ColId[]; hint: string }[] = [
   { label: 'Intake', cols: ['intake'], hint: 'A raw issue or request' },
@@ -41,7 +43,7 @@ const columnOf = (t: Tile): ColId =>
           : t.type === 'grilling' ? 'grill'
             : 'shape'
 
-export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effort, openNumber, statuses, onTile, onFog }: {
+export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effort, openNumber, statuses, conductor = 'none', onTile, onFog, onSkill }: {
   tiles: Tile[]
   prs?: PrInfo[]
   fogItems?: string[]
@@ -49,8 +51,10 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
   effort: number
   openNumber: number | null
   statuses: Record<number, SessionStatus>
+  conductor?: 'none' | 'idle' | 'running' // the effort's conductor session: none yet, waiting, or mid-turn
   onTile: (t: Tile) => void
   onFog?: (at: { x: number; y: number }) => void
+  onSkill?: (stage: ColId, skill: string) => void // run one of Matt's skills in that stage's own conversation
 }) {
   const byCol = new Map<ColId, Tile[]>(COLUMNS.map(c => [c.id, []]))
   for (const t of tiles) byCol.get(columnOf(t))!.push(t)
@@ -81,49 +85,102 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
         onClick={() => window.open(p.url, '_blank', 'noreferrer')} text={`PR #${p.number} ${p.title}`} sub="open · closes no ticket" />
     ))}</>,
   }
-  const count = (c: ColId) => byCol.get(c)!.length
-  const hasExtra = (c: ColId) => (c === 'shape' && (fogItems.length + fogLeft.length) > 0) || (c === 'plan' && !!plan) || (c === 'review' && strayPrs.length > 0)
-  const empty = (c: ColId) => !count(c) && !hasExtra(c)
+  // The conductor's five duties, each with this effort's numbers right now.
+  const openTiles = tiles.filter(t => t.state !== 'done')
+  const hitl = tiles.filter(t => t.state === 'you').length + (fogLeft.length ? 1 : 0) + (fogItems.length ? 1 : 0) + (plan?.state === 'you' ? 1 : 0)
+  const ready = tiles.filter(t => t.state === 'afk').length + strayPrs.length
+  const working = tiles.filter(t => t.state === 'building' || statuses[t.number] === 'running').length
+  const openPrs = prs.filter(p => p.state === 'OPEN').length
+  const open = openTiles.length + (fogItems.length ? 1 : 0) + (fogLeft.length ? 1 : 0) + strayPrs.length
+  const duties = [
+    { name: 'Watch', what: 'wakes when the frontier changes', now: `${open} open · ${tiles.length - openTiles.length} done`, lit: open > 0 },
+    { name: 'Dispatch', what: 'starts a stage-skill session per ticket', now: working ? `${working} running${ready ? ` · ${ready} ready` : ''}` : ready ? `${ready} ready for an agent` : 'nothing to start', lit: ready + working > 0 },
+    { name: 'Ask you', what: 'HITL tickets, one-way doors', now: hitl ? `${hitl} need${hitl === 1 ? 's' : ''} you` : 'nothing for you', lit: hitl > 0 },
+    { name: 'Merge', what: 'two-way doors alone (Merge Danger)', now: openPrs ? `${openPrs} open PR${openPrs === 1 ? '' : 's'}` : 'no open PRs', lit: openPrs > 0 },
+    { name: 'Close', what: 'hand-over, retro, close the effort', now: open ? `after ${open} open` : 'ready: retro, then close', lit: !open },
+  ]
+  const status = conductor === 'running' ? { text: 'RUNNING', hint: 'The conductor is working right now' }
+    : conductor === 'idle' ? { text: 'WATCHING', hint: 'The conductor is waiting for the next change on the frontier' }
+      : { text: 'NOT STARTED', hint: "Start the conductor from the effort's conversation below" }
 
   return (
-    <div style={{ display: 'flex', gap: 6, minWidth: 'min-content', alignItems: 'stretch' }} aria-label={`Effort #${effort} by KiPo skill`}>
-      {STAGES.map(s => (
-        <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: s.cols.every(empty) ? '0 0 auto' : `${s.cols.filter(c => !empty(c)).length} 1 0` }}>
-          <div title={s.hint} style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--accent)', cursor: 'help',
-            borderBottom: '2px solid color-mix(in srgb, var(--accent) 40%, transparent)', paddingBottom: 2, whiteSpace: 'nowrap', minHeight: 15 }}>
-            {s.cols.every(empty) ? '' : s.label}
-          </div>
-          <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-            {s.cols.map(id => {
-              const col = COLUMNS.find(c => c.id === id)!
-              const head = `${col.label} · ${col.skill}\n${col.what}\nRuns Matt's: ${col.matt.map(m => `/${m}`).join(', ')}`
-              const ts = byCol.get(id)!
-              if (empty(id)) {
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 'min-content' }} aria-label={`Effort #${effort} by KiPo skill`}>
+      {/* The conductor: one long-lived agent per effort that never does the work itself. */}
+      <div style={{ border: `1.5px ${conductor === 'none' ? 'dashed' : 'solid'} color-mix(in srgb, var(--accent) 70%, transparent)`, borderRadius: 10, padding: '6px 8px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, whiteSpace: 'nowrap' }}>
+          <b style={{ fontSize: 13, color: 'var(--text-strong, var(--text))' }}>Conductor</b>
+          <span title={status.hint} style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.05em', padding: '1px 7px', borderRadius: 99, cursor: 'help',
+            color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 18%, transparent)' }}>
+            {conductor === 'running' && <span className="kipo-pulse" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 9, background: 'var(--accent)', marginRight: 5 }} />}
+            {status.text}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>one long-lived agent per effort · never does the work itself · reads GitHub, doesn't guess</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(110px, 1fr))', gap: 6 }}>
+          {duties.map(d => (
+            <div key={d.name} title={`${d.name}: ${d.what}`} style={{ padding: '5px 8px', borderRadius: 7, cursor: 'help',
+              background: d.lit ? 'color-mix(in srgb, var(--accent) 16%, var(--bg-elevated))' : 'var(--bg-elevated)',
+              border: `1px solid ${d.lit ? 'color-mix(in srgb, var(--accent) 50%, var(--border))' : 'var(--border)'}` }}>
+              <div style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--text-strong, var(--text))' }}>{d.name}</div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.3 }}>{d.what}</div>
+              <div style={{ fontSize: 10.5, marginTop: 2, color: d.lit ? 'var(--text)' : 'var(--muted)', fontWeight: d.lit ? 600 : 400 }}>{d.now}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* The seven KiPo skills, Matt's skills under each, and the effort's tickets where they stand. */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+        {STAGES.map(s => (
+          <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: `${s.cols.length} 1 0` }}>
+            <div title={s.hint} style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)', cursor: 'help', whiteSpace: 'nowrap' }}>
+              {s.label === 'Decide' || s.label === 'Deliver' ? `${s.label} lane` : s.label}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flex: 1 }}>
+              {s.cols.map(id => {
+                const col = COLUMNS.find(c => c.id === id)!
+                const ts = byCol.get(id)!
+                const live = ts.some(t => t.state === 'you' || t.state === 'afk' || t.state === 'building' || statuses[t.number] === 'running')
                 return (
-                  <div key={id} title={`${head}\n\nNothing here now.`}
-                    style={{ width: 24, flex: 'none', borderRadius: 8, border: '1px dashed var(--border)', display: 'flex', justifyContent: 'center', paddingTop: 8, cursor: 'help' }}>
-                    <span style={{ writingMode: 'vertical-rl', fontSize: 10.5, color: 'var(--muted)' }}>{col.label}</span>
+                  <div key={id} style={{ flex: '1 1 0', minWidth: 132, maxWidth: id === 'done' ? 240 : undefined, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 5, padding: 7, borderRadius: 9,
+                    background: 'var(--bg-elevated)', border: `1px solid ${live ? 'color-mix(in srgb, var(--accent) 55%, var(--border))' : 'var(--border)'}` }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-strong, var(--text))' }}>{col.skill}</span>
+                      {ts.length > 0 && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{ts.length}</span>}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{col.what}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                      {col.matt.map(m => <Chip key={m} name={m} where={col.label} onSkill={onSkill && (s => onSkill(id, s))} />)}
+                      {col.any?.map(m => <Chip key={m} name={m} where={col.label} any onSkill={onSkill && (s => onSkill(id, s))} />)}
+                    </div>
+                    {(ts.length > 0 || extras[id]) && <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />}
+                    {ts.map(t => <Card key={t.number} t={t} compact={id === 'done'} open={t.number === openNumber}
+                      running={statuses[t.number] === 'running'} prs={prs.filter(p => p.tickets.includes(t.number))} onClick={() => onTile(t)} />)}
+                    {extras[id]}
                   </div>
                 )
-              }
-              const live = ts.some(t => t.state === 'you' || t.state === 'afk' || t.state === 'building' || statuses[t.number] === 'running')
-              return (
-                <div key={id} style={{ flex: '1 1 0', minWidth: id === 'done' ? 120 : 132, display: 'flex', flexDirection: 'column', gap: 5, padding: 6, borderRadius: 9,
-                  background: 'var(--bg-elevated)', border: `1px solid ${live ? 'color-mix(in srgb, var(--accent) 55%, var(--border))' : 'var(--border)'}` }}>
-                  <div title={head} style={{ display: 'flex', alignItems: 'baseline', gap: 5, cursor: 'help', padding: '0 2px' }}>
-                    <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-strong, var(--text))' }}>{col.label}</span>
-                    {ts.length > 0 && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{ts.length}</span>}
-                  </div>
-                  {ts.map(t => <Card key={t.number} t={t} compact={id === 'done'} open={t.number === openNumber}
-                    running={statuses[t.number] === 'running'} prs={prs.filter(p => p.tickets.includes(t.number))} onClick={() => onTile(t)} />)}
-                  {extras[id]}
-                </div>
-              )
-            })}
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: 'var(--muted)' }}>
+        <Chip name="skill" /> one of Matt's 27, run by the KiPo skill above it · click to run it in that stage's conversation
+        <Chip name="skill" any /> also usable from any stage
+      </div>
     </div>
+  )
+}
+
+// One of Matt's skills; click to run it in the effort's conversation.
+function Chip({ name, any, where, onSkill }: { name: string; any?: boolean; where?: string; onSkill?: (s: string) => void }) {
+  return (
+    <button type="button" onClick={onSkill ? () => onSkill(name) : undefined} disabled={!onSkill}
+      title={onSkill ? `/${name}${any ? ' · usable from any stage' : ''}\nClick to run it in the effort's ${where} conversation` : undefined}
+      style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, cursor: onSkill ? 'pointer' : 'default', whiteSpace: 'nowrap', flex: 'none',
+        background: any ? 'transparent' : 'var(--bg)', color: any ? 'var(--muted)' : 'var(--text)', border: `1px ${any ? 'dashed' : 'solid'} var(--border)` }}>
+      {name}
+    </button>
   )
 }
 
@@ -145,7 +202,7 @@ function Card({ t, compact, open, running, prs, onClick }: { t: Tile; compact: b
   return (
     <button type="button" onClick={onClick}
       title={`#${t.number} ${t.title}\n\n${TYPE_LABEL[t.type]} · ${STATE_MEANING[t.state]}${waits ? `\nIt ${waits}` : ''}${running ? '\nAn agent is working on it now' : ''}${prs.length ? `\n${prs.map(p => `PR #${p.number} (${p.state.toLowerCase()})`).join(', ')}` : ''}`}
-      style={{ display: 'flex', textAlign: 'left', padding: 0, cursor: 'pointer', borderRadius: 7, overflow: 'hidden', background: 'var(--bg)', color: 'var(--text)',
+      style={{ display: 'flex', width: '100%', minWidth: 0, textAlign: 'left', padding: 0, cursor: 'pointer', borderRadius: 7, overflow: 'hidden', background: 'var(--bg)', color: 'var(--text)',
         border: `1px solid ${open ? 'var(--accent)' : act ? m.color : 'var(--border)'}`, boxShadow: act ? `0 0 10px ${m.color}33` : undefined, flex: 'none' }}>
       <span style={{ width: 3, flex: 'none', background: m.color, opacity: t.state === 'done' ? 0.55 : 1 }} />
       <span style={{ flex: 1, minWidth: 0, padding: compact ? '3px 6px' : '5px 7px', display: 'flex', flexDirection: 'column', gap: 2 }}>
