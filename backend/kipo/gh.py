@@ -136,18 +136,26 @@ class Gh:
             "--limit", str(limit), "--json", fields,
         ]) or []
 
-    def open_map_counts(self, owners):
-        """``{"owner/name" (lower case): open wayfinder maps}`` for every repo of
-        these owners, from one search."""
+    def search_open_maps(self, owners):
+        """Every open wayfinder map in these owners' repos, from one search:
+        ``[{repo, number, title, url, updatedAt}]``."""
         args = ["search", "issues", "--label", "wayfinder:map", "--state", "open",
-                "--json", "repository,number", "--limit", "500"]
+                "--json", "repository,number,title,url,updatedAt", "--limit", "500"]
         for owner in sorted(set(owners)):
             args += ["--owner", owner]
-        counts = {}
+        maps = []
         for hit in self.run_json(args) or []:
-            slug = ((hit.get("repository") or {}).get("nameWithOwner") or "").lower()
+            slug = (hit.get("repository") or {}).get("nameWithOwner") or ""
             if slug:
-                counts[slug] = counts.get(slug, 0) + 1
+                maps.append({"repo": slug, "number": hit["number"], "title": hit.get("title") or "",
+                             "url": hit.get("url") or "", "updatedAt": hit.get("updatedAt") or ""})
+        return maps
+
+    def open_map_counts(self, owners):
+        """``{"owner/name" (lower case): open wayfinder maps}``."""
+        counts = {}
+        for m in self.search_open_maps(owners):
+            counts[m["repo"].lower()] = counts.get(m["repo"].lower(), 0) + 1
         return counts
 
     def view_issue(self, repo, number):

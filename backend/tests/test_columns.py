@@ -575,7 +575,7 @@ class SessionStateTests(Columns):
 
 
 class MapAsEffortTests(Columns):
-    """An open wayfinder map is an effort in its own right: no wrapper issue."""
+    """A wayfinder map you open in KiPo is an effort in its own right."""
 
     MAP_BODY = "## Destination\n\nA spec for the thing.\n\n## Notes\n\nn\n\n## Not yet specified\n\n- later\n"
 
@@ -587,22 +587,41 @@ class MapAsEffortTests(Columns):
         self.fake.sub_issues[(REPO, number)] = [51, 52]
         return number
 
+    def open_map(self, number=50):
+        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": REPO, "number": number}]}))
+        self.assertEqual(status, 200, out)
+        return out
+
     def listed(self):
         status, out = self.app.dispatch("GET", "/initiatives", "")
         self.assertEqual(status, 200, out)
         return {i["number"]: i for i in out["initiatives"]}
 
-    def test_a_map_is_listed_as_an_effort(self):
+    def test_a_map_is_listed_only_once_you_open_it(self):
         self.add_map()
+        self.assertNotIn(50, self.listed())
+        self.open_map()
         m = self.listed()[50]
         self.assertEqual((m["kind"], m["column"], m["destination"]), ("map", "shape", "A spec for the thing."))
+
+    def test_the_picker_lists_maps_and_marks_the_open_ones(self):
+        self.add_map(50)
+        self.fake.add_issue(REPO, 60, title="Map: other", labels=["wayfinder:map"])
+        self.make_effort(column="shape", meta={"mapIssue": 70})
+        self.fake.add_issue(REPO, 70, title="Map: wrapped", labels=["wayfinder:map"])
+        self.open_map(50)
+        status, out = self.app.dispatch("GET", "/maps", "")
+        self.assertEqual(status, 200, out)
+        by = {m["number"]: m for m in out["maps"]}
+        self.assertEqual(sorted(by), [50, 60, 70])
+        self.assertEqual((by[50]["opened"], by[60]["opened"], by[70]["opened"], by[70]["effort"]), (True, False, True, 7))
+        self.assertTrue(by[60]["repoAdded"])
 
     def test_a_map_an_effort_already_wraps_is_not_listed_twice(self):
         self.make_effort(column="shape", meta={"mapIssue": 50})
         self.add_map()
-        by = self.listed()
-        self.assertEqual(sorted(by), [7])
-        self.assertEqual(by[7]["kind"], "effort")
+        self.open_map()
+        self.assertEqual(sorted(self.listed()), [7])
 
     def test_a_maps_detail_reads_its_own_children(self):
         self.add_map()
@@ -613,12 +632,23 @@ class MapAsEffortTests(Columns):
         self.assertEqual(states, {51: "you", 52: "blocked"})
         self.assertEqual(d["frontier"]["fog"], 1)
 
-    def test_removing_a_map_hides_it_without_closing_it(self):
+    def test_hiding_a_map_closes_it_in_kipo_not_on_github(self):
         self.add_map()
-        status, out = self.post("/remove", n=50)
+        self.open_map()
+        status, out = self.post("/hide", n=50)
         self.assertEqual(status, 200, out)
         self.assertEqual(self.fake.issues[(REPO, 50)]["state"], "OPEN")
         self.assertNotIn(50, self.listed())
+
+    def test_hiding_an_effort_takes_it_off_the_sidebar_until_restored(self):
+        self.make_effort(column="build")
+        self.post("/hide")
+        self.assertNotIn(7, self.listed())
+        self.assertEqual(self.fake.issues[(REPO, 7)]["state"], "OPEN")
+        hidden = self.app.dispatch("GET", "/maps", "")[1]["hidden"]
+        self.assertEqual([(h["number"], h["title"] != "") for h in hidden], [(7, True)])
+        self.post("/unhide")
+        self.assertIn(7, self.listed())
 
     def test_a_map_child_gets_a_shape_session(self):
         self.add_map()

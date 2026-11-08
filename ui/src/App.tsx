@@ -6,6 +6,7 @@ import { Divider, useStoredSize } from './layout'
 import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
 import { Rail, RailStrip, type RailView } from './Rail'
+import { MapsPage } from './MapsPage'
 import { Settings } from './Settings'
 import { StartPlan } from './StartPlan'
 import type { Effort } from './types'
@@ -15,6 +16,7 @@ type Main =
   | { kind: 'new' }
   | { kind: 'board' }
   | { kind: 'repos' }
+  | { kind: 'maps' }
   | { kind: 'initiative'; repo: string; number: number; autoStart?: boolean }
 
 // The page, after Spec Builder: a rail of initiatives on the left, and the
@@ -65,6 +67,12 @@ export default function KiPo() {
   const open = (i: Effort, autoStart?: boolean) =>
     setMain({ kind: 'initiative', repo: i.repo, number: i.number, autoStart })
 
+  // Off the sidebar (nothing changes on GitHub); the list drops it at once.
+  const hide = (i: Effort) => {
+    setItems(list => (list ?? []).filter(x => !(x.repo === i.repo && x.number === i.number)))
+    backend.hide(i.repo, i.number).then(load).catch(e => { setError(errorText(e)); load() })
+  }
+
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null
 
   return (
@@ -76,9 +84,11 @@ export default function KiPo() {
         items={items}
         error={error}
         selected={selected}
-        view={main?.kind === 'board' || main?.kind === 'repos' ? main.kind : null}
+        view={main?.kind === 'board' || main?.kind === 'repos' || main?.kind === 'maps' ? main.kind : null}
         onNew={() => setMain({ kind: 'new' })}
+        onMaps={() => setMain({ kind: 'maps' })}
         onSelect={i => open(i)}
+        onHide={hide}
         onView={(v: RailView) => setMain({ kind: v })}
       />
       <Divider direction="vertical" label="Resize the effort list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
@@ -94,6 +104,11 @@ export default function KiPo() {
               onCancel={items && items.length ? () => setMain(items[0] ? { kind: 'initiative', repo: items[0].repo, number: items[0].number } : { kind: 'board' }) : undefined}
             />
           </div>
+        )}
+        {main?.kind === 'maps' && (
+          <MapsPage
+            onOpened={first => { load(); if (first) setMain({ kind: 'initiative', repo: first.repo, number: first.number }) }}
+            onRestored={load} />
         )}
         {main?.kind === 'board' && <Board items={items} onOpen={i => open(i)} onRemoved={load} />}
         {main?.kind === 'repos' && (

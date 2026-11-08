@@ -112,22 +112,42 @@ class Storage:
         value = data.get(self.session_key(repo, number)) if isinstance(data, dict) else None
         return value if isinstance(value, dict) else None
 
-    # -- hidden maps -------------------------------------------------------
-    # Wayfinder maps taken off the board. The map itself is left alone on GitHub.
+    # -- the sidebar -------------------------------------------------------
+    # Which wayfinder maps you opened as efforts, and which efforts you took off
+    # the sidebar. Both are local to KiPo: nothing on GitHub changes.
 
-    def hidden_maps(self, repo):
-        data = self._read("hidden.json", {})
+    def _numbers(self, name, repo):
+        data = self._read(name, {})
         value = data.get(repo.lower()) if isinstance(data, dict) else None
         return {int(n) for n in value} if isinstance(value, list) else set()
 
-    def hide_map(self, repo, number):
+    def _change(self, name, repo, number, add):
         with self._lock:
-            data = self._read("hidden.json", {})
+            data = self._read(name, {})
             if not isinstance(data, dict):
                 data = {}
-            numbers = set(data.get(repo.lower()) or []) | {int(number)}
+            numbers = set(data.get(repo.lower()) or [])
+            numbers = numbers | {int(number)} if add else numbers - {int(number)}
             data[repo.lower()] = sorted(numbers)
-            self._write("hidden.json", data)
+            self._write(name, data)
+
+    def opened_maps(self, repo):
+        return self._numbers("maps.json", repo)
+
+    def open_map(self, repo, number):
+        self._change("maps.json", repo, number, True)
+
+    def close_map(self, repo, number):
+        self._change("maps.json", repo, number, False)
+
+    def hidden(self, repo):
+        return self._numbers("hidden.json", repo)
+
+    def hide(self, repo, number):
+        self._change("hidden.json", repo, number, True)
+
+    def unhide(self, repo, number):
+        self._change("hidden.json", repo, number, False)
 
     def record_session(self, repo, number, key, slot_name):
         with self._lock:

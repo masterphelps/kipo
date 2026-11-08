@@ -35,7 +35,7 @@ class Base(unittest.TestCase):
         self.fake = FakeGh(git_checkouts={self.checkout})
         self.storage = Storage(os.path.join(self.tmp, "data"))
         self.storage.save_config({"repos": [{"slug": REPO, "path": self.checkout}]})
-        self.app = server.App(gh=Gh(self.fake), storage=self.storage, clock=lambda: "2026-11-06")
+        self.app = server.App(gh=Gh(self.fake), storage=self.storage, clock=lambda: "2026-11-06", repo_roots=(self.tmp,))
 
     def tearDown(self):
         shutil.rmtree(self.tmp)

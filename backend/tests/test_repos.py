@@ -78,6 +78,20 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual(status, 200, out)
         self.assertTrue(all("maps" not in r for r in out["repos"]))
 
+    def test_opening_a_map_adds_its_repo_from_this_mac(self):
+        self.fake.add_issue("acme/gadgets", 9, title="Map: gadgets", labels=["wayfinder:map"])
+        listed = self.app.dispatch("GET", "/maps", "")[1]["maps"]
+        self.assertEqual([(m["repo"], m["repoAdded"], m["opened"]) for m in listed], [("acme/gadgets", False, False)])
+        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": "acme/gadgets", "number": 9}]}))
+        self.assertEqual((status, out["errors"]), (200, []), out)
+        self.assertEqual([r["slug"] for r in self.storage.get_config()["repos"]], ["acme/gadgets"])
+        self.assertTrue(self.app.dispatch("GET", "/maps", "")[1]["maps"][0]["opened"])
+
+    def test_a_map_in_a_repo_not_on_this_mac_is_refused_by_name(self):
+        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": "acme/elsewhere", "number": 3}]}))
+        self.assertEqual(status, 200, out)
+        self.assertIn("isn't checked out on this Mac", out["errors"][0]["error"])
+
     def test_add_by_folder_derives_slug_and_marks_configured(self):
         path = os.path.join(self.root, "widgets")
         status, out = self.app.dispatch("POST", "/repos", f'{{"path": "{path}"}}')

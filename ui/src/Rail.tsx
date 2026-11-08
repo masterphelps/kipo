@@ -7,7 +7,7 @@ import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
 // filter, and jump between efforts. One flat list, most recently touched first;
 // each row shows its Decide and Deliver bars, or its stage before it has tickets.
 
-export type RailView = 'board' | 'repos'
+export type RailView = 'board' | 'repos' | 'maps'
 
 // Once an effort has tickets (or a mapped fog), its bars say where it is; before
 // that, its stage does.
@@ -35,7 +35,7 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, view, onNew, onSelect, onView, onCollapse }: {
+export function Rail({ width, items, error, selected, view, onNew, onMaps, onSelect, onHide, onView, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
@@ -43,10 +43,13 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
   selected: string | null
   view: RailView | null
   onNew: () => void
+  onMaps: () => void
   onSelect: (i: Effort) => void
+  onHide: (i: Effort) => void
   onView: (v: RailView) => void
 }) {
   const [filter, setFilter] = useState('')
+  const [hover, setHover] = useState<string | null>(null)
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase()
     return (items ?? []).filter(i => !q || i.title.toLowerCase().includes(q) || i.repo.toLowerCase().includes(q))
@@ -76,26 +79,33 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
             color: 'var(--accent-fg, #fff)',
             fontSize: T.body,
             fontWeight: 600,
-            padding: '5px 12px',
+            padding: '5px 11px',
+            whiteSpace: 'nowrap',
             borderRadius: 999,
             cursor: 'pointer',
           }}
         >
           + New effort
         </button>
-        <span style={{ flex: 1 }} />
-        <button type="button" onClick={onCollapse} title="Fold the effort list away" aria-label="Fold the effort list away"
-          style={{ background: 'transparent', color: 'var(--muted)', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, fontSize: 14 }}>
-          «
+        <button type="button" onClick={onMaps} title="Pick wayfinder maps from your repos to work on"
+          style={{ marginLeft: 6, flexShrink: 0, background: view === 'maps' ? 'var(--bg-elevated)' : 'transparent', color: 'var(--text)', fontSize: T.small,
+            fontWeight: 500, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--border)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          Open map
         </button>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           value={filter}
           onChange={e => setFilter(e.target.value)}
           placeholder="Filter efforts"
           aria-label="Filter efforts"
-          style={{ ...fieldStyle, fontSize: T.small, padding: '4px 8px' }}
+          style={{ ...fieldStyle, fontSize: T.small, padding: '4px 8px', flex: 1, minWidth: 0 }}
         />
+        <button type="button" onClick={onCollapse} title="Fold the effort list away" aria-label="Fold the effort list away"
+          style={{ background: 'transparent', color: 'var(--muted)', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, fontSize: 14, flexShrink: 0 }}>
+          «
+        </button>
+        </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 6px 8px' }}>
@@ -113,8 +123,9 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
                 const key = `${i.repo}#${i.number}`
                 const on = key === selected
                 return (
+                  <div key={key} style={{ position: 'relative' }}
+                    onPointerEnter={() => setHover(key)} onPointerLeave={() => setHover(h => (h === key ? null : h))}>
                   <button
-                    key={key}
                     type="button"
                     onClick={() => onSelect(i)}
                     aria-current={on ? 'page' : undefined}
@@ -145,6 +156,16 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>
                   </button>
+                  {(hover === key || on) && (
+                    <button type="button" onClick={() => onHide(i)}
+                      title={i.kind === 'map' ? 'Take this map off the sidebar. It stays open on GitHub.' : 'Take this effort off the sidebar. Its issue stays open; restore it from Open map.'}
+                      aria-label={`Take ${i.title} off the sidebar`}
+                      style={{ position: 'absolute', top: 5, right: 5, width: 20, height: 20, borderRadius: 4, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>
+                      ×
+                    </button>
+                  )}
+                  </div>
                 )
               })}
             </div>
@@ -152,7 +173,7 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
       </div>
 
       <div style={{ borderTop: '1px solid var(--border)', padding: '6px 8px', display: 'flex', gap: 2 }}>
-        {(['board', 'repos'] as RailView[]).map(v => (
+        {(['board', 'repos'] as const).map(v => (
           <button
             key={v}
             type="button"

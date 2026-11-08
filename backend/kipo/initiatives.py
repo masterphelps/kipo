@@ -3,9 +3,9 @@
 An effort is a GitHub issue labelled ``kipo:effort``; its column is its
 ``kipo:col:<id>`` label and its path lives in the ``kipo:meta`` comment.
 
-An open wayfinder map (``wayfinder:map``) is an effort too, as it stands: its
-Destination is the map's own, its tickets are the map's children, and KiPo
-never writes to it. A map an effort already points at shows only as that effort.
+A wayfinder map (``wayfinder:map``) you open in KiPo is an effort too, as it
+stands: its Destination is the map's own, its tickets are the map's children,
+and KiPo never writes to it. A map an effort already points at is that effort.
 """
 import datetime
 import json
@@ -609,16 +609,19 @@ class Initiatives:
         for entry in self.storage.get_config()["repos"]:
             repo = entry.get("slug")
             try:
+                hidden = self.storage.hidden(repo)
                 found, wrapped = [], set()
                 for issue in self.gh.list_issues(repo, EFFORT_LABEL):
                     body = parse_body(issue.get("body"))
-                    found.append(self._summary(repo, issue, body))
                     wrapped.add(self._map_of(repo, issue["number"], body))
-                # Open maps no effort points at are efforts as they stand.
-                hidden = self.storage.hidden_maps(repo)
-                for issue in self.gh.list_issues(repo, MAP_LABEL):
-                    if is_map(issue) and issue["number"] not in wrapped | hidden:
-                        found.append(self._summary(repo, issue, map_body(issue)))
+                    if issue["number"] not in hidden:
+                        found.append(self._summary(repo, issue, body))
+                # The maps you opened, unless an effort already points at them.
+                opened = self.storage.opened_maps(repo) - wrapped - hidden
+                if opened:
+                    for issue in self.gh.list_issues(repo, MAP_LABEL):
+                        if is_map(issue) and issue["number"] in opened:
+                            found.append(self._summary(repo, issue, map_body(issue)))
             except KipoError as e:
                 errors.append({"repo": repo, "error": e.message, "code": e.code})
                 continue
@@ -639,6 +642,44 @@ class Initiatives:
         if errors:
             result["errors"] = errors
         return result
+
+    def wrapped_maps(self, repo):
+        """``{map number: effort number}`` for the efforts in a repo that point at a map."""
+        out = {}
+        for issue in self.gh.list_issues(repo, EFFORT_LABEL):
+            m = self._map_of(repo, issue["number"], parse_body(issue.get("body")))
+            if m:
+                out[m] = issue["number"]
+        return out
+
+    def hide(self, repo, number):
+        """Take an effort off the sidebar. A map is simply closed in KiPo; an
+        effort KiPo made is hidden and can be restored. GitHub isn't touched."""
+        validate_repo_slug(repo)
+        if number in self.storage.opened_maps(repo):
+            self.storage.close_map(repo, number)
+        else:
+            self.storage.hide(repo, number)
+        return {"hidden": True, "repo": repo, "number": number}
+
+    def unhide(self, repo, number):
+        validate_repo_slug(repo)
+        self.storage.unhide(repo, number)
+        return {"hidden": False, "repo": repo, "number": number}
+
+    def hidden_efforts(self):
+        """The efforts taken off the sidebar, with their titles, for restoring."""
+        out = []
+        for entry in self.storage.get_config()["repos"]:
+            repo = entry.get("slug")
+            for n in sorted(self.storage.hidden(repo)):
+                try:
+                    issue = self.gh.view_issue(repo, n)
+                except KipoError:
+                    issue = None
+                if issue and (issue.get("state") or "OPEN").upper() == "OPEN":
+                    out.append({"repo": repo, "number": n, "title": issue.get("title") or "", "url": issue.get("url") or ""})
+        return out
 
     def _map_of(self, repo, number, body):
         """The map an effort points at: its meta, else its artifacts or state file."""
@@ -795,8 +836,8 @@ class Initiatives:
         """
         issue, body = self._fetch(repo, number)
         if is_map(issue):
-            # The map isn't KiPo's to close: only take it off the board here.
-            self.storage.hide_map(repo, number)
+            # The map isn't KiPo's to close: only take it off the sidebar.
+            self.storage.close_map(repo, number)
             return {"removed": True, "repo": repo, "number": number}
         if (issue.get("state") or "OPEN").upper() == "OPEN":
             summary = self._summary(repo, issue, body)

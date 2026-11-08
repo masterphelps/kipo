@@ -82,6 +82,10 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/session$"), "session"),
     ("POST", re.compile(_ISSUE + r"/skill$"), "skill"),
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
+    ("POST", re.compile(_ISSUE + r"/hide$"), "hide"),
+    ("POST", re.compile(_ISSUE + r"/unhide$"), "unhide"),
+    ("GET", re.compile(r"^/maps$"), "list_maps"),
+    ("POST", re.compile(r"^/maps/open$"), "open_maps"),
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
     ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
@@ -241,6 +245,77 @@ class App:
 
     def remove(self, body, owner, repo, n):
         return self.initiatives.remove(f"{owner}/{repo}", int(n))
+
+    def hide(self, body, owner, repo, n):
+        return self.initiatives.hide(f"{owner}/{repo}", int(n))
+
+    def unhide(self, body, owner, repo, n):
+        return self.initiatives.unhide(f"{owner}/{repo}", int(n))
+
+    def _checkouts(self):
+        """``{slug (lower case): path}``: KiPo's repos first, then main checkouts on this Mac."""
+        paths = {}
+        for r in self.storage.get_config()["repos"]:
+            paths[r["slug"].lower()] = r["path"]
+        found = repos.discover(roots=self.repo_roots, configured=self._configured_paths())
+        for r in found:
+            if r.get("slug") and not r.get("worktree"):
+                paths.setdefault(r["slug"].lower(), r["path"])
+        return paths
+
+    def list_maps(self, body):
+        """Every open wayfinder map in your repos' owners, each marked open in
+        KiPo or not, plus the efforts taken off the sidebar."""
+        checkouts = self._checkouts()
+        configured = {r["slug"].lower() for r in self.storage.get_config()["repos"]}
+        owners = {slug.split("/")[0] for slug in checkouts}
+        maps = self.gh.search_open_maps(owners) if owners else []
+        wrapped = {}
+        out = []
+        for m in maps:
+            key = m["repo"].lower()
+            if key in configured and key not in wrapped:
+                try:
+                    wrapped[key] = self.initiatives.wrapped_maps(m["repo"])
+                except KipoError:
+                    wrapped[key] = {}
+            by = (wrapped.get(key) or {}).get(m["number"])
+            out.append({
+                **m,
+                "repoAdded": key in configured,
+                "checkout": checkouts.get(key),
+                "effort": by,
+                "opened": bool(by) or (key in configured and m["number"] in self.storage.opened_maps(m["repo"])),
+            })
+        out.sort(key=lambda m: (m["repo"].lower(), m["updatedAt"]), reverse=False)
+        return {"maps": out, "hidden": self.initiatives.hidden_efforts()}
+
+    def open_maps(self, body):
+        """Open the picked maps as efforts, adding each one's repo first if needed."""
+        picked = body.get("maps") if isinstance(body, dict) else None
+        if not isinstance(picked, list) or not picked:
+            raise KipoError("Pick at least one map.", "invalid_request", 400)
+        checkouts = None
+        opened, errors = [], []
+        for item in picked:
+            repo = (item or {}).get("repo")
+            number = (item or {}).get("number")
+            try:
+                validate_repo_slug(repo)
+                if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+                    raise KipoError("A map needs its issue number.", "invalid_request", 400)
+                if not self.storage.repo_path(repo):
+                    checkouts = checkouts if checkouts is not None else self._checkouts()
+                    path = checkouts.get(repo.lower())
+                    if not path:
+                        raise KipoError(f"{repo} isn't checked out on this Mac, so KiPo can't work in it.", "no_checkout", 400)
+                    self.add_repo({"path": path})
+                self.storage.open_map(repo, number)
+                self.storage.unhide(repo, number)
+                opened.append({"repo": repo, "number": number})
+            except KipoError as e:
+                errors.append({"repo": repo, "number": number, "error": e.message})
+        return {"opened": opened, "errors": errors}
 
     def frontier(self, body, owner, repo, n):
         return self.initiatives.frontier(f"{owner}/{repo}", int(n))
