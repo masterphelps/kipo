@@ -325,6 +325,15 @@ class App:
                 saved = self.storage.get_frontier(slug, i["number"]) if i["kind"] == "effort" else None
                 i["progress"] = progress.get(i["number"]) if i["kind"] == "map" else (
                     {"counts": saved.get("counts"), "lanes": saved.get("lanes"), "fog": saved.get("fog", 0)} if saved else None)
+            # Completed: closed on GitHub, or every ticket done with nothing left
+            # in the fog (still open, but nothing to do). Hidden unless asked for.
+            for i in items:
+                p = i.get("progress") or {}
+                counts = p.get("counts") or {}
+                total = sum(v or 0 for v in counts.values())
+                i["allDone"] = bool(total) and (counts.get("done") or 0) == total and not p.get("fog")
+            if not completed:
+                items = [i for i in items if not (i["closed"] or i["allDone"])]
             items.sort(key=lambda i: i["updatedAt"], reverse=True)
             repo = {"slug": slug, "path": entry.get("path"), "items": items}
             if error:

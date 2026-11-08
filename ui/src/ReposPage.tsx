@@ -128,7 +128,7 @@ export function ReposPage({ onOpen, onChanged }: {
             className="text-xs" style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, outline: 'none', color: 'var(--text)' }} />
         </label>
         <button type="button" role="switch" aria-checked={showCompleted} onClick={() => setShowCompleted(v => !v)}
-          title="Also list closed maps and efforts"
+          title="Also list completed maps and efforts: closed on GitHub, or every ticket done with nothing left in the fog"
           className="flex items-center gap-2 text-xs" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer', color: 'var(--text)', whiteSpace: 'nowrap' }}>
           <span aria-hidden style={{ width: 28, height: 16, borderRadius: 999, position: 'relative', flexShrink: 0, transition: 'background .15s',
             background: showCompleted ? 'var(--accent)' : 'var(--border)' }}>
@@ -189,7 +189,12 @@ export function ReposPage({ onOpen, onChanged }: {
                           : <DotButton on={item.onSidebar} kind={item.kind} onToggle={() => void flip(repo, item)} />}
                         icon={item.kind === 'map' ? <MapIcon size={13} /> : <Target size={13} />}
                         title={<span style={{ color: item.onSidebar ? 'var(--text)' : 'var(--muted)' }}>
-                          {item.closed && <span className="text-xs" style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '0 5px', marginRight: 6, color: 'var(--muted)' }}>Closed</span>}
+                          {(item.closed || item.allDone) && (
+                            <span className="text-xs" title={item.closed ? 'Closed on GitHub' : 'Every ticket done and nothing in the fog; its issue is still open on GitHub'}
+                              style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '0 5px', marginRight: 6, color: 'var(--muted)' }}>
+                              {item.closed ? 'Closed' : 'All done'}
+                            </span>
+                          )}
                           {item.title}
                         </span>}
                         progress={<Progress p={item.progress} />}

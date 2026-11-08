@@ -97,7 +97,8 @@ export type TreeItem = {
   map: number | null // an effort's wayfinder map
   // A map's tickets read from GitHub; an effort's from the last time KiPo read it (null: never).
   progress?: { counts: FrontierCounts; lanes?: Record<'decide' | 'deliver', FrontierCounts>; fog: number; fogLeft?: number } | null
-  closed?: boolean // completed: the map or effort issue is closed
+  closed?: boolean  // the map or effort issue is closed on GitHub
+  allDone?: boolean // every ticket done, no fog: completed, though its issue may still be open
 }
 export type TreeRepo = { slug: string; path: string; items: TreeItem[]; error?: string }
 export type AvailableRepo = { slug: string; path: string; name: string; maps: number }

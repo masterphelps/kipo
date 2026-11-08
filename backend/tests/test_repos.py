@@ -117,6 +117,18 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual(nums(""), {(5, False)})
         self.assertEqual(nums("?completed=1"), {(5, False), (6, True), (7, True)})
 
+    def test_all_done_counts_as_completed_even_while_its_issue_is_open(self):
+        self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
+        self.fake.add_issue("acme/widgets", 7, title="Effort: all done", labels=["kipo:effort"])
+        self.fake.add_issue("acme/widgets", 8, title="Effort: busy", labels=["kipo:effort"])
+        zero = {"done": 0, "review": 0, "building": 0, "you": 0, "afk": 0, "blocked": 0}
+        self.storage.save_frontier("acme/widgets", 7, {"counts": {**zero, "done": 4}, "lanes": {}, "fog": 0})
+        self.storage.save_frontier("acme/widgets", 8, {"counts": {**zero, "done": 1, "you": 1}, "lanes": {}, "fog": 0})
+        items = lambda q: {i["number"]: i for i in self.app.dispatch("GET", "/tree" + q, "")[1]["repos"][0]["items"]}
+        self.assertEqual(sorted(items("")), [8])
+        shown = items("?completed=1")
+        self.assertEqual((shown[7]["allDone"], shown[7]["closed"], shown[8]["allDone"]), (True, False, False))
+
     def test_the_green_dot_puts_things_on_and_off_the_sidebar(self):
         self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
         self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])
