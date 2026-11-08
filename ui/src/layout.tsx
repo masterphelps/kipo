@@ -25,8 +25,12 @@ export function useStoredSize(name: string, initial: number, min: number, max: n
   return [size, set] as const
 }
 
-// A thin handle between two panes. `onDrag` receives the pointer's movement since
-// the last event; the caller decides which pane grows. Double-click resets.
+// A handle between two panes. `onDrag` receives the pointer's movement since the
+// last event; the caller decides which pane grows. Double-click resets.
+//
+// While dragging, a transparent layer covers the whole window and takes the
+// pointer: an embedded chat (or any frame) under the cursor would otherwise
+// swallow the moves and the drag would stop dead.
 export function Divider({ direction, onDrag, onReset, label }: {
   direction: 'vertical' | 'horizontal' // vertical = a line between left and right panes
   onDrag: (delta: number) => void
@@ -35,24 +39,34 @@ export function Divider({ direction, onDrag, onReset, label }: {
 }) {
   const last = useRef<number | null>(null)
   const [active, setActive] = useState(false)
+  const [hover, setHover] = useState(false)
   const vertical = direction === 'vertical'
+  const pos = (e: { clientX: number; clientY: number }) => (vertical ? e.clientX : e.clientY)
+
+  useEffect(() => {
+    if (!active) return
+    const move = (e: PointerEvent) => {
+      if (last.current == null) return
+      const p = pos(e)
+      const delta = p - last.current
+      if (delta) { last.current = p; onDrag(delta) }
+    }
+    const up = () => { last.current = null; setActive(false) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, onDrag])
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.preventDefault()
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    last.current = vertical ? e.clientX : e.clientY
+    last.current = pos(e)
     setActive(true)
-  }
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (last.current == null) return
-    const pos = vertical ? e.clientX : e.clientY
-    const delta = pos - last.current
-    if (delta) { last.current = pos; onDrag(delta) }
-  }
-  const end = (e: React.PointerEvent) => {
-    last.current = null
-    setActive(false)
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* already released */ }
   }
   const onKeyDown = (e: React.KeyboardEvent) => {
     const step = e.shiftKey ? 40 : 10
@@ -62,9 +76,10 @@ export function Divider({ direction, onDrag, onReset, label }: {
     if (e.key === fwd) { e.preventDefault(); onDrag(step) }
   }
 
+  const lit = active || hover
   const style: CSSProperties = vertical
-    ? { width: 7, margin: '0 -3px', cursor: 'col-resize', alignSelf: 'stretch' }
-    : { height: 7, margin: '-3px 0', cursor: 'row-resize', width: '100%' }
+    ? { width: 9, margin: '0 -4px', cursor: 'col-resize', alignSelf: 'stretch' }
+    : { height: 9, margin: '-4px 0', cursor: 'row-resize', width: '100%' }
 
   return (
     <div
@@ -74,9 +89,8 @@ export function Divider({ direction, onDrag, onReset, label }: {
       tabIndex={0}
       title={`${label}. Drag to resize, double-click to reset.`}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={end}
-      onPointerCancel={end}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       onDoubleClick={onReset}
       onKeyDown={onKeyDown}
       style={{ ...style, flexShrink: 0, position: 'relative', zIndex: 2, touchAction: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
@@ -84,9 +98,17 @@ export function Divider({ direction, onDrag, onReset, label }: {
       <span
         aria-hidden
         style={vertical
-          ? { width: 1, height: '100%', background: active ? 'var(--accent)' : 'var(--border)' }
-          : { height: 1, width: '100%', background: active ? 'var(--accent)' : 'var(--border)' }}
+          ? { width: lit ? 3 : 1, height: '100%', borderRadius: 2, background: lit ? 'var(--accent)' : 'var(--border)', transition: 'width .1s' }
+          : { height: lit ? 3 : 1, width: '100%', borderRadius: 2, background: lit ? 'var(--accent)' : 'var(--border)', transition: 'height .1s' }}
       />
+      {/* A grip in the middle so the handle can be found without hunting. */}
+      <span aria-hidden style={{
+        position: 'absolute', borderRadius: 3, background: lit ? 'var(--accent)' : 'var(--border)',
+        ...(vertical ? { width: 5, height: 28, top: 'calc(50% - 14px)' } : { height: 5, width: 28, left: 'calc(50% - 14px)' }),
+      }} />
+      {active && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, cursor: vertical ? 'col-resize' : 'row-resize' }} />
+      )}
     </div>
   )
 }

@@ -160,7 +160,8 @@ export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
 }) {
   const { counts, fog, tiles, lanes } = frontier
   const [picked, setPicked] = useState<Pick | null>(null)
-  const withSession = tiles.filter(t => t.sessionKey)
+  // Conversations still going: a done ticket's conversation is closed with it.
+  const withSession = tiles.filter(t => t.sessionKey && t.state !== 'done')
   // With a ticket open, show its group so its tile (outlined) is in view;
   // otherwise whatever is waiting on someone.
   const openTile = openNumber != null ? tiles.find(t => t.number === openNumber) : undefined
@@ -228,10 +229,10 @@ export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
         })}
         {withSession.length > 0 && (
           <button type="button" onClick={() => toggle({ lane: null, state: 'open' })}
-            title="Tickets with a conversation: flip between them"
+            title="Open tickets that already have a conversation going: show them here to switch between them"
             style={{ background: 'transparent', padding: 0, cursor: 'pointer', marginLeft: 'auto', color: sel?.state === 'open' ? 'var(--text)' : 'var(--muted)', fontWeight: sel?.state === 'open' ? 600 : 400 }}>
             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, marginRight: 5, background: STATE_META.building.color }} />
-            {withSession.length} conversation{withSession.length === 1 ? '' : 's'}
+            {withSession.length} open conversation{withSession.length === 1 ? '' : 's'}
           </button>
         )}
       </div>
@@ -244,7 +245,7 @@ export function FrontierPanel({ frontier, onTile, openNumber, statuses }: {
       {tilesShown.length > 0 && sel && (
         <div style={{ paddingLeft: 68 }}>
           <div style={{ fontSize: T.tiny, marginBottom: 2, color: sel.state === 'open' ? 'var(--text)' : STATE_META[sel.state].text }}>
-            {sel.state === 'open' ? 'Conversations' : STATE_META[sel.state].label[0].toUpperCase() + STATE_META[sel.state].label.slice(1)}
+            {sel.state === 'open' ? 'Open conversations' : STATE_META[sel.state].label[0].toUpperCase() + STATE_META[sel.state].label.slice(1)}
             {sel.lane ? ` · ${LANE_LABEL[sel.lane]}` : ''}
             <span style={muted}> · click a tile to open it</span>
           </div>

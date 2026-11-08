@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { T } from './common'
 import { STATE_META, TileButton, type SessionStatus } from './Frontier'
 import type { Tile } from './types'
@@ -58,6 +59,17 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
   statuses?: Record<number, SessionStatus>
   labeled?: boolean               // wider nodes with the ticket's title
 }) {
+  // Fit the panel: labeled nodes shrink to the width available (down to a floor).
+  const box = useRef<HTMLDivElement>(null)
+  const [avail, setAvail] = useState(0)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setAvail(el.clientWidth))
+    ro.observe(el)
+    setAvail(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
   if (!tiles.length) return null
   // Tickets that block nothing and wait on nothing sit in a row underneath.
   const linked = new Set<number>()
@@ -71,9 +83,10 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
   const inGraph = alone.length ? tiles.filter(t => linked.has(t.number)) : tiles
   const { placed, cols, rows } = layout(inGraph)
   const size = 30
-  const nodeW = labeled ? 168 : size
+  const gapX = labeled ? 32 : 56
+  const fit = avail && cols ? Math.floor((avail - 2 - (cols - 1) * gapX) / cols) : 168
+  const nodeW = labeled ? Math.max(110, Math.min(200, fit)) : size
   const nodeH = size + 6
-  const gapX = labeled ? 40 : 56
   const gapY = labeled ? 10 : 8
   const fogCols = fog > 0 ? 1 : 0
   const width = (cols + fogCols) * nodeW + (cols + fogCols - 1) * gapX + 2
@@ -101,7 +114,7 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled }: 
   }
 
   return (
-    <div style={{ overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin' }}>
+    <div ref={box} style={{ overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin', minWidth: 0 }}>
       <div style={{ position: 'relative', width, height, minWidth: width }}>
         <svg width={width} height={height} style={{ position: 'absolute', inset: 0, overflow: 'visible' }} aria-hidden>
           <defs>
