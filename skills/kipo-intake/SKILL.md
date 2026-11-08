@@ -38,7 +38,7 @@ An effort has just been opened from something nobody has shaped yet. This conver
 1. Read the effort (`gh issue view <url> --comments`) and its source issue (the `sourceIssue` in the `kipo:meta` comment).
 2. Run the skill that fits, without asking which: set up the tracker if missing, then triage the source issue (on `issue` starts), or run `improve-codebase-architecture` (upkeep requests).
 3. Say where the effort stands in one line:
-   - triaged `ready-for-agent`: it's a Deliver ticket now; KiPo shows it as the agent's move.
+   - triaged `ready-for-agent`: it's a Deliver ticket now; KiPo shows it as ready for an agent (AFK).
    - `needs-info`, `ready-for-human` or `wontfix`: put that in `blocking` and say what would unblock it.
    - an idea came out (a picked candidate, or a request too fuzzy to build): say it needs grilling, and that the human can start that from the effort.
 

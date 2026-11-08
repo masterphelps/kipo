@@ -41,7 +41,7 @@ Decide is done: the idea is sharp, or the map is clear. This conversation writes
 
 - Every ticket gets the label `kipo:<n>` (the effort's number). Create it if missing: `gh label create kipo:<n> --color BFD4F2 --description "KiPo effort #<n>"`, ignoring "already exists".
 - Blocking edges are GitHub's native blocking links (per `to-tickets` and `docs/agents/issue-tracker.md`), not "Blocked by" text. Check each with `gh` after publishing.
-- Make each ticket a sub-issue of the spec issue where the tracker supports it, and apply `ready-for-agent` as `to-tickets` says: that's what puts a ticket in the Deliver lane as the agent's move.
+- Make each ticket a sub-issue of the spec issue where the tracker supports it, and apply `ready-for-agent` as `to-tickets` says: that's what puts a ticket in the Deliver lane, ready for an agent (AFK).
 - Never put a closing keyword aimed at the effort issue in a ticket or the spec.
 
 ## Documents

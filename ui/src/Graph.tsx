@@ -8,7 +8,7 @@ import type { Tile } from './types'
 // from blocker to blocked. An arrow from a closed blocker is faint and dashed:
 // that wait is over. With `bands`, Decide tickets sit in a top band and Deliver
 // tickets in a bottom one, so the hand-over shows as arrows crossing between
-// them. The frontier (open, unblocked tickets: your move or the agent's) is
+// them. The frontier (open, unblocked tickets: HITL or agent) is
 // outlined in its own color. Fog is dashed "?" tiles past the last column.
 
 const PAD = 6

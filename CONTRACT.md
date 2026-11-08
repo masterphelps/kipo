@@ -108,7 +108,7 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   GitHub). **Repos** shows each watched repo as a tree of its efforts and open maps; a green dot
   means it's on the sidebar, and clicking the dot adds or removes it. Repos are added there.
 - **Middle**: the **Next** line (the one next step, with its button), then every ticket as a
-  tile in a grid: Decide and Deliver by Your move, Agent's move, Working, Waiting, Done, and
+  tile in a grid: Decide and Deliver by HITL, Agent (AFK), In progress, Blocked, Done, and
   the fog. A tile opens its ticket's conversation. Below: the open conversation. A **Map** tab
   draws the blocking graph.
 - **Right**: what's open. A ticket: its card, where it sits (everything upstream and

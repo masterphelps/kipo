@@ -5,7 +5,7 @@ description: KiPo deliver conversation: builds one ticket (a ticket conversation
 
 # KiPo: build
 
-A Deliver ticket is the agent's move, or a small change or bug has no tickets. This conversation turns it into tested commits on a branch with a PR open. Review and merging happen in the review conversation.
+A Deliver ticket is ready for an agent (AFK), or a small change or bug has no tickets. This conversation turns it into tested commits on a branch with a PR open. Review and merging happen in the review conversation.
 
 ## How KiPo works now
 

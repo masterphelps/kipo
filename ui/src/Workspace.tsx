@@ -474,7 +474,7 @@ function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slot
   return (
     <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {open.length > 0 && (
-        <Block title="Decisions for you" aside={`${picked.length} of ${open.length} answered`}>
+        <Block title="Decisions (HITL)" aside={`${picked.length} of ${open.length} answered`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {open.map((d, i) => (
               <DecisionCard key={d.id} n={i + 1} decision={d} pick={picks[d.id] ?? null} disabled={!slotKey || sending}
@@ -630,7 +630,7 @@ function PhaseChat({ slotKey, onSkill, sent }: {
 const TILE_ACTIONS: Record<Tile['type'], { what: string; action: string; body: string }> = {
   grilling: { what: 'Grill', action: 'Start the grill', body: 'An interview with you to settle this decision. It updates GLOSSARY.md and the ADRs as answers land.' },
   prototype: { what: 'Prototype', action: 'Start a prototype', body: 'Throwaway code or an outline to react to, so the decision gets made against something concrete.' },
-  research: { what: 'Research', action: 'Run the research', body: 'The agent reads primary sources and leaves a cited note on a research branch. Nothing for you to do.' },
+  research: { what: 'Research', action: 'Run the research', body: 'The agent reads primary sources and leaves a cited note on a research branch. No HITL step.' },
   task: { what: 'Task', action: 'Start this task', body: 'Work that has to happen before a decision can be made. The agent does what it can and hands you a checklist for the rest.' },
   build: { what: 'Build', action: 'Implement this ticket', body: '/implement builds this ticket test-first in its own conversation, then reviews it.' },
   issue: { what: 'Issue', action: 'Triage it', body: 'A follow-up filed on the map. Triage moves it to an agent-ready brief, or asks you what it needs.' },
@@ -670,7 +670,7 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
       action = null
     } else {
       title = 'No conversation yet'
-      body = `${tile.who === 'you' ? 'Your move.' : "An agent can take it on its own."} ${a.body}`
+      body = `${tile.who === 'you' ? 'HITL.' : 'Agent (AFK): an agent can take it on its own.'} ${a.body}`
       action = a.action
     }
   } else if (focus.kind === 'ticket') {

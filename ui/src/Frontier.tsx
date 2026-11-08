@@ -4,7 +4,7 @@ import { T } from './common'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
-// storage meter. Done fills from the left; amber is your move, teal the agent's;
+// storage meter. Done fills from the left; amber is HITL, teal is agent (AFK);
 // the striped end is the fog, the questions not sharp enough to ticket yet.
 // Click a segment to see its tickets as tiles; click a tile to open or start it.
 
@@ -12,8 +12,8 @@ export const STATE_META: Record<TileState | 'fog', { label: string; color: strin
   done: { label: 'done', color: '#3fae6a', text: '#7fd39a' },
   review: { label: 'in review', color: '#a78bfa', text: '#a78bfa' },
   building: { label: 'building', color: '#60a5fa', text: '#60a5fa' },
-  you: { label: 'your move', color: '#f5b14c', text: '#f5b14c' },
-  afk: { label: "agent's move", color: '#2dd4bf', text: '#2dd4bf' },
+  you: { label: 'HITL', color: '#f5b14c', text: '#f5b14c' },
+  afk: { label: 'agent', color: '#2dd4bf', text: '#2dd4bf' },
   blocked: { label: 'blocked', color: '#4a4757', text: 'var(--muted)' },
   fog: { label: 'fog', color: 'transparent', text: 'var(--muted)' },
 }
@@ -77,11 +77,11 @@ export function LaneBars({ frontier, height = 4 }: { frontier: Saved; height?: n
   )
 }
 
-// "2 for you · 4 for agents", or what the effort is doing when nobody's up.
+// "2 HITL · 4 agent", or what the effort is doing when neither is ready.
 export function whoIsUp(counts: FrontierCounts): string {
   const bits: string[] = []
-  if (counts.you) bits.push(`${counts.you} for you`)
-  if (counts.afk) bits.push(`${counts.afk} for agents`)
+  if (counts.you) bits.push(`${counts.you} HITL`)
+  if (counts.afk) bits.push(`${counts.afk} agent`)
   if (bits.length) return bits.join(' · ')
   if (counts.building) return 'agent building'
   if (counts.review) return 'in review'
@@ -103,7 +103,7 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
   const hint = tile.state === 'blocked' && tile.blockedBy.length
     ? `#${tile.number} ${tile.title}: waiting on ${tile.blockedBy.map(b => `#${b}`).join(', ')}`
     : `#${tile.number} ${tile.title}: ${c.label}`
-  const sessionHint = status === 'running' ? ' · agent working' : status === 'waiting' ? ' · waiting on you' : ''
+  const sessionHint = status === 'running' ? ' · agent working' : status === 'waiting' ? ' · awaiting input' : ''
   return (
     <button
       type="button"
@@ -155,7 +155,7 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 
 // The summary over the conversation: who's up, the two halves as bars, and a
 // row of tiles to switch tickets without leaving the conversation. With nothing
-// picked the row is the frontier (open and unblocked: your move or the
+// picked the row is the frontier (open and unblocked: HITL or the
 // agent's). Picking a segment shows that segment's tickets instead: only that
 // half's, the segment stays marked, and the other bar dims. Click it again to
 // go back to the frontier.
@@ -163,10 +163,10 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // whose move it is as columns. Nothing hides behind a bar segment; a tile opens
 // its conversation. `next` is the one thing to do now, above it all.
 const GROUPS: { key: string; label: string; states: TileState[]; hint: string }[] = [
-  { key: 'you', label: 'Your move', states: ['you'], hint: 'Open and unblocked, and it needs you: a grilling, a prototype, a ticket marked for a human.' },
-  { key: 'afk', label: "Agent's move", states: ['afk'], hint: 'Open and unblocked, and an agent can take it on its own.' },
-  { key: 'working', label: 'Working', states: ['building', 'review'], hint: 'An agent is building it, or its PR is open for review.' },
-  { key: 'blocked', label: 'Waiting', states: ['blocked'], hint: 'Blocked by a ticket that is still open.' },
+  { key: 'you', label: 'HITL', states: ['you'], hint: 'Human in the loop: open, unblocked, and it needs you (a grilling, a prototype, a ticket labelled ready-for-human).' },
+  { key: 'afk', label: 'Agent', states: ['afk'], hint: 'AFK: open, unblocked, and an agent can take it on its own.' },
+  { key: 'working', label: 'In progress', states: ['building', 'review'], hint: 'An agent is building it, or its PR is open for review.' },
+  { key: 'blocked', label: 'Blocked', states: ['blocked'], hint: 'Blocked by a ticket that is still open.' },
   { key: 'done', label: 'Done', states: ['done'], hint: 'Closed.' },
 ]
 
