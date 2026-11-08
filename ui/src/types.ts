@@ -88,6 +88,7 @@ export type Config = { repos: RepoConfig[] }
 export type FoundRepo = {
   path: string; name: string; slug: string | null; remote: string | null;
   worktree: boolean; configured: boolean;
+  maps?: number // open wayfinder maps on GitHub; absent when the search failed
 }
 export type BrowseFolder = { path: string; name: string; repo: boolean; slug: string | null }
 export type BrowseResult = {
@@ -166,6 +167,8 @@ export type Effort = {
   destination: string
   updatedAt: string
   ticketCounts?: { open: number; closed: number } | null
+  // 'map': a wayfinder map KiPo didn't make, shown as it stands (KiPo never writes to it).
+  kind?: 'effort' | 'map'
   // The last frontier seen in this effort's detail (no tiles), for the list's bar.
   frontier?: { counts: FrontierCounts; fog: number; lanes?: Record<'decide' | 'deliver', FrontierCounts>; stage?: Stage } | null
   stage?: Stage

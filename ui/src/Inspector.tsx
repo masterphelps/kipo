@@ -216,7 +216,9 @@ export function nextStep(detail: EffortDetail, h: {
   if (f?.landed) {
     return {
       text: <><b>Everything delivered is merged.</b> Retro the run so the next one goes better, then close the effort.</>,
-      actions: [{ label: 'Run /retro', onClick: h.retro, kind: 'done' }, { label: 'Close effort', onClick: h.close, kind: 'quiet' }],
+      // A wayfinder map closes on GitHub with its last ticket; KiPo doesn't close it.
+      actions: [{ label: 'Run /retro', onClick: h.retro, kind: 'done' },
+        ...(detail.kind === 'map' ? [] : [{ label: 'Close effort', onClick: h.close, kind: 'quiet' as const }])],
     }
   }
   if (f?.handover) {

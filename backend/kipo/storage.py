@@ -112,6 +112,23 @@ class Storage:
         value = data.get(self.session_key(repo, number)) if isinstance(data, dict) else None
         return value if isinstance(value, dict) else None
 
+    # -- hidden maps -------------------------------------------------------
+    # Wayfinder maps taken off the board. The map itself is left alone on GitHub.
+
+    def hidden_maps(self, repo):
+        data = self._read("hidden.json", {})
+        value = data.get(repo.lower()) if isinstance(data, dict) else None
+        return {int(n) for n in value} if isinstance(value, list) else set()
+
+    def hide_map(self, repo, number):
+        with self._lock:
+            data = self._read("hidden.json", {})
+            if not isinstance(data, dict):
+                data = {}
+            numbers = set(data.get(repo.lower()) or []) | {int(number)}
+            data[repo.lower()] = sorted(numbers)
+            self._write("hidden.json", data)
+
     def record_session(self, repo, number, key, slot_name):
         with self._lock:
             data = self._read("sessions.json", {})

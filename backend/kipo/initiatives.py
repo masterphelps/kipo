@@ -2,6 +2,10 @@
 
 An effort is a GitHub issue labelled ``kipo:effort``; its column is its
 ``kipo:col:<id>`` label and its path lives in the ``kipo:meta`` comment.
+
+An open wayfinder map (``wayfinder:map``) is an effort too, as it stands: its
+Destination is the map's own, its tickets are the map's children, and KiPo
+never writes to it. A map an effort already points at shows only as that effort.
 """
 import datetime
 import json
@@ -14,6 +18,8 @@ from . import frontier as frontier_mod
 from . import state as col_state
 
 EFFORT_LABEL = "kipo:effort"
+MAP_LABEL = "wayfinder:map"
+MAP_START = "huge"  # a map is Decide work: shape, then plan, build, review
 COL_PREFIX = "kipo:col:"
 START_PREFIX = "kipo:start:"
 META_KEYS = ("repoPath", "start", "path", "mapIssue", "specPath", "sourceIssue")
@@ -111,6 +117,23 @@ def parse_body(text):
     if request:
         parsed["request"] = request
     return parsed
+
+
+def is_map(issue):
+    """A wayfinder map KiPo didn't make: an effort in its own right."""
+    labels = label_names(issue)
+    return MAP_LABEL in labels and EFFORT_LABEL not in labels
+
+
+def map_body(issue):
+    """A map read as an effort body: its own Destination, itself as the map."""
+    parsed = parse_body(issue.get("body"))
+    return {
+        "destination": parsed["destination"],
+        "artifacts": [],
+        "phaseLog": [],
+        "meta": {**default_meta(), "start": MAP_START, "mapIssue": issue["number"]},
+    }
 
 
 def merge_artifacts(*lists):
@@ -381,13 +404,16 @@ class Initiatives:
             "destination": body["destination"],
             "updatedAt": issue.get("updatedAt") or "",
             "ticketCounts": None,
+            "kind": "map" if is_map(issue) else "effort",
         }
 
     def _fetch(self, repo, number):
         validate_repo_slug(repo)
         issue = self.gh.view_issue(repo, number)
+        if issue and is_map(issue):
+            return issue, map_body(issue)
         if not issue or EFFORT_LABEL not in label_names(issue):
-            raise KipoError(f"Issue #{number} in {repo} is not a KiPo effort.", "not_effort", 404)
+            raise KipoError(f"Issue #{number} in {repo} is not a KiPo effort or a wayfinder map.", "not_effort", 404)
         return issue, parse_body(issue.get("body"))
 
     # -- tickets and PRs --------------------------------------------------
@@ -583,10 +609,16 @@ class Initiatives:
         for entry in self.storage.get_config()["repos"]:
             repo = entry.get("slug")
             try:
-                found = [
-                    self._summary(repo, issue, parse_body(issue.get("body")))
-                    for issue in self.gh.list_issues(repo, EFFORT_LABEL)
-                ]
+                found, wrapped = [], set()
+                for issue in self.gh.list_issues(repo, EFFORT_LABEL):
+                    body = parse_body(issue.get("body"))
+                    found.append(self._summary(repo, issue, body))
+                    wrapped.add(self._map_of(repo, issue["number"], body))
+                # Open maps no effort points at are efforts as they stand.
+                hidden = self.storage.hidden_maps(repo)
+                for issue in self.gh.list_issues(repo, MAP_LABEL):
+                    if is_map(issue) and issue["number"] not in wrapped | hidden:
+                        found.append(self._summary(repo, issue, map_body(issue)))
             except KipoError as e:
                 errors.append({"repo": repo, "error": e.message, "code": e.code})
                 continue
@@ -607,6 +639,16 @@ class Initiatives:
         if errors:
             result["errors"] = errors
         return result
+
+    def _map_of(self, repo, number, body):
+        """The map an effort points at: its meta, else its artifacts or state file."""
+        meta = body["meta"]
+        if meta.get("mapIssue"):
+            return int(meta["mapIssue"])
+        path = self._repo_path(repo, meta)
+        artifacts = merge_artifacts(body["artifacts"], col_state.state_artifacts(col_state.read_state(path, number)) if path else [])
+        found = derive_meta(meta, artifacts).get("mapIssue")
+        return int(found) if found else None
 
     TICKET_COUNT_PAGES = 5
 
@@ -688,6 +730,10 @@ class Initiatives:
 
     def advance(self, repo, number, force=False, to=None):
         issue, body = self._fetch(repo, number)
+        if is_map(issue):
+            raise KipoError(
+                "KiPo doesn't move a wayfinder map: it's done when its last ticket closes.", "map_not_moved", 409
+            )
         if (issue.get("state") or "OPEN").upper() != "OPEN":
             raise KipoError(f"Issue #{number} is closed.", "effort_closed", 409)
         labels = label_names(issue)
@@ -748,6 +794,10 @@ class Initiatives:
         reopening the issue on GitHub puts it back on the board.
         """
         issue, body = self._fetch(repo, number)
+        if is_map(issue):
+            # The map isn't KiPo's to close: only take it off the board here.
+            self.storage.hide_map(repo, number)
+            return {"removed": True, "repo": repo, "number": number}
         if (issue.get("state") or "OPEN").upper() == "OPEN":
             summary = self._summary(repo, issue, body)
             self.gh.close_issue(

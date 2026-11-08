@@ -43,7 +43,9 @@ export function Settings({ onSaved }: { onSaved: (repos: RepoConfig[]) => void }
   if (!found) return <p className="text-sm text-muted">Looking for your repos…</p>
 
   const added = found.filter(r => r.configured)
+  // Repos with live wayfinder maps first: each map shows up as an effort once added.
   const available = found.filter(r => !r.configured && r.slug && !r.worktree)
+    .sort((a, b) => (b.maps ?? 0) - (a.maps ?? 0))
   const unusable = found.filter(r => !r.configured && (!r.slug || r.worktree))
 
   return (
@@ -117,6 +119,12 @@ function RepoRow({ repo, children }: { repo: FoundRepo; children: React.ReactNod
         </div>
         <div className="mt-0.5"><PathChip path={repo.path} /></div>
       </div>
+      {(repo.maps ?? 0) > 0 && (
+        <span title="Open wayfinder maps in this repo. Each one is an effort on KiPo's board."
+          className="text-sm" style={{ color: 'var(--accent)', whiteSpace: 'nowrap' }}>
+          {repo.maps} open map{repo.maps === 1 ? '' : 's'}
+        </span>
+      )}
       {children}
     </li>
   )

@@ -84,6 +84,18 @@ class FakeGh:
             if not issue:
                 return 1, "", "GraphQL: Could not resolve to an issue"
             return 0, json.dumps(issue), ""
+        if cmd == ["search", "issues"]:
+            if getattr(self, "search_error", False):
+                return 1, "", "HTTP 403: rate limited"
+            owners = {o.lower() for o in _flag_values(args, "--owner")}
+            label = _flag(args, "--label")
+            out = [
+                {"number": i["number"], "repository": {"nameWithOwner": r}}
+                for (r, _), i in self.issues.items()
+                if r.split("/")[0].lower() in owners and i["state"] == "OPEN"
+                and label in {l["name"] for l in i["labels"]}
+            ]
+            return 0, json.dumps(out), ""
         if cmd == ["issue", "list"]:
             label = _flag(args, "--label")
             state = _flag(args, "--state", "open").upper()

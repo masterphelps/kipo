@@ -48,7 +48,8 @@ class RepoRoutesTest(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "node_modules", "pkg", ".git"))
         os.makedirs(os.path.join(self.root, "plain-folder"))
         self.storage = Storage(os.path.join(self.home, "data"))
-        self.app = server.App(gh=Gh(FakeGh()), storage=self.storage, repo_roots=(self.root,), home=self.home)
+        self.fake = FakeGh()
+        self.app = server.App(gh=Gh(self.fake), storage=self.storage, repo_roots=(self.root,), home=self.home)
 
     def tearDown(self):
         shutil.rmtree(self.home)
@@ -61,6 +62,21 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual(by_name["widgets"]["slug"], "acme/widgets")
         self.assertIsNone(by_name["local-only"]["slug"])
         self.assertFalse(by_name["widgets"]["configured"])
+
+    def test_discover_counts_each_repos_open_wayfinder_maps(self):
+        self.fake.add_issue("acme/widgets", 5, labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 6, labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 7, labels=["wayfinder:map"], state="CLOSED")
+        self.fake.add_issue("acme/gadgets", 8, labels=["wayfinder:grilling"])
+        by_name = {r["name"]: r for r in self.app.dispatch("GET", "/repos/discover", "")[1]["repos"]}
+        self.assertEqual((by_name["widgets"]["maps"], by_name["gadgets"]["maps"]), (2, 0))
+        self.assertNotIn("maps", by_name["local-only"])
+
+    def test_discover_still_works_when_the_map_search_fails(self):
+        self.fake.search_error = True
+        status, out = self.app.dispatch("GET", "/repos/discover", "")
+        self.assertEqual(status, 200, out)
+        self.assertTrue(all("maps" not in r for r in out["repos"]))
 
     def test_add_by_folder_derives_slug_and_marks_configured(self):
         path = os.path.join(self.root, "widgets")

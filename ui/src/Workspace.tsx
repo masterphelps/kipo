@@ -668,6 +668,28 @@ function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClos
   onRemove: () => void
 }) {
   const group = { display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 } as const
+  // A wayfinder map isn't KiPo's: it only leaves the board here, and closes on
+  // GitHub when its last ticket does.
+  const isMap = detail.kind === 'map'
+  if (confirm && isMap) {
+    return (
+      <span style={{ ...group, fontSize: T.small }}>
+        <span style={{ ...muted, whiteSpace: 'nowrap' }}>Hide this map in KiPo? It stays open on GitHub.</span>
+        <ActionButton danger disabled={busy} onClick={onRemove}>Hide</ActionButton>
+        <ActionButton disabled={busy} onClick={() => setConfirm(null)}>Cancel</ActionButton>
+      </span>
+    )
+  }
+  if (isMap) {
+    return (
+      <span style={group}>
+        <TextButton disabled={busy} onClick={() => setConfirm('remove')} title="Take this map off KiPo's board. The map stays open on GitHub.">Hide map</TextButton>
+        {stage === 'done' && !detail.sessions.done && (
+          <ActionButton disabled={busy} onClick={onRetro}>Run /retro</ActionButton>
+        )}
+      </span>
+    )
+  }
   if (confirm) {
     const closing = confirm === 'skip'
     return (

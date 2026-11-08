@@ -572,3 +572,66 @@ class SessionStateTests(Columns):
         # The effort's own conversation still uses state.json.
         main = self.post("/session", {"column": "build"})[1]
         self.assertIn(f"State file: {self.checkout}/.kipo/7/state.json", main["seed"])
+
+
+class MapAsEffortTests(Columns):
+    """An open wayfinder map is an effort in its own right: no wrapper issue."""
+
+    MAP_BODY = "## Destination\n\nA spec for the thing.\n\n## Notes\n\nn\n\n## Not yet specified\n\n- later\n"
+
+    def add_map(self, number=50, title="Map: the thing"):
+        self.fake.add_issue(REPO, number, title=title, body=self.MAP_BODY, labels=["wayfinder:map"])
+        self.fake.add_issue(REPO, 51, title="Which way?", labels=["wayfinder:grilling"])
+        self.fake.add_issue(REPO, 52, title="Look it up", labels=["wayfinder:research"])
+        self.fake.blocked_by[(REPO, 52)] = [51]
+        self.fake.sub_issues[(REPO, number)] = [51, 52]
+        return number
+
+    def listed(self):
+        status, out = self.app.dispatch("GET", "/initiatives", "")
+        self.assertEqual(status, 200, out)
+        return {i["number"]: i for i in out["initiatives"]}
+
+    def test_a_map_is_listed_as_an_effort(self):
+        self.add_map()
+        m = self.listed()[50]
+        self.assertEqual((m["kind"], m["column"], m["destination"]), ("map", "shape", "A spec for the thing."))
+
+    def test_a_map_an_effort_already_wraps_is_not_listed_twice(self):
+        self.make_effort(column="shape", meta={"mapIssue": 50})
+        self.add_map()
+        by = self.listed()
+        self.assertEqual(sorted(by), [7])
+        self.assertEqual(by[7]["kind"], "effort")
+
+    def test_a_maps_detail_reads_its_own_children(self):
+        self.add_map()
+        status, d = self.get(n=50)
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["mapIssue"], 50)
+        states = {t["number"]: t["state"] for t in d["frontier"]["tiles"]}
+        self.assertEqual(states, {51: "you", 52: "blocked"})
+        self.assertEqual(d["frontier"]["fog"], 1)
+
+    def test_removing_a_map_hides_it_without_closing_it(self):
+        self.add_map()
+        status, out = self.post("/remove", n=50)
+        self.assertEqual(status, 200, out)
+        self.assertEqual(self.fake.issues[(REPO, 50)]["state"], "OPEN")
+        self.assertNotIn(50, self.listed())
+
+    def test_a_map_child_gets_a_shape_session(self):
+        self.add_map()
+        status, out = self.post("/session", {"ticket": 51}, n=50)
+        self.assertEqual(status, 200, out)
+        self.assertIn("shape-t51", self.get(n=50)[1]["sessions"])
+
+    def test_a_map_is_not_moved_by_kipo(self):
+        self.add_map()
+        status, out = self.post("/advance", {"force": True}, n=50)
+        self.assertEqual(status, 409, out)
+        self.assertEqual(out["code"], "map_not_moved")
+
+    def test_an_issue_that_is_neither_is_refused(self):
+        self.fake.add_issue(REPO, 60, title="Plain")
+        self.assertEqual(self.get(n=60)[0], 404)

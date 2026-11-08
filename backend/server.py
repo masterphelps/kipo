@@ -138,7 +138,20 @@ class App:
         return [r.get("path", "") for r in self.storage.get_config()["repos"]]
 
     def discover_repos(self, body):
-        return {"repos": repos.discover(roots=self.repo_roots, configured=self._configured_paths())}
+        found = repos.discover(roots=self.repo_roots, configured=self._configured_paths())
+        # How many open wayfinder maps each repo has, so a repo with live maps
+        # stands out. Best effort: without it the list still works.
+        owners = {r["slug"].split("/")[0] for r in found if r.get("slug")}
+        if owners:
+            try:
+                counts = self.gh.open_map_counts(owners)
+            except KipoError:
+                counts = None
+            if counts is not None:
+                for r in found:
+                    if r.get("slug"):
+                        r["maps"] = counts.get(r["slug"].lower(), 0)
+        return {"repos": found}
 
     def browse(self, body):
         return repos.browse(body.get("path") or None, home=self.home)

@@ -136,6 +136,20 @@ class Gh:
             "--limit", str(limit), "--json", fields,
         ]) or []
 
+    def open_map_counts(self, owners):
+        """``{"owner/name" (lower case): open wayfinder maps}`` for every repo of
+        these owners, from one search."""
+        args = ["search", "issues", "--label", "wayfinder:map", "--state", "open",
+                "--json", "repository,number", "--limit", "500"]
+        for owner in sorted(set(owners)):
+            args += ["--owner", owner]
+        counts = {}
+        for hit in self.run_json(args) or []:
+            slug = ((hit.get("repository") or {}).get("nameWithOwner") or "").lower()
+            if slug:
+                counts[slug] = counts.get(slug, 0) + 1
+        return counts
+
     def view_issue(self, repo, number):
         try:
             return self.run_json(["issue", "view", str(number), "-R", repo, "--json", ISSUE_FIELDS])
