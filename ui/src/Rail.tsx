@@ -1,19 +1,29 @@
 import { useMemo, useState } from 'react'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
-import { COLUMNS, COLUMN_LABELS, type Column, type Effort } from './types'
+import { COLUMN_LABELS, type Column, type Effort } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
-// filter, and jump between efforts, grouped by column, in the board's order.
-const GROUPS: { title: string; columns: Column[] }[] = COLUMNS.map(c => ({ title: COLUMN_LABELS[c], columns: [c] }))
+// filter, and jump between efforts. One flat list, most recently touched first;
+// each row names its column once. The Board is where efforts sit by column.
 
 export type RailView = 'board' | 'repos'
 
-// The heading already names the column, so the row shows the repo and tickets.
 function progress(e: Effort): string {
   const repo = e.repo.split('/').pop() || e.repo
   const c = e.ticketCounts
   if (!c || !(c.open + c.closed)) return repo
   return `${repo}, ${c.closed} of ${c.open + c.closed} tickets done`
+}
+
+function ColumnTag({ column }: { column: Column }) {
+  return (
+    <span style={{
+      flexShrink: 0, fontSize: 10, lineHeight: '15px', padding: '0 6px', borderRadius: 999,
+      border: '1px solid var(--accent)', color: 'var(--accent)', whiteSpace: 'nowrap',
+    }}>
+      {COLUMN_LABELS[column]}
+    </span>
+  )
 }
 
 export function Rail({ width, items, error, selected, view, onNew, onSelect, onView }: {
@@ -77,16 +87,12 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
         {items !== null && items.length === 0 && (
           <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>No efforts yet.</div>
         )}
-        {GROUPS.map(g => {
-          const rows = shown.filter(i => g.columns.includes(i.column))
-          if (!rows.length) return null
-          return (
-            <div key={g.title} style={{ marginTop: 8 }}>
-              <div style={{ ...muted, fontSize: T.tiny, padding: '4px 6px', display: 'flex' }}>
-                <span style={{ flex: 1 }}>{g.title}</span>
-                <span>{rows.length}</span>
-              </div>
-              {rows.map(i => {
+        {items !== null && items.length > 0 && !shown.length && (
+          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Nothing matches.</div>
+        )}
+        {shown.length > 0 && (
+            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {shown.map(i => {
                 const key = `${i.repo}#${i.number}`
                 const on = key === selected
                 return (
@@ -110,16 +116,16 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
                     <div style={{ ...(on ? strong : {}), fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {i.title}
                     </div>
-                    <div style={{ ...muted, fontSize: T.tiny, marginTop: 1, display: 'flex', gap: 6 }}>
-                      <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
+                    <div style={{ ...muted, fontSize: T.tiny, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <ColumnTag column={i.column} />
+                      <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>
                   </button>
                 )
               })}
             </div>
-          )
-        })}
+        )}
       </div>
 
       <div style={{ borderTop: '1px solid var(--border)', padding: '6px 8px', display: 'flex', gap: 2 }}>
