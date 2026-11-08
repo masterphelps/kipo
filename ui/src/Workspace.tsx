@@ -340,14 +340,17 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           </div>
 
           {view === 'map' && hasMap ? (
-            <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket in its container (the map, the spec's tickets, the source issue), linked by what blocks what. Hover one to trace its chain; click it to open its conversation.</span>
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '10px 16px 8px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border)' }}>
+                <span style={{ ...muted, fontSize: T.tiny }}>The effort's map, its spec tickets and its source issue as rings; what blocks what, which PR closes what. Hover a ticket to trace its chain, click it to open its conversation, drag anything to arrange it.</span>
+                <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
               </div>
-              <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
-              <NetworkMap tiles={detail.frontier!.tiles} fogItems={detail.frontier!.fogItems ?? []} mapIssue={detail.mapIssue ?? null} effort={detail.number}
-                highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
-                statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <NetworkMap tiles={detail.frontier!.tiles} prs={detail.prs} fogItems={detail.frontier!.fogItems ?? []}
+                  mapIssue={detail.mapIssue ?? null} effort={detail.number} storageKey={`kipo.net.${repo}#${number}`}
+                  highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
+                  statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+              </div>
             </div>
           ) : (<>
           {/* The conversation's own header: the one place to go back to the effort's
