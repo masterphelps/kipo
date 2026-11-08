@@ -364,6 +364,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {detail.frontier?.lanes && (<>
             <div ref={summarySplit.ref} style={summarySplit.style}>
               <FrontierSummary frontier={detail.frontier} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
+                mapUrl={detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null}
                 next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
             </div>
             <Divider direction="horizontal" label="Resize the bars and the conversation"

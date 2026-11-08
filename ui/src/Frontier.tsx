@@ -1,5 +1,6 @@
 
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
+import { Popover } from './Menu'
 import { T } from './common'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
@@ -14,7 +15,7 @@ export const STATE_META: Record<TileState | 'fog', { label: string; color: strin
   building: { label: 'building', color: '#60a5fa', text: '#60a5fa' },
   you: { label: 'HITL', color: '#f5b14c', text: '#f5b14c' },
   afk: { label: 'agent', color: '#2dd4bf', text: '#2dd4bf' },
-  blocked: { label: 'blocked', color: '#4a4757', text: 'var(--muted)' },
+  blocked: { label: 'blocked', color: '#c2615b', text: '#e08a85' },
   fog: { label: 'fog', color: 'transparent', text: 'var(--muted)' },
 }
 
@@ -170,7 +171,8 @@ const GROUPS: { key: string; label: string; states: TileState[]; hint: string }[
   { key: 'done', label: 'Done', states: ['done'], hint: 'Closed.' },
 ]
 
-export function FrontierSummary({ frontier, onTile, openNumber, statuses, next }: {
+export function FrontierSummary({ frontier, onTile, openNumber, statuses, next, mapUrl }: {
+  mapUrl?: string | null // the wayfinder map, for the fog popover
   frontier: Frontier
   onTile: (t: Tile) => void
   openNumber: number | null
@@ -178,6 +180,7 @@ export function FrontierSummary({ frontier, onTile, openNumber, statuses, next }
   next?: ReactNode
 }) {
   const { counts, fog, tiles } = frontier
+  const [fogAt, setFogAt] = useState<{ x: number; y: number } | null>(null)
   if (!frontierTotal(counts, fog)) return next ? <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>{next}</div> : null
   const lanes = (['decide', 'deliver'] as Lane[]).filter(l => tiles.some(t => t.lane === l) || (l === 'decide' && fog > 0))
   const groups = GROUPS.filter(g => tiles.some(t => g.states.includes(t.state)))
@@ -229,20 +232,49 @@ export function FrontierSummary({ frontier, onTile, openNumber, statuses, next }
               })}
               {fog > 0 && (
                 <div role="gridcell" style={{ display: 'flex', gap: 5, padding: '5px 6px', minHeight: 46 }}>
-                  {lane === 'decide' && Array.from({ length: Math.min(fog, 3) }).map((_, i) => (
-                    <span key={i} title={`${fog} question${fog === 1 ? '' : 's'} not yet specified`}
-                      style={{ width: 32, height: 36, borderRadius: 6, border: '1.5px dashed var(--border)', color: 'var(--muted)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>?</span>
-                  ))}
+                  {lane === 'decide' && Array.from({ length: Math.min(fog, 4) }).map((_, i) => {
+                    const text = frontier.fogItems?.[i]
+                    const more = i === 3 && fog > 4 ? fog - 3 : 0
+                    return (
+                      <button key={i} type="button"
+                        title={more ? `${more} more not yet specified` : text ? `Not yet specified: ${plain(text)}` : 'Not yet specified'}
+                        onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setFogAt({ x: r.left, y: r.bottom + 4 }) }}
+                        style={{ width: 32, height: 38, borderRadius: 6, border: '1.5px dashed var(--muted)', color: 'var(--muted)', background: 'transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: more ? 11 : 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                        {more ? `+${more}` : '?'}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </Fragment>
           ))}
         </div>
       </div>
+      {fogAt && (
+        <Popover x={fogAt.x} y={fogAt.y} label="Not yet specified" onClose={() => setFogAt(null)}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong, var(--text))' }}>Not yet specified · {fog}</div>
+          <div style={{ fontSize: T.tiny, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+            Fog: in scope, but not sharp enough to ticket yet. Each becomes a ticket once the decisions ahead of it are made.
+          </div>
+          <ol style={{ margin: '10px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {(frontier.fogItems?.length ? frontier.fogItems : ['(The map describes it in prose.)']).map((t, i) => (
+              <li key={i} style={{ fontSize: T.small, lineHeight: 1.45, color: 'var(--text)' }}>{plain(t)}</li>
+            ))}
+          </ol>
+          {mapUrl && (
+            <a href={mapUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 10, fontSize: T.small, color: 'var(--accent)' }}>
+              Open the map on GitHub
+            </a>
+          )}
+        </Popover>
+      )}
     </div>
   )
 }
+
+// Markdown emphasis and links read as plain text in a small popover or tooltip.
+const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 
 // The legend for the Map tab: counts per state; picking one highlights those
 // tickets on the map.

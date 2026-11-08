@@ -139,6 +139,7 @@ export type Frontier = {
   counts: FrontierCounts
   lanes: Record<Lane, FrontierCounts>
   fog: number
+  fogItems?: string[] // the map's Not yet specified items, as text
   stage: Stage
   active: Record<Lane, boolean>
   handover: boolean // the map is clear and no tickets are cut yet: /to-spec, /to-tickets

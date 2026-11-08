@@ -80,6 +80,20 @@ export function Menu({ x, y, items, onClose }: { x: number; y: number; items: Me
   )
 }
 
+// Any content in the same surface, where it was opened: closes on a click
+// outside, Escape or the window losing focus.
+export function Popover({ x, y, width = 340, label, onClose, children }: {
+  x: number; y: number; width?: number; label: string; onClose: () => void; children: ReactNode
+}) {
+  const { ref, pos } = usePopover(x, y, onClose)
+  return (
+    <div ref={ref} role="dialog" aria-label={label}
+      style={{ ...surface, left: pos.x, top: pos.y, padding: '12px 14px', width, maxHeight: '60vh', overflowY: 'auto' }}>
+      {children}
+    </div>
+  )
+}
+
 // A confirmation in the same surface, where the menu was.
 export function Confirm({ x, y, title, children, action, onConfirm, onClose }: {
   x: number; y: number; title: string; children?: ReactNode; action: string

@@ -75,6 +75,20 @@ class Fog(unittest.TestCase):
     def test_prose_counts_as_one(self):
         self.assertEqual(fr.fog_count("## Not yet specified\nSomething about billing.\n"), 1)
 
+    def test_items_keep_their_text(self):
+        body = ("## Not yet specified\n- **Many efforts at once.** One conductor per effort, or one per crew?\n"
+                "  More on a second line.\n- Spend limits\n\n## Out of scope\n- y\n")
+        self.assertEqual(fr.fog_items(body), [
+            "**Many efforts at once.** One conductor per effort, or one per crew? More on a second line.",
+            "Spend limits",
+        ])
+        self.assertEqual(fr.fog_items("## Not yet specified\nSomething about billing.\n"), ["Something about billing."])
+        self.assertEqual(fr.fog_items(None), [])
+
+    def test_the_frontier_carries_the_items(self):
+        f = fr.build([], [], [], {}, "## Not yet specified\n- a\n- b\n")
+        self.assertEqual((f["fog"], f["fogItems"]), (2, ["a", "b"]))
+
     def test_none(self):
         self.assertEqual(fr.fog_count("## Not yet specified\n<!-- empty -->\n\n## Out of scope\n"), 0)
         self.assertEqual(fr.fog_count(None), 0)

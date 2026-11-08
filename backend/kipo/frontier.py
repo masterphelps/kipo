@@ -61,21 +61,34 @@ def state_for(ticket, who, prs, has_session):
     return who
 
 
-def fog_count(map_body):
-    """How many questions the map's "Not yet specified" section holds.
-
-    Counts its list items; a section of prose with no list counts as one.
-    """
+def fog_items(map_body):
+    """The questions in the map's "Not yet specified" section, as text: one per
+    list item (continuation lines joined); a section of prose is one item."""
     if not map_body:
-        return 0
+        return []
     m = re.search(r"^#{1,6}\s*Not yet specified\s*$(.*?)(?=^#{1,6}\s|\Z)", map_body, re.M | re.S | re.I)
     if not m:
-        return 0
+        return []
     text = re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S).strip()
     if not text:
-        return 0
-    items = re.findall(r"^\s*(?:[-*+]|\d+[.)])\s+\S", text, re.M)
-    return len(items) or 1
+        return []
+    items, current = [], None
+    for line in text.splitlines():
+        start = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$", line)
+        if start:
+            if current is not None:
+                items.append(current)
+            current = start.group(1).strip()
+        elif current is not None and line.strip():
+            current = f"{current} {line.strip()}"
+    if current is not None:
+        items.append(current)
+    return items or [" ".join(text.split())]
+
+
+def fog_count(map_body):
+    """How many questions the map's "Not yet specified" section holds."""
+    return len(fog_items(map_body))
 
 
 LANES = ("decide", "deliver")
@@ -152,6 +165,7 @@ def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None
         "counts": _counts(tiles),
         "lanes": {lane: _counts([t for t in tiles if t["lane"] == lane]) for lane in LANES},
         "fog": fog_count(map_body),
+        "fogItems": fog_items(map_body),
     }
 
 
