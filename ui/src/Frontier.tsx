@@ -24,30 +24,31 @@ const FOG_FILL = 'repeating-linear-gradient(135deg, var(--border) 0 4px, transpa
 export const frontierTotal = (counts: FrontierCounts, fog: number) =>
   TILE_STATES.reduce((n, s) => n + (counts[s] || 0), 0) + fog
 
-// A lane's progress: green fills as its tickets close (a merged PR, a resolved
-// decision); lighter green is work in review, nearly there. Everything else is
-// track, so a lane with every ticket closed reads as a full green bar. The
-// breakdown by HITL, agent and blocked is in the tooltip and the ticket grid.
+// A lane's tickets as one bar, a segment per state: done (green), in review,
+// building, HITL (amber), agent (teal), blocked (red). Only tickets: the map's
+// fog isn't drawn, since it never closes, so a lane whose tickets are all closed
+// is a full green bar. Hover for the counts.
+const BAR_ORDER: TileState[] = ['done', 'review', 'building', 'you', 'afk', 'blocked']
+
 export function FrontierBar({ counts, fog, height = 6 }: {
   counts: FrontierCounts
   fog: number
   height?: number
 }) {
-  const total = frontierTotal(counts, fog)
+  const parts = BAR_ORDER.map(st => [st, counts[st] || 0] as const).filter(([, n]) => n > 0)
+  const total = parts.reduce((a, [, n]) => a + n, 0)
   if (!total) return null
-  const done = counts.done || 0
-  const review = counts.review || 0
-  const pct = (n: number) => `${(n / total) * 100}%`
   const title = [
-    `${done} of ${total} done`,
-    ...(['review', 'building', 'you', 'afk', 'blocked'] as TileState[]).filter(st => counts[st]).map(st => `${counts[st]} ${STATE_META[st].label}`),
-    ...(fog ? [`${fog} not yet specified`] : []),
+    `${counts.done || 0} of ${total} done`,
+    ...parts.filter(([st]) => st !== 'done').map(([st, n]) => `${n} ${STATE_META[st].label}`),
+    ...(fog ? [`${fog} not yet specified (not in the bar)`] : []),
   ].join(' · ')
   return (
-    <div role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={title} title={title}
-      style={{ display: 'flex', height, borderRadius: height / 2, overflow: 'hidden', background: 'var(--border)' }}>
-      <span style={{ width: pct(done), background: STATE_META.done.color, transition: 'width .3s' }} />
-      <span style={{ width: pct(review), background: STATE_META.done.color, opacity: 0.45, transition: 'width .3s' }} />
+    <div role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={counts.done || 0} aria-label={title} title={title}
+      style={{ display: 'flex', gap: 2, height, borderRadius: height / 2, overflow: 'hidden' }}>
+      {parts.map(([st, n]) => (
+        <span key={st} style={{ flex: n, minWidth: 4, background: STATE_META[st].color }} />
+      ))}
     </div>
   )
 }
