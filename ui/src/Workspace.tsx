@@ -153,7 +153,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     const poll = () => {
       void Promise.all(sessionTiles.map(t =>
         api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
-          .then(r => [t.number, r?.running ? 'running' : 'waiting'] as const)
+          // A finished ticket's idle session isn't waiting on anyone: no dot.
+          .then(r => (r?.running ? [t.number, 'running'] as const : t.state === 'done' ? null : [t.number, 'waiting'] as const))
           .catch(() => null),
       )).then(rows => {
         if (!live) return
