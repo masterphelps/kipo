@@ -10,6 +10,7 @@ import re
 
 from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
 from . import docs
+from . import frontier as frontier_mod
 from . import state as col_state
 
 EFFORT_LABEL = "kipo:effort"
@@ -295,7 +296,8 @@ def derive_meta(meta, artifacts):
     for artifact in artifacts:
         label = (artifact.get("label") or "").strip().lower()
         href = artifact.get("href") or ""
-        if label == "wayfinder map" and not derived.get("mapIssue"):
+        # Agents write "Wayfinder map" or "Wayfinder map #20"; both name the map.
+        if (label == "wayfinder map" or label.startswith("wayfinder map ")) and not derived.get("mapIssue"):
             m = _ISSUE_URL_RE.search(href)
             if m:
                 derived["mapIssue"] = int(m.group(1))
@@ -413,12 +415,38 @@ class Initiatives:
                 "title": node.get("title") or "",
                 "url": node.get("url") or "",
                 "state": node.get("state") or "OPEN",
+                "labels": [l["name"] for l in (node.get("labels") or {}).get("nodes") or []],
                 "blockers": [
                     {"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b
                 ],
             })
         nodes.sort(key=lambda n: n["number"])
         return nodes, note
+
+    def _map_children(self, repo, map_issue):
+        """Every child of the wayfinder map, open and closed, plus the map's body
+        (for the fog). Returns ``(nodes, body)``; nodes as in ``_ticket_nodes``."""
+        owner, name = repo.split("/", 1)
+        try:
+            data = self.gh.graphql(_MAP_QUERY.replace("BLOCKED", _TICKET_BLOCKED_FIELD), owner=owner, name=name, number=map_issue)
+        except KipoError as e:
+            if "blockedBy" not in e.message:
+                raise
+            data = self.gh.graphql(_MAP_QUERY.replace("BLOCKED", ""), owner=owner, name=name, number=map_issue)
+        issue = (((data or {}).get("data") or {}).get("repository") or {}).get("issue") or {}
+        nodes = []
+        for node in (issue.get("subIssues") or {}).get("nodes") or []:
+            blockers = (node.get("blockedBy") or {}).get("nodes") or []
+            nodes.append({
+                "number": node["number"],
+                "title": node.get("title") or "",
+                "url": node.get("url") or "",
+                "state": node.get("state") or "OPEN",
+                "labels": [l["name"] for l in (node.get("labels") or {}).get("nodes") or []],
+                "blockers": [{"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b],
+                "assigned": bool((node.get("assignees") or {}).get("totalCount")),
+            })
+        return nodes, issue.get("body") or ""
 
     def _prs(self, repo, number, ticket_numbers_):
         """The repo's PRs that belong to this effort, each with the tickets it closes."""
@@ -480,6 +508,16 @@ class Initiatives:
         except KipoError as e:
             prs_error = e.message
         tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
+
+        # The frontier: build tickets and the map's children, each in its real state.
+        map_nodes, map_body = [], None
+        if meta.get("mapIssue"):
+            try:
+                map_nodes, map_body = self._map_children(repo, int(meta["mapIssue"]))
+            except KipoError:
+                map_nodes, map_body = [], None
+        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body)
+        self.storage.save_frontier(repo, number, front["counts"], front["fog"])
         summary["ticketCounts"] = {
             "open": sum(1 for t in tickets if t["state"] == "OPEN"),
             "closed": sum(1 for t in tickets if t["state"] != "OPEN"),
@@ -501,6 +539,7 @@ class Initiatives:
             "history": col_state.read_archived(repo_path, number, COLUMNS[: COLUMNS.index(column)]),
             "tickets": tickets,
             "prs": prs,
+            "frontier": front,
         }
         if tickets_note:
             detail["ticketsNote"] = tickets_note
@@ -532,6 +571,7 @@ class Initiatives:
                     errors.append({"repo": repo, "error": e.message, "code": e.code})
                 for i in found:
                     i["ticketCounts"] = counts.get(i["number"])
+                    i["frontier"] = self.storage.get_frontier(repo, i["number"])
             efforts += found
         efforts.sort(key=lambda i: i["updatedAt"], reverse=True)
         result = {"initiatives": efforts}
@@ -816,12 +856,18 @@ _FRONTIER_QUERY = (
 )
 
 _TICKET_BLOCKED_FIELD = "blockedBy(first: 50) { nodes { number state } }"
+_MAP_QUERY = (
+    "query($owner: String!, $name: String!, $number: Int!) {"
+    " repository(owner: $owner, name: $name) { issue(number: $number) { body"
+    " subIssues(first: 100) { nodes { number title url state"
+    " assignees(first: 1) { totalCount } labels(first: 50) { nodes { name } } BLOCKED } } } } }"
+)
 # LABELS is replaced with a JSON list literal; GitHub's labels filter matches any of them.
 _TICKETS_QUERY = (
     "query($owner: String!, $name: String!) {"
     " repository(owner: $owner, name: $name) {"
     " issues(first: 100, labels: LABELS, states: [OPEN, CLOSED], orderBy: {field: CREATED_AT, direction: ASC}) {"
-    " nodes { number title url state BLOCKED } } } }"
+    " nodes { number title url state labels(first: 50) { nodes { name } } BLOCKED } } } }"
 )
 _COUNT_QUERY = (
     "query($owner: String!, $name: String!, $cursor: String) {"

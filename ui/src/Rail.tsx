@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
+import { FrontierBar, frontierTotal, whoIsUp } from './Frontier'
 import { COLUMN_LABELS, type Column, type Effort } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
@@ -8,8 +9,16 @@ import { COLUMN_LABELS, type Column, type Effort } from './types'
 
 export type RailView = 'board' | 'repos'
 
+// Once an effort has tickets (or a mapped fog), its bar says where it is; before
+// that, its column does.
+const hasFrontier = (e: Effort) => !!e.frontier && frontierTotal(e.frontier.counts, e.frontier.fog) > 0
+
 function progress(e: Effort): string {
   const repo = e.repo.split('/').pop() || e.repo
+  if (hasFrontier(e)) {
+    const up = whoIsUp(e.frontier!.counts)
+    return up ? `${repo} · ${up}` : repo
+  }
   const c = e.ticketCounts
   if (!c || !(c.open + c.closed)) return repo
   return `${repo}, ${c.closed} of ${c.open + c.closed} tickets done`
@@ -116,8 +125,11 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
                     <div style={{ ...(on ? strong : {}), fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {i.title}
                     </div>
+                    {hasFrontier(i) && (
+                      <div style={{ marginTop: 5 }}><FrontierBar counts={i.frontier!.counts} fog={i.frontier!.fog} /></div>
+                    )}
                     <div style={{ ...muted, fontSize: T.tiny, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <ColumnTag column={i.column} />
+                      {!hasFrontier(i) && <ColumnTag column={i.column} />}
                       <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>

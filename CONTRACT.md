@@ -148,3 +148,34 @@ human skipped it). Build's checklist is the agent's; the page also shows tickets
 ## Storage
 
 `$KIROCREW_HOME/apps/kipo/data/`: `config.json`, `sessions.json`, as in Launchpad.
+
+
+## The frontier
+
+Once an effort has tickets it is no longer in one place: its build tickets
+(`kipo:<n>`) and its wayfinder map's children each have their own state. The
+effort detail returns them as `frontier: {tiles, counts, fog}` (`backend/kipo/frontier.py`).
+
+- **Type** (tile code): `wayfinder:grilling` Gr, `prototype` Pr, `research` Rs,
+  `task` Tk; a `kipo:<n>` ticket is `build` Bd; an untyped map child is a grill,
+  unless it carries a triage label (`needs-triage`, `ready-for-agent`, …): then
+  it's an `issue` Is.
+- **Who**: `you` (HITL) or `afk`. Grilling and prototype are HITL, research is
+  AFK, build is AFK; task and issue are AFK only with `ready-for-agent`;
+  `ready-for-human` makes anything HITL.
+- **State**, first match wins: closed `done`; an open PR closes it `review`; an
+  open blocker `blocked`; AFK with a session or an assignee `building`; else its
+  who (`you` or `afk`). A HITL ticket with a session open is still `you`.
+- **Fog**: list items in the map's "Not yet specified" section (prose with no
+  list counts as one).
+- The map is found from the meta's `mapIssue`, or an artifact labelled
+  "Wayfinder map" or "Wayfinder map #<n>".
+- `/initiatives` carries each effort's last-seen `frontier: {counts, fog}` (saved
+  whenever its detail is read), so the list can draw a bar per effort without
+  querying every map.
+
+The UI draws `counts` as one bar (done, review, building, you, afk, blocked,
+fog), with the column shown only for efforts that have no tickets yet. "Start N
+agents" opens one session per `afk` tile: build tiles as `build-t<t>` sessions
+running `implement`, map children as `shape-t<t>` sessions running their
+type's skill.

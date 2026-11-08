@@ -160,5 +160,11 @@ class FakeGh:
         return {"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}
 
     def _sub_issues_query(self, repo, number):
-        nodes = [self._node(repo, self.issues[(repo, c)], blocked=False) for c in self.sub_issues.get((repo, number), ())]
-        return {"data": {"repository": {"issue": {"subIssues": {"nodes": nodes}}}}}
+        nodes = []
+        for c in self.sub_issues.get((repo, number), ()):
+            issue = self.issues[(repo, c)]
+            n = self._node(repo, issue, blocked=True)
+            n["assignees"] = {"totalCount": issue.get("assignees") or 0}
+            nodes.append(n)
+        body = (self.issues.get((repo, number)) or {}).get("body") or ""
+        return {"data": {"repository": {"issue": {"body": body, "subIssues": {"nodes": nodes}}}}}

@@ -93,6 +93,26 @@ class Storage:
                     out.append({"slot": slot, "repo": repo})
         return out
 
+    # -- frontier ----------------------------------------------------------
+    # The last frontier counts seen in an effort's detail, so the list can draw
+    # each effort's bar without another round of GitHub queries per effort.
+
+    def save_frontier(self, repo, number, counts, fog):
+        with self._lock:
+            data = self._read("frontier.json", {})
+            if not isinstance(data, dict):
+                data = {}
+            value = {"counts": counts, "fog": fog}
+            if data.get(self.session_key(repo, number)) == value:
+                return
+            data[self.session_key(repo, number)] = value
+            self._write("frontier.json", data)
+
+    def get_frontier(self, repo, number):
+        data = self._read("frontier.json", {})
+        value = data.get(self.session_key(repo, number)) if isinstance(data, dict) else None
+        return value if isinstance(value, dict) else None
+
     def record_session(self, repo, number, key, slot_name):
         with self._lock:
             data = self._read("sessions.json", {})

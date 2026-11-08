@@ -6,11 +6,12 @@ import {
   ActionButton, ErrorLine, PathChip, StartBadge, T, TextButton, fieldStyle, isUrl, muted, pathText, scrollRow, strong, timeAgo,
 } from './common'
 import { cached, remember } from './cache'
+import { FrontierPanel } from './Frontier'
 import { Divider, useStoredSize } from './layout'
 import { openSession } from './sessions'
 import {
   BUTTONS, CHIPS, COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
-  type Artifact, type Column, type Decision, type Doc, type EffortDetail, type PhaseState, type Ticket, type TicketInfo,
+  type Artifact, type Column, type Decision, type Doc, type EffortDetail, type PhaseState, type Ticket, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -82,7 +83,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const ticket = detail && focus.kind === 'ticket' ? detail.tickets.find(t => t.number === focus.t) ?? null : null
 
   // Open (or continue) the session for the current focus, optionally starting a skill.
-  const start = async (skill: string | null = null, override?: Focus) => {
+  const start = async (skill: string | null = null, override?: Focus, moveFocus = true) => {
     if (!detail) return
     const f = override ?? focus
     setStarting(true)
@@ -103,9 +104,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       } else {
         await openSession(api, repo, res.slotName, res.seed, title)
       }
-      if (override) setFocus(override)
-      load()
-      onChanged()
+      if (override && moveFocus) setFocus(override)
+      if (moveFocus) { load(); onChanged() }
     } catch (e) {
       setActionError(
         e instanceof BackendError && e.code === 'ticket_blocked' ? e.message : `Couldn't start the conversation: ${errorText(e)}`,
@@ -113,6 +113,35 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     } finally {
       setStarting(false)
     }
+  }
+
+  // The frontier's tiles. A build ticket opens as a ticket session, a map child
+  // as a decision session; its skill follows its wayfinder type.
+  const tileFocus = (t: Tile): Focus => (t.type === 'build' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
+  const tileSkill = (t: Tile): string | null =>
+    t.type === 'build' ? 'implement' : t.type === 'research' ? 'research' : t.type === 'prototype' ? 'prototype' : t.type === 'issue' ? 'triage' : null
+  const [startingAgents, setStartingAgents] = useState<string | null>(null)
+
+  const openTile = (t: Tile) => {
+    if (t.state === 'done' || (t.state === 'blocked' && !t.sessionKey && t.type !== 'build')) {
+      window.open(t.url, '_blank', 'noreferrer')
+      return
+    }
+    // A session already exists, or the ticket can't start yet: just show it.
+    if (t.sessionKey || t.state === 'blocked' || t.state === 'review') { setFocus(tileFocus(t)); return }
+    void start(tileSkill(t), tileFocus(t))
+  }
+
+  // "Start N agents": one session per AFK ticket on the frontier, in parallel,
+  // leaving this conversation where it is.
+  const startAgents = async (tiles: Tile[]) => {
+    for (let i = 0; i < tiles.length; i++) {
+      setStartingAgents(`Starting ${i + 1} of ${tiles.length}…`)
+      await start(tileSkill(tiles[i]), tileFocus(tiles[i]), false)
+    }
+    setStartingAgents(null)
+    load()
+    onChanged()
   }
 
   // A skill button: into the open conversation, or start the conversation with it.
@@ -206,6 +235,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               {detail.repoPath}
             </span>
           </div>
+          {detail.frontier && (
+            <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents} />
+          )}
           {focus.kind !== 'column' && (
             <div style={{ ...scrollRow, padding: '6px 16px', borderBottom: '1px solid var(--border)', fontSize: T.small, gap: 8 }}>
               <TextButton onClick={() => setFocus({ kind: 'column' })}>← {COLUMN_LABELS[detail.column]}</TextButton>

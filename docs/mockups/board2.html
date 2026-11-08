@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.wrap{width:1600px;padding:20px 24px}
+.bar{display:flex;height:12px;border-radius:6px;overflow:hidden;gap:2px;background:#1c1b24}
+.done{background:#3fae6a}.rev{background:#a78bfa}.bld{background:#60a5fa}.you{background:#f5b14c}.afk{background:#2dd4bf}
+.blk{background:#3a3846}.fog{background:repeating-linear-gradient(135deg,#2a2833 0 4px,#1c1b24 4px 8px)}
+.row{display:grid;grid-template-columns:340px 1fr 210px 150px;gap:18px;align-items:center;padding:12px 14px;border-radius:8px;background:#14131a;border:1px solid #1f1d27;margin-bottom:6px}
+.row.open{border-color:#3a3160;background:#17151f}
+.k{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+.sec{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8a8698;margin:16px 0 8px}
+.t{width:32px;height:38px;font-size:13px}
+</style></head><body><div class="wrap">
+<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:6px">
+ <span class="strong" style="font-size:16px">Board</span>
+ <span class="muted" style="font-size:12px">every effort, one bar each · click a row to see its tickets</span><span style="flex:1"></span>
+ <span style="font-size:12px"><span style="color:#f5b14c"><i class="k you"></i>5 your move</span> &nbsp;&nbsp;<span style="color:#2dd4bf"><i class="k afk"></i>6 agent's move</span> &nbsp;&nbsp;<span class="muted"><i class="k bld"></i>2 running · <i class="k rev"></i>1 in review</span></span>
+ <span class="btn" style="background:#2dd4bf;color:#062621;border:0;font-weight:600;margin-left:10px">Start all 6</span>
+</div>
+
+<div class="sec">In flight</div>
+<div class="row open">
+  <div><div class="strong">Every product activates against its own license</div><div class="muted" style="font-size:11px;margin-top:3px">interrosec-portal · map #20 · 4 min ago</div></div>
+  <div><div class="bar"><span class="done" style="flex:6"></span><span class="rev" style="flex:1"></span><span class="bld" style="flex:1"></span><span class="you" style="flex:2"></span><span class="afk" style="flex:4"></span><span class="blk" style="flex:3"></span><span class="fog" style="flex:2"></span></div>
+    <div class="muted" style="font-size:11px;margin-top:5px">6 of 17 done · 2 in the fog</div></div>
+  <div style="font-size:12px"><span style="color:#f5b14c">2 for you</span> · <span style="color:#2dd4bf">4 for agents</span></div>
+  <div style="text-align:right"><span class="btn" style="background:#2dd4bf;color:#062621;border:0;font-weight:600">Start 4</span></div>
+  <div style="grid-column:1/5;display:flex;gap:22px;padding-top:4px;border-top:1px solid #24222d">
+    <div><div style="font-size:11px;color:#f5b14c;margin:8px 0 6px">Your move</div><div style="display:flex;gap:4px"><div class="t you"><i>24</i>Gr</div><div class="t you"><i>31</i>Pr</div></div></div>
+    <div><div style="font-size:11px;color:#2dd4bf;margin:8px 0 6px">Agent's move</div><div style="display:flex;gap:4px"><div class="t afk"><i>28</i>Bd</div><div class="t afk"><i>30</i>Rs</div><div class="t afk"><i>32</i>Bd</div><div class="t afk"><i>34</i>Bd</div></div></div>
+    <div><div style="font-size:11px;color:#60a5fa;margin:8px 0 6px">Running</div><div style="display:flex;gap:4px"><div class="t bld"><i>29</i>Bd</div><div class="t rev"><i>33</i>Bd</div></div></div>
+    <div><div class="muted" style="font-size:11px;margin:8px 0 6px">Blocked</div><div style="display:flex;gap:4px"><div class="t blk"><i>35</i>Bd</div><div class="t blk"><i>36</i>Gr</div><div class="t blk"><i>37</i>Bd</div></div></div>
+    <div><div style="font-size:11px;color:#7fd39a;margin:8px 0 6px">Done</div><div style="display:flex;gap:4px"><div class="t done"><i>21</i>Gr</div><div class="t done"><i>22</i>Bd</div><div class="t done"><i>23</i>Rs</div><div class="t done"><i>25</i>Gr</div><div class="t done"><i>26</i>Tk</div><div class="t done"><i>27</i>Pr</div></div></div>
+  </div>
+</div>
+<div class="row">
+  <div><div class="strong">Billing platform our products share</div><div class="muted" style="font-size:11px;margin-top:3px">billing · map #4 · 1 h ago</div></div>
+  <div><div class="bar"><span class="you" style="flex:1"></span><span class="afk" style="flex:1"></span><span class="blk" style="flex:4"></span><span class="fog" style="flex:5"></span></div><div class="muted" style="font-size:11px;margin-top:5px">0 of 6 done · 5 in the fog</div></div>
+  <div style="font-size:12px"><span style="color:#f5b14c">1 for you</span> · <span style="color:#2dd4bf">1 for agents</span></div>
+  <div style="text-align:right"><span class="btn" style="background:#2dd4bf;color:#062621;border:0;font-weight:600">Start 1</span></div>
+</div>
+<div class="row">
+  <div><div class="strong">Export crashes on large files</div><div class="muted" style="font-size:11px;margin-top:3px">widgets · hard bug · 12 min ago</div></div>
+  <div><div class="bar"><span class="done" style="flex:1"></span><span class="bld" style="flex:1"></span></div><div class="muted" style="font-size:11px;margin-top:5px">1 of 2 done</div></div>
+  <div class="muted" style="font-size:12px">agent building</div><div></div>
+</div>
+<div class="row">
+  <div><div class="strong">Search across tenants</div><div class="muted" style="font-size:11px;margin-top:3px">widgets · idea · 2 d ago</div></div>
+  <div><div class="bar"><span class="done" style="flex:1"></span></div><div class="muted" style="font-size:11px;margin-top:5px">9 of 9 done</div></div>
+  <div style="font-size:12px;color:#7fd39a">all merged</div><div style="text-align:right"><span class="btn">Run /retro</span></div>
+</div>
+
+<div class="sec">Shaping · no tickets yet</div>
+<div class="row">
+  <div><div class="strong">Add login with Google</div><div class="muted" style="font-size:11px;margin-top:3px">widgets · idea · 17 h ago</div></div>
+  <div><div class="bar"><span class="fog" style="flex:1"></span></div><div class="muted" style="font-size:11px;margin-top:5px">all fog: in the grilling</div></div>
+  <div style="font-size:12px;color:#f5b14c">your move · Grill</div><div style="text-align:right"><span class="btn">Open</span></div>
+</div>
+</div></body></html>

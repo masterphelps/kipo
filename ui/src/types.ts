@@ -95,6 +95,24 @@ export type BrowseResult = {
   here: { path: string; name: string; slug: string | null } | null;
 }
 
+// The frontier (CONTRACT.md): every ticket of an effort in its real state.
+export const TILE_STATES = ['done', 'review', 'building', 'you', 'afk', 'blocked'] as const
+export type TileState = typeof TILE_STATES[number]
+export type FrontierCounts = Record<TileState, number>
+export type Tile = {
+  number: number
+  title: string
+  url: string
+  type: 'grilling' | 'prototype' | 'research' | 'task' | 'build' | 'issue'
+  code: string
+  who: 'you' | 'afk'
+  state: TileState
+  blockedBy: number[]
+  sessionKey: string | null
+  prs: number[]
+}
+export type Frontier = { tiles: Tile[]; counts: FrontierCounts; fog: number }
+
 export type Effort = {
   repo: string
   number: number
@@ -106,6 +124,8 @@ export type Effort = {
   destination: string
   updatedAt: string
   ticketCounts?: { open: number; closed: number } | null
+  // The last frontier seen in this effort's detail (no tiles), for the list's bar.
+  frontier?: { counts: FrontierCounts; fog: number } | null
 }
 
 export type Decision = { id: string; title: string; options: string[]; recommended: string | null; answer: string | null }
@@ -154,6 +174,7 @@ export type EffortDetail = Effort & {
   history?: Partial<Record<Column, PhaseState>>
   tickets: TicketInfo[]
   prs: PrInfo[]
+  frontier?: Frontier
   ticketsError?: string
 }
 

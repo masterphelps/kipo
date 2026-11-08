@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.wrap{width:1600px;padding:22px 26px;display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.card{background:#14131a;border:1px solid #24222d;border-radius:10px;padding:16px 18px}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px;background:#1c1b24}
+.bar span{height:100%}
+.done{background:#3fae6a}.rev{background:#a78bfa}.bld{background:#60a5fa}.you{background:#f5b14c}.afk{background:#2dd4bf}
+.blk{background:#3a3846}.fog{background:repeating-linear-gradient(135deg,#2a2833 0 4px,#1c1b24 4px 8px)}
+.leg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:9px;font-size:12px}
+.leg b{font-weight:700;color:#f1eff7}
+.k{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8a8698;margin-bottom:10px}
+.t{width:32px;height:38px;font-size:13px}
+</style></head><body><div class="wrap">
+
+<div class="card" style="grid-column:1/3">
+  <div class="lbl">On the effort page: the bar is the headline</div>
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+    <span class="strong" style="font-size:16px">Every product activates against its own license</span>
+    <span style="flex:1"></span><span class="muted" style="font-size:12px">6 of 17 done · 2 in the fog</span>
+  </div>
+  <div class="bar" style="height:22px;border-radius:8px">
+    <span class="done" style="flex:6"></span><span class="rev" style="flex:1"></span><span class="bld" style="flex:1"></span>
+    <span class="you" style="flex:2;outline:2px solid #fff;outline-offset:-2px"></span><span class="afk" style="flex:4"></span><span class="blk" style="flex:3"></span><span class="fog" style="flex:2"></span>
+  </div>
+  <div class="leg">
+    <span><i class="k done"></i><b>6</b> done</span><span><i class="k rev"></i><b>1</b> in review</span><span><i class="k bld"></i><b>1</b> building</span>
+    <span style="color:#f5b14c"><i class="k you"></i><b>2</b> your move</span><span style="color:#2dd4bf"><i class="k afk"></i><b>4</b> agent's move</span>
+    <span><i class="k blk"></i><b>3</b> blocked</span><span><i class="k fog" style="border:1px dashed #55526a"></i><b>2</b> fog</span>
+  </div>
+  <div style="margin-top:14px;padding:10px 12px;background:#1a1922;border-radius:8px;border:1px solid rgba(245,177,76,.4)">
+    <div style="font-size:12px;margin-bottom:8px"><span style="color:#f5b14c;font-weight:600">Your move</span><span class="muted"> · click a segment to open its tickets</span></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="t you"><i>24</i>Gr</div><span style="margin-right:18px">What happens to an install whose license is deleted?</span>
+      <div class="t you"><i>31</i>Pr</div><span>How should the license picker look per product?</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="lbl">In the left list: a thin bar per effort</div>
+  <div style="display:flex;flex-direction:column;gap:14px;width:260px">
+    <div><div class="strong" style="font-size:13px">Every product activates against…</div>
+      <div class="bar" style="height:6px;margin-top:6px"><span class="done" style="flex:6"></span><span class="rev" style="flex:1"></span><span class="bld" style="flex:1"></span><span class="you" style="flex:2"></span><span class="afk" style="flex:4"></span><span class="blk" style="flex:3"></span><span class="fog" style="flex:2"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">portal · <span style="color:#f5b14c">2 for you</span> · <span style="color:#2dd4bf">4 for agents</span></div></div>
+    <div><div style="font-size:13px">Billing platform our products share</div>
+      <div class="bar" style="height:6px;margin-top:6px"><span class="you" style="flex:1"></span><span class="afk" style="flex:1"></span><span class="blk" style="flex:4"></span><span class="fog" style="flex:5"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">billing · mostly fog: still being mapped</div></div>
+    <div><div style="font-size:13px">Export crashes on large files</div>
+      <div class="bar" style="height:6px;margin-top:6px"><span class="done" style="flex:1"></span><span class="bld" style="flex:1"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">widgets · agent building</div></div>
+    <div><div style="font-size:13px">Search across tenants</div>
+      <div class="bar" style="height:6px;margin-top:6px"><span class="done" style="flex:1"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">widgets · all merged · <span style="color:#3fae6a">ready for Done</span></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="lbl">How one effort's bar changes over time</div>
+  <div style="display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center;font-size:12px">
+    <span class="muted">Just mapped</span><div class="bar"><span class="you" style="flex:2"></span><span class="afk" style="flex:1"></span><span class="blk" style="flex:3"></span><span class="fog" style="flex:8"></span></div>
+    <span class="muted">Fog clearing</span><div class="bar"><span class="done" style="flex:3"></span><span class="you" style="flex:2"></span><span class="afk" style="flex:3"></span><span class="blk" style="flex:5"></span><span class="fog" style="flex:3"></span></div>
+    <span class="muted">In flight</span><div class="bar"><span class="done" style="flex:6"></span><span class="rev" style="flex:1"></span><span class="bld" style="flex:1"></span><span class="you" style="flex:2"></span><span class="afk" style="flex:4"></span><span class="blk" style="flex:3"></span><span class="fog" style="flex:2"></span></div>
+    <span class="muted">Landing</span><div class="bar"><span class="done" style="flex:15"></span><span class="rev" style="flex:2"></span><span class="bld" style="flex:1"></span></div>
+    <span class="muted">Done</span><div class="bar"><span class="done" style="flex:1"></span></div>
+  </div>
+  <div class="muted" style="font-size:11.5px;margin-top:14px;line-height:1.5">The fog is the striped part at the end. It shrinks as questions turn into tickets, and can grow when a decision opens new ones, so the bar is honest about how much is still unknown.</div>
+</div>
+
+</div></body></html>

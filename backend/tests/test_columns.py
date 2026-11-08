@@ -465,3 +465,43 @@ class SourceIssuePrTests(Columns):
         ])
         self.fake.add_pr(REPO, 33, body="Closes #22.", state="OPEN")
         self.assertEqual(self.get()[1]["prs"], [])
+
+
+class FrontierDetailTests(Columns):
+    """The detail's frontier puts build tickets and map children in their real states."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_effort(column="build", meta={"mapIssue": 20})
+        self.fake.add_issue(REPO, 20, title="Map", body="## Not yet specified\n- offline\n- transfer\n", labels=["wayfinder:map"])
+        self.fake.add_issue(REPO, 24, title="Deleted license?", labels=["wayfinder:grilling"])
+        self.fake.add_issue(REPO, 30, title="Stripe entitlements", labels=["wayfinder:research"])
+        self.fake.add_issue(REPO, 21, title="Old grill", labels=["wayfinder:grilling"], state="CLOSED")
+        self.fake.sub_issues[(REPO, 20)] = [21, 24, 30]
+        self.ticket(28)
+        self.ticket(29)
+        self.ticket(35)
+        self.fake.blocked_by[(REPO, 35)] = [24]
+        self.fake.add_pr(REPO, 33, body="Closes #29", state="OPEN")
+
+    def test_states_counts_and_fog(self):
+        f = self.get()[1]["frontier"]
+        states = {t["number"]: (t["code"], t["state"]) for t in f["tiles"]}
+        self.assertEqual(states, {
+            21: ("Gr", "done"), 24: ("Gr", "you"), 30: ("Rs", "afk"),
+            28: ("Bd", "afk"), 29: ("Bd", "review"), 35: ("Bd", "blocked"),
+        })
+        self.assertEqual(f["counts"], {"done": 1, "review": 1, "building": 0, "you": 1, "afk": 2, "blocked": 1})
+        self.assertEqual(f["fog"], 2)
+
+    def test_the_list_carries_the_last_frontier_seen(self):
+        self.get()
+        listed = self.app.dispatch("GET", "/initiatives", "")[1]["initiatives"]
+        self.assertEqual(listed[0]["frontier"]["counts"]["afk"], 2)
+        self.assertEqual(listed[0]["frontier"]["fog"], 2)
+
+
+class MapArtifactLabelTests(Columns):
+    def test_a_numbered_map_label_names_the_map(self):
+        self.make_effort(column="build", artifacts=[{"label": "Wayfinder map #20", "href": f"https://github.com/{REPO}/issues/20"}])
+        self.assertEqual(self.get()[1]["mapIssue"], 20)
