@@ -184,7 +184,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {!wide && (
         <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-            <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail.title}</span>
+            {slotKey
+              ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
+              : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail.title}</span>}
             <span style={{ fontSize: T.tiny, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elevated)', color: 'var(--accent)', border: '1px solid var(--accent)', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
             <StartBadge start={detail.start} />
             <span style={{ flex: 1 }} />
@@ -268,6 +270,77 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 }
 
 // ---------------------------------------------------------------- middle column
+
+// The open session's name. Click it to rename: the new name is saved as a manual
+// title, which the dashboard keeps instead of the automatic one.
+function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string }) {
+  const api = useAppApi()
+  const [name, setName] = useState<string | null>(null)
+  const [draft, setDraft] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const cancelled = useRef(false)
+
+  useEffect(() => {
+    let live = true
+    api.get<{ title?: string }>(`/api/chat/slots/${encodeURIComponent(slotKey)}?limit=1`)
+      .then(r => { if (live && r?.title) setName(r.title) })
+      .catch(() => undefined)
+    return () => { live = false }
+  }, [api, slotKey])
+
+  const shown = name ?? fallback
+  const save = async () => {
+    const next = (draft ?? '').trim()
+    setDraft(null)
+    if (cancelled.current) { cancelled.current = false; return }
+    if (!next || next === shown) return
+    const before = name
+    setName(next)
+    setError('')
+    try {
+      await api.patch(`/api/chat/slots/${encodeURIComponent(slotKey)}/title`, { title: next })
+    } catch (e) {
+      setName(before)
+      setError(`Couldn't rename: ${errorText(e)}`)
+    }
+  }
+
+  if (draft !== null) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        maxLength={200}
+        aria-label="Session name"
+        onChange={e => setDraft(e.target.value)}
+        onFocus={e => e.target.select()}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur() }
+        }}
+        style={{ ...fieldStyle, ...strong, fontSize: T.title, padding: '2px 6px', flex: '1 1 auto', maxWidth: 520 }}
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setDraft(shown)}
+      title={error || 'Click to rename this session'}
+      style={{
+        ...strong, fontSize: T.title, minWidth: 0, maxWidth: 520, padding: '2px 6px', margin: '0 -6px',
+        borderRadius: 4, background: 'transparent', cursor: 'text', textAlign: 'left',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        color: error ? 'var(--danger-text)' : 'var(--text-strong, var(--text))',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-elevated)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+    >
+      {shown}
+    </button>
+  )
+}
 
 function PhaseChat({ slotKey, onSkill, sent }: { slotKey: string; onSkill: (s: string) => void; sent: string | null }) {
   const api = useAppApi()
