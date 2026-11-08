@@ -144,6 +144,15 @@ class Gh:
                 raise KipoError(f"Issue #{number} was not found in {repo}.", "not_found", 404)
             raise
 
+    def view_issue_comments(self, repo, number):
+        """An issue with its body and comments, for a ticket's card."""
+        try:
+            return self.run_json(["issue", "view", str(number), "-R", repo, "--json", ISSUE_FIELDS + ",comments"])
+        except KipoError as e:
+            if "Could not resolve" in e.message:
+                raise KipoError(f"Issue #{number} was not found in {repo}.", "not_found", 404)
+            raise
+
     def view_pr(self, repo, number):
         try:
             return self.run_json(["pr", "view", str(number), "-R", repo, "--json", "number,title,url,body,state"])

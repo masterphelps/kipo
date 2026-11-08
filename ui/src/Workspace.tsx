@@ -1,18 +1,19 @@
 import { ChatEmbed, useAppApi, type ChatEmbedSendMeta } from '@kirocrew/app-sdk'
-import { Badge, Btn, MarkdownRenderer } from '@kirocrew/app-sdk/ui'
+import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
 import {
-  ActionButton, ErrorLine, PathChip, StartBadge, T, TextButton, fieldStyle, isUrl, muted, pathText, scrollRow, strong, timeAgo,
+  ActionButton, ErrorLine, StartBadge, T, TextButton, fieldStyle, muted, scrollRow, strong,
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierPanel, type SessionStatus } from './Frontier'
+import { EffortInspector, TicketInspector, nextStep } from './Inspector'
 import { Divider, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
   BUTTONS, CHIPS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
-  STAGES, STAGE_COLUMNS, STAGE_HINTS, STAGE_LABELS, stageOfColumn,
-  type Artifact, type Column, type Decision, type Doc, type EffortDetail, type PhaseState, type Stage, type Ticket, type TicketInfo, type Tile,
+  STAGES, STAGE_COLUMNS, stageOfColumn,
+  type Column, type Decision, type EffortDetail, type PhaseState, type Stage, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -50,11 +51,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'skip' | 'remove' | null>(null)
   const [wide, setWide] = useState(false)
-  const [viewColumn, setViewColumn] = useState<Column | null>(null)
-  const [viewStage, setViewStage] = useState<Stage | null>(null)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
-  const [statusHeight, setStatusHeight] = useStoredSize('status', 280, 90, 900)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -70,7 +68,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   }, [load, active])
 
   const column = detail?.column
-  useEffect(() => { setConfirm(null); setActionError(''); setViewColumn(null); setViewStage(null) }, [column, focus])
+  useEffect(() => { setConfirm(null); setActionError(''); }, [column, focus])
   // Back to the column view when the effort moves on, but not on first load, so
   // the remembered ticket or decision stays open when you come back to KiPo.
   const lastColumn = useRef(column)
@@ -289,17 +287,26 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     )
   }
 
-  const past = viewColumn && viewColumn !== detail.column ? viewColumn : null
-  const pastState: PhaseState | null = past ? detail.history?.[past] ?? null : null
-  const scopeState: PhaseState | null = past ? pastState : focus.kind === 'column' ? detail.state : null
   const scopeLabel = focus.kind === 'ticket' ? `deliver #${focus.t}` : focus.kind === 'spec' ? 'implement-spec'
     : focus.kind === 'decision' ? `decide #${focus.t}` : focus.kind === 'stage' ? COLUMN_LABELS[focus.column].toLowerCase()
     : COLUMN_LABELS[detail.column].toLowerCase()
   // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
   const stage: Stage = (detail.frontier?.stage && STAGES.includes(detail.frontier.stage) ? detail.frontier.stage : null) ?? stageOfColumn(detail.column)
-  // Whose skills the panel shows: the open tile's, else the stage picked in the track.
-  const skillStage: Stage = viewStage ?? (focusTile?.lane === 'decide' || focusTile?.lane === 'deliver' ? focusTile.lane : stage)
-  const skills = (focusTile && !viewStage ? TILE_SKILLS[focusTile.type] : null) ?? stageSkills(skillStage)
+  // Skills for what's open: the tile's type, else the effort's stage. The any-time
+  // controls already sit above the chat box, so they aren't repeated.
+  const rawSkills = (focusTile ? TILE_SKILLS[focusTile.type] : null) ?? stageSkills(stage)
+  const skills = { buttons: rawSkills.buttons.filter(b => !SESSION_CONTROLS.includes(b)), chips: rawSkills.chips }
+  const next = nextStep(detail, {
+    openTile,
+    startAgents: t => { void startAgents(t) },
+    handover,
+    review: openReview,
+    retro: runRetro,
+    close: () => setConfirm('skip'),
+    startMain: () => { setFocus({ kind: 'column' }); void start() },
+    implementSpec: () => { void start('implement-spec', { kind: 'spec' }) },
+    hasMain: !!detail.sessions[detail.column],
+  })
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -346,57 +353,71 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
       )}
 
-      {/* Right: the columns, this column's skills, what it produces, what it waits on. */}
+      {/* Right: whatever is open. A ticket's card for a tile, the effort's overview otherwise. */}
       <section style={{ flex: wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: wide ? undefined : rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 6px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-          <StageTrack detail={detail} stage={stage} picked={viewStage} onPick={st => { setViewStage(st); setViewColumn(null) }} />
-          <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the conversation' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
-          {!past && (
-            <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
-              onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 41 }}>
+          {focusTile ? (
+            <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's overview and its own conversation">← Effort</TextButton>
+          ) : (
+            <span style={{ ...muted, fontSize: T.small }}>Effort overview</span>
           )}
+          <span style={{ flex: 1 }} />
+          <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the conversation' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
+          <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
+            onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
         </div>
-        <StepRow detail={detail} stage={skillStage} viewing={past} onPick={c => setViewColumn(c === detail.column ? null : c)} />
-
-        <SkillBar buttons={skills.buttons} chips={skills.chips} used={scopeState?.skillsUsed ?? []} readOnly={!!past} disabled={starting} onRun={runSkill} />
 
         {actionError && <div style={{ padding: '8px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
-        <div style={{ flex: '1 1 0', minHeight: 80, overflowY: 'auto' }}>
-          {past ? (
-            <>
-              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, fontSize: T.small }}>
-                <span style={muted}>Looking back at {COLUMN_LABELS[past]}.</span>
-                <span style={{ flex: 1 }} />
-                <TextButton onClick={() => setViewColumn(null)}>Back to {COLUMN_LABELS[detail.column]}</TextButton>
-              </div>
-              <Docs repo={repo} number={number} artifacts={pastState?.artifacts ?? []}
-                placeholder={pastState ? `${COLUMN_LABELS[past]} wrote no documents of its own.` : `Nothing was recorded for ${COLUMN_LABELS[past]}.`} />
-            </>
-          ) : skillStage === 'deliver' && (detail.tickets.length > 0 || detail.prs.length === 0) ? (
-            <>
-              <BuildPanel detail={detail} focus={focus} starting={starting}
-                onOpen={f => setFocus(f)}
-                onStart={f => start(null, f)} />
-              <Docs repo={repo} number={number} artifacts={detail.artifacts} placeholder="" compact />
-            </>
-          ) : skillStage === 'deliver' || (skillStage === 'done' && detail.prs.length > 0) ? (
-            <>
-              <PrPanel detail={detail} />
-              <Docs repo={repo} number={number} artifacts={detail.artifacts} placeholder="" compact />
-            </>
+        <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
+          {focusTile ? (
+            <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
+              skills={skills} used={[]} starting={starting} hasSession={!!slotKey}
+              onStart={() => start(tileSkill(focusTile))} onOpenTile={openTile} onRunSkill={runSkill} />
           ) : (
-            <Docs repo={repo} number={number} artifacts={detail.artifacts} placeholder={COLUMN_HINTS[detail.column]} brief={detail} />
+            <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}
+              skills={skills} used={focus.kind === 'column' ? detail.state?.skillsUsed ?? [] : []} busy={busy || starting}
+              decisions={focus.kind === 'column' ? <Decisions state={detail.state} slotKey={slotKey} onError={setActionError} /> : null}
+              onOpenTile={openTile} onRunSkill={runSkill} />
           )}
         </div>
-
-        <Divider direction="horizontal" label="Resize the documents and the decisions"
-          onDrag={d => setStatusHeight(h => h - d)} onReset={() => setStatusHeight(280)} />
-        <div style={{ flex: `0 0 ${statusHeight}px`, height: statusHeight, minHeight: 0, overflowY: 'auto' }}>
-          <Status detail={detail} scope={scopeState} slotKey={past ? null : slotKey} focus={focus} readOnly={!!past}
-            onError={setActionError} onOpenDecisionTicket={t => setFocus({ kind: 'decision', t })} />
-        </div>
       </section>
+    </div>
+  )
+}
+
+// The open conversation's decision cards (the agent writes them to its state file),
+// what it's waiting on, and what's been decided.
+function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slotKey: string | null; onError: (m: string) => void }) {
+  const open = state?.decisions.filter(d => !d.answer) ?? []
+  const decided = state?.decisions.filter(d => d.answer) ?? []
+  if (!open.length && !decided.length && !state?.blocking) return null
+  return (
+    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {open.length > 0 && (
+        <Block title="Decisions for you">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {open.map(d => <DecisionCard key={d.id} decision={d} slotKey={slotKey} onError={onError} />)}
+          </div>
+        </Block>
+      )}
+      {state?.blocking && (
+        <Block title="Waiting on">
+          <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: T.body }}>{state.blocking}</div>
+        </Block>
+      )}
+      {decided.length > 0 && (
+        <Block title="Decided" aside={decided.length} collapsible defaultOpen={false}>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {decided.map(d => (
+              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
+                <div style={muted}>{d.title}</div>
+                <div>{d.answer}</div>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      )}
     </div>
   )
 }
@@ -581,76 +602,6 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
 
 // ---------------------------------------------------------------- right column: header
 
-// The track: Intake, then Matt's two halves, then Done. The stage is read from
-// the effort's tickets, so there's no Next: Decide and Deliver can both be lit
-// at once. Click a stage to see its skills and its steps.
-function StageTrack({ detail, stage, picked, onPick }: {
-  detail: EffortDetail
-  stage: Stage
-  picked: Stage | null
-  onPick: (s: Stage | null) => void
-}) {
-  const activeLanes = detail.frontier?.active
-  const curIdx = STAGES.indexOf(stage)
-  return (
-    <div role="tablist" aria-label="Stages" style={{ ...scrollRow, flex: 1, gap: 2, padding: '2px 0' }}>
-      {STAGES.map((st, i) => {
-        const lit = st === stage || (st === 'decide' && activeLanes?.decide) || (st === 'deliver' && activeLanes?.deliver)
-        const done = !lit && i < curIdx
-        const on = picked === st
-        return (
-          <button key={st} type="button" role="tab" aria-selected={on}
-            onClick={() => onPick(on ? null : st)}
-            title={`${STAGE_HINTS[st]} Steps: ${STAGE_COLUMNS[st].map(c => COLUMN_LABELS[c]).join(', ')}.`}
-            style={{
-              flexShrink: 0, height: 26, padding: '0 10px', borderRadius: 6, whiteSpace: 'nowrap', fontSize: T.small,
-              fontWeight: on || lit ? 600 : 400,
-              border: `1px solid ${on ? 'var(--border)' : 'transparent'}`,
-              background: on ? 'var(--bg-elevated)' : 'transparent',
-              color: lit || done ? 'var(--text)' : 'var(--muted)', cursor: 'pointer',
-            }}>
-            <span aria-hidden style={{ color: done ? 'var(--ok-text)' : lit ? 'var(--accent)' : 'var(--muted)', marginRight: 5, fontSize: T.tiny }}>
-              {done ? '✓' : '●'}
-            </span>
-            {STAGE_LABELS[st]}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// The steps inside the shown stage (the old columns). One with a record opens it.
-function StepRow({ detail, stage, viewing, onPick }: {
-  detail: EffortDetail
-  stage: Stage
-  viewing: Column | null
-  onPick: (c: Column) => void
-}) {
-  const cols = STAGE_COLUMNS[stage] ?? []
-  if (!cols.length) return null
-  if (cols.length < 2 && !detail.history?.[cols[0]] && cols[0] !== detail.column) return null
-  return (
-    <div style={{ ...scrollRow, gap: 4, padding: '4px 12px', borderBottom: '1px solid var(--border)', fontSize: T.tiny }}>
-      <span style={muted}>Steps:</span>
-      {cols.map(c => {
-        const has = c === detail.column || !!detail.history?.[c]
-        const on = (viewing ?? detail.column) === c
-        return (
-          <button key={c} type="button" disabled={!has} onClick={() => onPick(c)}
-            title={has ? `${COLUMN_HINTS[c]} Click to see what it recorded.` : `${COLUMN_HINTS[c]} Nothing recorded yet.`}
-            style={{
-              background: on ? 'var(--bg-elevated)' : 'transparent', borderRadius: 4, padding: '2px 6px',
-              color: has ? 'var(--text)' : 'var(--muted)', cursor: has ? 'pointer' : 'default', fontWeight: on ? 600 : 400,
-            }}>
-            {COLUMN_LABELS[c]}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 // Remove, and once everything has landed, Close (which runs through Done).
 function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClose, onRemove }: {
   detail: EffortDetail
@@ -706,334 +657,6 @@ function stageSkills(stage: Stage): SkillSet {
   // Matt retros each run, not only the whole effort.
   if (stage === 'deliver' && !buttons.includes('retro')) buttons.push('retro')
   return { buttons, chips }
-}
-
-// The skills you start are buttons; the ones the agent reaches for on its own are
-// chips that tick once it has used them.
-function SkillBar({ buttons, chips, used, readOnly, disabled, onRun }: {
-  buttons: string[]
-  chips: string[]
-  used: string[]
-  readOnly: boolean
-  disabled: boolean
-  onRun: (skill: string) => void
-}) {
-  const set = new Set(used)
-  if (!buttons.length && !chips.length) return null
-  return (
-    <div style={{ ...scrollRow, gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-      {buttons.map(s => (
-        <button
-          key={s}
-          type="button"
-          disabled={readOnly || disabled}
-          onClick={() => onRun(s)}
-          title={SKILL_HINTS[s]}
-          style={{
-            flexShrink: 0,
-            height: 26,
-            padding: '0 10px',
-            borderRadius: 6,
-            whiteSpace: 'nowrap',
-            fontSize: T.small,
-            fontWeight: 500,
-            border: `1px solid ${set.has(s) ? 'var(--ok-text)' : 'var(--accent)'}`,
-            background: 'transparent',
-            color: set.has(s) ? 'var(--ok-text)' : 'var(--accent)',
-            cursor: readOnly || disabled ? 'default' : 'pointer',
-            opacity: readOnly ? 0.7 : 1,
-          }}
-        >
-          {set.has(s) ? '✓ ' : ''}/{s}
-        </button>
-      ))}
-      {buttons.length > 0 && chips.length > 0 && <span aria-hidden style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0 }} />}
-      {chips.map(s => (
-        <span key={s} title={`${SKILL_HINTS[s] ?? ''} The agent uses this on its own.`}
-          style={{ flexShrink: 0, fontSize: T.tiny, padding: '3px 8px', borderRadius: 999, background: 'var(--bg-elevated)', color: set.has(s) ? 'var(--ok-text)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
-          {set.has(s) ? '✓ ' : ''}{s}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------- right column: Build and Review
-
-function BuildPanel({ detail, focus, starting, onOpen, onStart }: {
-  detail: EffortDetail
-  focus: Focus
-  starting: boolean
-  onOpen: (f: Focus) => void
-  onStart: (f: Focus) => void
-}) {
-  const tickets = detail.tickets
-  const open = tickets.filter(t => t.state === 'OPEN')
-  const ready = open.filter(t => !t.blockedBy.length)
-  const specLive = Boolean(detail.sessions['build-spec'])
-  return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ ...strong, fontSize: T.small }}>Tickets</span>
-        <span style={{ ...muted, fontSize: T.small }}>
-          {tickets.length ? `${tickets.length - open.length} of ${tickets.length} closed, ${ready.length} ready to build` : 'None filed'}
-        </span>
-        <span style={{ flex: 1 }} />
-        {tickets.length > 0 && (
-          specLive
-            ? <TextButton onClick={() => onOpen({ kind: 'spec' })}>Open /implement-spec</TextButton>
-            : <ActionButton disabled={starting || !ready.length} onClick={() => onStart({ kind: 'spec' })} title="Build every unblocked ticket in parallel on one integration branch">Run /implement-spec</ActionButton>
-        )}
-      </div>
-      {detail.ticketsError && <ErrorLine>Couldn't read the tickets: {detail.ticketsError}</ErrorLine>}
-      {!tickets.length && (
-        <div style={{ ...muted, fontSize: T.small, lineHeight: 1.5 }}>
-          {detail.start === 'small' || detail.start === 'bug'
-            ? 'This effort builds in the column conversation, without tickets.'
-            : 'No tickets yet. Plan files them with /to-tickets; anything labelled with this effort shows up here.'}
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {tickets.map(t => {
-          const live = Boolean(t.sessionKey && detail.sessions[t.sessionKey])
-          const on = focus.kind === 'ticket' && focus.t === t.number
-          return (
-            <div key={t.number} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, fontSize: T.small,
-              border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: 'var(--card, var(--bg))', color: 'var(--text)',
-            }}>
-              <span aria-hidden style={{ color: t.state === 'CLOSED' ? 'var(--ok-text)' : t.blockedBy.length ? 'var(--muted)' : 'var(--accent)', width: 12 }}>
-                {t.state === 'CLOSED' ? '✓' : t.blockedBy.length ? '○' : '●'}
-              </span>
-              <a href={t.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', flexShrink: 0 }}>#{t.number}</a>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(t.state === 'CLOSED' ? muted : {}) }}>{t.title}</span>
-              {t.blockedBy.length > 0 && <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>waits on {t.blockedBy.map(n => `#${n}`).join(', ')}</span>}
-              {t.prs.length > 0 && <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>PR {t.prs.map(n => `#${n}`).join(', ')}</span>}
-              {t.state === 'OPEN' && (live
-                ? <TextButton onClick={() => onOpen({ kind: 'ticket', t: t.number })}>Open</TextButton>
-                : <TextButton disabled={starting || t.blockedBy.length > 0} onClick={() => onStart({ kind: 'ticket', t: t.number })}>Implement</TextButton>)}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function PrPanel({ detail }: { detail: EffortDetail }) {
-  const prs = detail.prs
-  const merged = prs.filter(p => p.state === 'MERGED').length
-  return (
-    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ ...strong, fontSize: T.small }}>Pull requests</span>
-        <span style={{ ...muted, fontSize: T.small }}>{prs.length ? `${merged} of ${prs.length} merged` : 'None yet'}</span>
-      </div>
-      {!prs.length && (
-        <div style={{ ...muted, fontSize: T.small, lineHeight: 1.5 }}>
-          PRs that close this effort's tickets, or that sit on a kipo/{detail.number} branch, show up here. The agent merges each one once it's reviewed and green, and asks first if it needs something from you.
-        </div>
-      )}
-      {prs.map(p => (
-        <div key={p.number} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: T.small, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card, var(--bg))', color: 'var(--text)' }}>
-          <Badge variant={p.state === 'MERGED' ? 'ok' : p.state === 'CLOSED' ? 'muted' : 'aim'}>{p.state === 'OPEN' && p.isDraft ? 'draft' : p.state.toLowerCase()}</Badge>
-          <a href={p.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', flexShrink: 0 }}>#{p.number}</a>
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
-          {p.tickets.length > 0 && <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>closes {p.tickets.map(n => `#${n}`).join(', ')}</span>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------- documents
-
-function Docs({ repo, number, artifacts, placeholder, brief, compact }: {
-  repo: string
-  number: number
-  artifacts: Artifact[]
-  placeholder: string
-  brief?: EffortDetail
-  compact?: boolean
-}) {
-  const tabs = useMemo(() => {
-    const list: { label: string; href: string | null }[] = []
-    if (brief) list.push({ label: 'Brief', href: null })
-    for (const a of artifacts) list.push(a)
-    return list
-  }, [artifacts, brief])
-  const [tab, setTab] = useState(0)
-  const [doc, setDoc] = useState<Doc | null>(null)
-  const [error, setError] = useState('')
-  const current = tabs[Math.min(tab, Math.max(0, tabs.length - 1))]
-  const href = current?.href ?? null
-
-  useEffect(() => {
-    setDoc(null)
-    setError('')
-    if (!href) return
-    let gone = false
-    backend.doc(repo, number, href)
-      .then(d => { if (!gone) setDoc(d) })
-      .catch(e => { if (!gone) setError(errorText(e)) })
-    return () => { gone = true }
-  }, [repo, number, href])
-
-  if (!tabs.length) {
-    return placeholder && !compact
-      ? <div style={{ padding: '12px 18px', ...muted, fontSize: T.body }}>{placeholder}</div>
-      : null
-  }
-
-  return (
-    <div>
-      {tabs.length > 1 && (
-        <div role="tablist" style={{ ...scrollRow, gap: 2, padding: '8px 12px 2px' }}>
-          {tabs.map((t, i) => (
-            <button key={`${t.label}-${t.href}`} role="tab" type="button" aria-selected={i === tab} onClick={() => setTab(i)}
-              style={{
-                flexShrink: 0, whiteSpace: 'nowrap', fontSize: T.small, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-                background: i === tab ? 'var(--bg-elevated)' : 'transparent', color: i === tab ? 'var(--text)' : 'var(--muted)', fontWeight: i === tab ? 600 : 400,
-              }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <div style={{ padding: '12px 18px 18px', fontSize: T.body, lineHeight: 1.55 }}>
-        {!href && brief ? (
-          <Brief detail={brief} placeholder={artifacts.length ? null : placeholder} />
-        ) : !href ? (
-          <span style={muted}>{placeholder}</span>
-        ) : error ? (
-          <ErrorLine>{error}</ErrorLine>
-        ) : !doc ? (
-          <span style={muted}>Opening {current.label}…</span>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-              <span style={{ ...strong, fontSize: 16 }}>{doc.title}</span>
-              <span style={{ flex: 1 }} />
-              {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small, whiteSpace: 'nowrap' }}>Open on GitHub</a>}
-              {!doc.url && !isUrl(doc.href) && <PathChip path={doc.href} />}
-            </div>
-            <MarkdownRenderer content={doc.text} />
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Brief({ detail, placeholder }: { detail: EffortDetail; placeholder: string | null }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div>
-        <div style={{ ...strong, fontSize: 16, marginBottom: 4 }}>{detail.title}</div>
-        <div style={{ ...muted, fontSize: T.small }}>
-          <a href={detail.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{detail.repo} #{detail.number}</a>
-          <span style={{ marginLeft: 8 }}>updated {timeAgo(detail.updatedAt)}</span>
-        </div>
-      </div>
-      <div>
-        <div style={{ ...strong, fontSize: T.body, marginBottom: 2 }}>Destination</div>
-        <div>{detail.destination}</div>
-      </div>
-      <div>
-        <div style={{ ...strong, fontSize: T.body, marginBottom: 2 }}>Path</div>
-        <div>{pathText(detail.path)}</div>
-      </div>
-      {detail.state?.summary && (
-        <div>
-          <div style={{ ...strong, fontSize: T.body, marginBottom: 2 }}>Where {COLUMN_LABELS[detail.column]} stands</div>
-          <div>{detail.state.summary}</div>
-        </div>
-      )}
-      {placeholder && <div style={{ ...muted, fontSize: T.small }}>{placeholder}</div>}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------- status (bottom of the right column)
-
-function Status({ detail, scope, slotKey, focus, readOnly, onError, onOpenDecisionTicket }: {
-  detail: EffortDetail
-  scope: PhaseState | null
-  slotKey: string | null
-  focus: Focus
-  readOnly: boolean
-  onError: (m: string) => void
-  onOpenDecisionTicket: (t: number) => void
-}) {
-  const open = scope?.decisions.filter(d => !d.answer) ?? []
-  const decided = scope?.decisions.filter(d => d.answer) ?? []
-  const gate = scope?.gate ?? []
-  const showMap = !readOnly && focus.kind === 'column' && detail.column === 'shape' && Boolean(detail.mapIssue)
-
-  return (
-    <div style={{ padding: '10px 12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {open.length > 0 && (
-        <Block title="Decisions">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {open.map(d => <DecisionCard key={d.id} decision={d} slotKey={readOnly ? null : slotKey} onError={onError} />)}
-          </div>
-        </Block>
-      )}
-
-      {scope?.blocking && (
-        <Block title="Waiting on">
-          <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: T.body }}>{scope.blocking}</div>
-        </Block>
-      )}
-
-      {showMap && <DecisionTickets detail={detail} onOpen={onOpenDecisionTicket} />}
-
-      <Block title="Checklist" aside={gate.length ? `${gate.filter(g => g.done).length} of ${gate.length}` : undefined}>
-        {detail.column === 'review' && !readOnly ? (
-          <span style={{ ...muted, fontSize: T.small }}>
-            {detail.gatePassed ? 'Every PR is merged.' : 'Done when every PR for this effort is merged.'}
-          </span>
-        ) : gate.length ? (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {gate.map(g => (
-              <li key={g.id} style={{ display: 'flex', gap: 6, fontSize: T.small, lineHeight: 1.4 }}>
-                <span aria-hidden style={{ color: g.done ? 'var(--ok-text)' : 'var(--muted)', width: 12, flexShrink: 0 }}>{g.done ? '✓' : '○'}</span>
-                <span style={g.done ? muted : undefined}>{g.label}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <span style={{ ...muted, fontSize: T.small }}>{focus.kind === 'column' ? 'The agent writes it when the column starts.' : 'This conversation has no checklist of its own; the column checklist covers it.'}</span>
-        )}
-      </Block>
-
-      {decided.length > 0 && (
-        <Block title="Decided" aside={decided.length} collapsible>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {decided.map(d => (
-              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
-                <div style={muted}>{d.title}</div>
-                <div>{d.answer}</div>
-              </li>
-            ))}
-          </ul>
-        </Block>
-      )}
-
-      <Block title="Details" collapsible defaultOpen={false}>
-        <div style={{ fontSize: T.small, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div><span style={muted}>Path </span>{pathText(detail.path)}</div>
-          <div><span style={muted}>Checkout </span><PathChip path={detail.repoPath} /></div>
-          {detail.phaseLog.length > 0 && (
-            <div>
-              <div style={muted}>History</div>
-              {detail.phaseLog.map((l, i) => <div key={i} style={{ fontSize: T.tiny }}>{l}</div>)}
-            </div>
-          )}
-        </div>
-      </Block>
-    </div>
-  )
 }
 
 function Block({ title, aside, children, collapsible, defaultOpen = true }: {
@@ -1116,28 +739,3 @@ function DecisionCard({ decision: d, slotKey, onError }: { decision: Decision; s
   )
 }
 
-function DecisionTickets({ detail, onOpen }: { detail: EffortDetail; onOpen: (t: number) => void }) {
-  const [tickets, setTickets] = useState<Ticket[] | null>(null)
-  const { repo, number } = detail
-  useEffect(() => {
-    backend.frontier(repo, number).then(r => setTickets(r.tickets)).catch(() => setTickets([]))
-  }, [repo, number, detail.mapIssue])
-  return (
-    <Block title="Decisions to work through" aside={tickets ? tickets.length : undefined}>
-      {!tickets ? <span style={{ ...muted, fontSize: T.small }}>Loading the map…</span>
-        : !tickets.length ? <span style={{ ...muted, fontSize: T.small }}>Nothing on the frontier right now.</span>
-        : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {tickets.map(t => (
-              <button key={t.number} type="button" onClick={() => onOpen(t.number)}
-                style={{ textAlign: 'left', fontSize: T.small, padding: '4px 6px', borderRadius: 4, background: 'transparent', color: 'var(--text)', cursor: 'pointer', display: 'flex', gap: 6 }}>
-                <span style={muted}>#{t.number}</span>
-                <span style={{ flex: 1 }}>{t.title}</span>
-                {t.type && <span style={{ ...muted, fontSize: T.tiny }}>{t.type}</span>}
-              </button>
-            ))}
-          </div>
-        )}
-    </Block>
-  )
-}

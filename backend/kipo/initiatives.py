@@ -838,6 +838,27 @@ class Initiatives:
         repo_path = self._repo_path(repo, body["meta"])
         return docs.read_doc(self.gh, repo, repo_path, href)
 
+    def ticket(self, repo, number, ticket):
+        """One ticket's card: its body and its latest comment (wayfinder posts a
+        resolved ticket's answer as a comment before closing it)."""
+        validate_repo_slug(repo)
+        issue = self.gh.view_issue_comments(repo, ticket) or {}
+        comments = issue.get("comments") or []
+        last = comments[-1] if comments else None
+        return {
+            "number": ticket,
+            "title": issue.get("title") or "",
+            "url": issue.get("url") or "",
+            "state": (issue.get("state") or "OPEN").upper(),
+            "body": issue.get("body") or "",
+            "lastComment": {
+                "author": ((last.get("author") or {}).get("login") or ""),
+                "body": last.get("body") or "",
+                "createdAt": last.get("createdAt") or "",
+            } if last else None,
+            "comments": len(comments),
+        }
+
     def frontier(self, repo, number):
         """Open, unblocked, unassigned children of the wayfinder map (Shape)."""
         issue, body = self._fetch(repo, number)

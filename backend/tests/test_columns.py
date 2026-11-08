@@ -536,3 +536,17 @@ class TwoLaneDetailTests(Columns):
         self.assertEqual([(t["number"], t["lane"], t["source"]) for t in tiles], [(22, "deliver", True)])
         status, out = self.post("/session", {"column": "build", "ticket": 22})
         self.assertEqual(status, 200, out)
+
+
+class TicketCardTests(Columns):
+    def test_body_and_latest_comment(self):
+        self.make_effort()
+        self.fake.add_issue(REPO, 23, title="Spend from own product", body="Make it so.", state="CLOSED")
+        self.fake.issues[(REPO, 23)]["comments"] = [
+            {"author": {"login": "a"}, "body": "first", "createdAt": "2026-11-07T00:00:00Z"},
+            {"author": {"login": "bot"}, "body": "Resolved: done in #36.", "createdAt": "2026-11-08T00:00:00Z"},
+        ]
+        status, card = self.get("/tickets/23")
+        self.assertEqual(status, 200, card)
+        self.assertEqual((card["state"], card["body"], card["comments"]), ("CLOSED", "Make it so.", 2))
+        self.assertEqual(card["lastComment"]["body"], "Resolved: done in #36.")

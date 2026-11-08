@@ -49,6 +49,7 @@ class FakeGh:
             "updatedAt": "2026-11-06T00:00:00Z",
             "state": state,
             "assignees": assignees,
+            "comments": [],
         }
         self.next_number = max(self.next_number, number + 1)
 

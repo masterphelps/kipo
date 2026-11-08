@@ -141,6 +141,8 @@ def build(build_nodes, map_nodes, prs, sessions, map_body=None, source_node=None
                 "state": state,
                 "source": is_source,
                 "blockedBy": [b["number"] for b in node.get("blockers") or [] if b.get("state") == "OPEN" and "number" in b],
+                # Every blocker, open or closed, so the UI can say what closing a ticket freed.
+                "blockers": [b["number"] for b in node.get("blockers") or [] if "number" in b],
                 "sessionKey": has,
                 "prs": [p["number"] for p in mine],
             })

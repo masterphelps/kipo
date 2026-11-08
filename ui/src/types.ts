@@ -110,8 +110,18 @@ export type Tile = {
   source?: boolean
   state: TileState
   blockedBy: number[]
+  blockers?: number[] // every blocker, open or closed
   sessionKey: string | null
   prs: number[]
+}
+export type TicketCard = {
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'CLOSED'
+  body: string
+  lastComment: { author: string; body: string; createdAt: string } | null
+  comments: number
 }
 export type Lane = 'decide' | 'deliver'
 export type Frontier = {

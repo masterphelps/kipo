@@ -92,8 +92,9 @@ export function whoIsUp(counts: FrontierCounts): string {
 // stopped and the conversation is waiting on you.
 export type SessionStatus = 'running' | 'waiting'
 
-export function TileButton({ tile, onClick, size = 34, open, status }: {
+export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
   tile: Tile; onClick?: () => void; size?: number; open?: boolean; status?: SessionStatus
+  bare?: boolean // no number in the corner: for small tiles next to their own label
 }) {
   const c = STATE_META[tile.state]
   const solid = tile.state !== 'blocked'
@@ -118,7 +119,7 @@ export function TileButton({ tile, onClick, size = 34, open, status }: {
         border: solid ? '1px solid transparent' : `1.5px solid ${c.color}`,
       }}
     >
-      <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>
+      {!bare && <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>}
       {tile.code}
       {status && (
         <span

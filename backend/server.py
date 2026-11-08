@@ -84,6 +84,7 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
+    ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
 ]
 
 
@@ -230,6 +231,9 @@ class App:
 
     def frontier(self, body, owner, repo, n):
         return self.initiatives.frontier(f"{owner}/{repo}", int(n))
+
+    def ticket(self, body, owner, repo, n, t):
+        return self.initiatives.ticket(f"{owner}/{repo}", int(n), int(t))
 
     def doc(self, body, owner, repo, n):
         return self.initiatives.doc(f"{owner}/{repo}", int(n), body.get("href"))
