@@ -1,6 +1,7 @@
 """The column state file the agent writes: <repoPath>/.kipo/<n>/state.json."""
 import json
 import os
+import re
 
 
 def state_dir(repo_path, number):
@@ -28,6 +29,42 @@ def read_session_state(repo_path, number, key):
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+_TICKET_DECISION_RE = re.compile(r"^t(\d+)-")
+
+
+def route_ticket_decisions(state, session_states, sessions):
+    """Move decisions a ticket conversation wrote into the effort's state.json
+    (``t<N>-…`` ids, from conversations seeded before each had its own file)
+    to that ticket's conversation, when it has one. Read-time only: the file
+    stays as written, since such a conversation may still be writing to it.
+
+    Returns ``(state, session_states)`` without changing the inputs."""
+    if not state or not state.get("decisions"):
+        return state, session_states
+    by_ticket = {}
+    for key in sessions:
+        m = re.match(r"^(?:shape|build)-t(\d+)$", key)
+        if m:
+            by_ticket.setdefault(int(m.group(1)), key)
+    kept, moved = [], {}
+    for d in state["decisions"]:
+        m = _TICKET_DECISION_RE.match(str(d.get("id") or ""))
+        key = by_ticket.get(int(m.group(1))) if m else None
+        if key:
+            moved.setdefault(key, []).append(d)
+        else:
+            kept.append(d)
+    if not moved:
+        return state, session_states
+    states = dict(session_states)
+    for key, decisions in moved.items():
+        own = dict(states.get(key) or {"summary": None, "blocking": None, "gate": [], "artifacts": [], "skillsUsed": []})
+        seen = {x.get("id") for x in own.get("decisions") or []}
+        own["decisions"] = list(own.get("decisions") or []) + [d for d in decisions if d.get("id") not in seen]
+        states[key] = own
+    return {**state, "decisions": kept}, states
 
 
 def read_state(repo_path, number):

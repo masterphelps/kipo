@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react'
+import { Btn } from '@kirocrew/app-sdk/ui'
+import { ExternalLink, EyeOff, Map as MapIcon, MoreHorizontal, Plus } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Confirm, Menu } from './Menu'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
 import { LaneBars, frontierTotal, whoIsUp } from './Frontier'
 import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
@@ -35,7 +38,7 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, view, onNew, onMaps, onSelect, onHide, onCollapse }: {
+export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, onHide, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
@@ -49,6 +52,9 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
 }) {
   const [filter, setFilter] = useState('')
   const [hover, setHover] = useState<string | null>(null)
+  // The open row menu, or its confirmation step.
+  const [menu, setMenu] = useState<{ key: string; item: Effort; x: number; y: number; confirm: boolean } | null>(null)
+  const closeMenu = useCallback(() => setMenu(null), [])
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase()
     return (items ?? []).filter(i => !q || i.title.toLowerCase().includes(q) || i.repo.toLowerCase().includes(q))
@@ -68,29 +74,12 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
       }}
     >
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-        <button
-          type="button"
-          onClick={onNew}
-          style={{
-            alignSelf: 'flex-start',
-            background: 'var(--accent)',
-            color: 'var(--accent-fg, #fff)',
-            fontSize: T.body,
-            fontWeight: 600,
-            padding: '5px 11px',
-            whiteSpace: 'nowrap',
-            borderRadius: 999,
-            cursor: 'pointer',
-          }}
-        >
-          + New effort
-        </button>
-        <button type="button" onClick={onMaps} title="Pick wayfinder maps from your repos to work on"
-          style={{ marginLeft: 6, flexShrink: 0, background: view === 'maps' ? 'var(--bg-elevated)' : 'transparent', color: 'var(--text)', fontSize: T.small,
-            fontWeight: 500, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--border)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          Open map
-        </button>
+        {/* Kiro's own buttons, so the sidebar matches the rest of the app. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <Btn primary onClick={onNew}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={14} />New effort</span></Btn>
+          <span title="Pick wayfinder maps from your repos to work on">
+            <Btn onClick={onMaps}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><MapIcon size={14} />Open map</span></Btn>
+          </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
@@ -123,6 +112,7 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
                 const on = key === selected
                 return (
                   <div key={key} style={{ position: 'relative' }}
+                    onContextMenu={e => { e.preventDefault(); setMenu({ key, item: i, x: e.clientX, y: e.clientY, confirm: false }) }}
                     onPointerEnter={() => setHover(key)} onPointerLeave={() => setHover(h => (h === key ? null : h))}>
                   <button
                     type="button"
@@ -155,13 +145,14 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>
                   </button>
-                  {(hover === key || on) && (
-                    <button type="button" onClick={() => onHide(i)}
-                      title={i.kind === 'map' ? 'Take this map off the sidebar. It stays open on GitHub.' : 'Take this effort off the sidebar. Its issue stays open; restore it from Open map.'}
-                      aria-label={`Take ${i.title} off the sidebar`}
-                      style={{ position: 'absolute', top: 5, right: 5, width: 20, height: 20, borderRadius: 4, display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>
-                      ×
+                  {(hover === key || on || menu?.key === key) && (
+                    <button type="button" aria-label={`More for ${i.title}`} aria-haspopup="menu" title="More"
+                      onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ key, item: i, x: r.left, y: r.bottom + 2, confirm: false }) }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                      style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 20, borderRadius: 4, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', background: 'transparent', color: 'var(--text-muted, var(--muted))', cursor: 'pointer', padding: 0 }}>
+                      <MoreHorizontal size={14} />
                     </button>
                   )}
                   </div>
@@ -171,6 +162,22 @@ export function Rail({ width, items, error, selected, view, onNew, onMaps, onSel
         )}
       </div>
 
+      {menu && !menu.confirm && (
+        <Menu x={menu.x} y={menu.y} onClose={closeMenu} items={[
+          { label: 'Open on GitHub', icon: ExternalLink, onSelect: () => window.open(menu.item.url, '_blank', 'noreferrer') },
+          { separator: true },
+          { label: 'Remove from sidebar…', icon: EyeOff, danger: true, onSelect: () => setMenu({ ...menu, confirm: true }) },
+        ]} />
+      )}
+      {menu?.confirm && (
+        <Confirm x={menu.x} y={menu.y} onClose={closeMenu} action="Remove"
+          title={`Remove "${menu.item.title}" from the sidebar?`}
+          onConfirm={() => onHide(menu.item)}>
+          {menu.item.kind === 'map'
+            ? 'The map stays open on GitHub. Open it again from Open map.'
+            : 'Its issue stays open on GitHub. Bring it back from Open map.'}
+        </Confirm>
+      )}
     </nav>
   )
 }

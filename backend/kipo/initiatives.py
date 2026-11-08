@@ -531,6 +531,8 @@ class Initiatives:
                     session_states[key] = ss
                     artifacts = merge_artifacts(artifacts, col_state.state_artifacts(ss))
 
+        st, session_states = col_state.route_ticket_decisions(st, session_states, sessions)
+
         nodes, tickets_note, tickets_error = [], None, None
         try:
             nodes, tickets_note = self._ticket_nodes(repo, number)

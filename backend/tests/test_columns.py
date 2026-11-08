@@ -574,6 +574,35 @@ class SessionStateTests(Columns):
         self.assertIn(f"State file: {self.checkout}/.kipo/7/state.json", main["seed"])
 
 
+class TicketDecisionsInTheEffortFileTests(Columns):
+    """Ticket conversations seeded before each had its own file wrote their
+    decisions into the effort's state.json; they show under their ticket."""
+
+    def test_a_tickets_decisions_move_to_its_conversation(self):
+        self.make_effort(column="build")
+        self.storage.record_session(REPO, 7, "shape-t30", "slot-t30")
+        write_state(self.checkout, 7, {"decisions": [
+            {"id": "t30-qsight", "title": "qSIGHT licenses", "options": ["None", "All"], "answer": None},
+            {"id": "t30-bm", "title": "Blue Mantis", "options": ["Keep"], "answer": "Keep"},
+            {"id": "migration-013", "title": "Migration 013", "options": ["Run"], "answer": None},
+            {"id": "t99-orphan", "title": "No session for #99", "options": ["A"], "answer": None},
+        ], "gate": [], "artifacts": []})
+        d = self.get()[1]
+        self.assertEqual([x["id"] for x in d["state"]["decisions"]], ["migration-013", "t99-orphan"])
+        self.assertEqual([x["id"] for x in d["sessionStates"]["shape-t30"]["decisions"]], ["t30-qsight", "t30-bm"])
+
+    def test_the_tickets_own_file_keeps_its_decisions_first(self):
+        self.make_effort(column="build")
+        self.storage.record_session(REPO, 7, "shape-t30", "slot-t30")
+        write_state(self.checkout, 7, {"decisions": [{"id": "t30-a", "title": "A", "options": [], "answer": None}]})
+        path = f"{self.checkout}/.kipo/7/shape-t30.json"
+        with open(path, "w") as f:
+            json.dump({"decisions": [{"id": "own", "title": "Own", "options": [], "answer": None}], "skillsUsed": ["grilling"]}, f)
+        s = self.get()[1]["sessionStates"]["shape-t30"]
+        self.assertEqual([x["id"] for x in s["decisions"]], ["own", "t30-a"])
+        self.assertEqual(s["skillsUsed"], ["grilling"])
+
+
 class MapAsEffortTests(Columns):
     """A wayfinder map you open in KiPo is an effort in its own right."""
 
