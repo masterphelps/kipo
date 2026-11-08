@@ -122,12 +122,14 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
       {!bare && <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>}
       {tile.code}
       {status && (
+        // Inside the tile's top-right corner, in the tile's own text color so it
+        // reads on every tile color: pulsing while the agent works, steady
+        // when the conversation is waiting on you.
         <span
           className={status === 'running' ? 'kipo-pulse' : undefined}
           style={{
-            position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 999,
-            background: status === 'running' ? STATE_META.building.color : 'var(--text-strong, #fff)',
-            boxShadow: '0 0 0 2px var(--bg)',
+            position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 999,
+            background: 'currentColor',
           }}
         />
       )}
