@@ -1,5 +1,5 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
-import { ExternalLink, EyeOff, Map as MapIcon, MoreHorizontal, Plus } from 'lucide-react'
+import { ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
@@ -77,8 +77,8 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
         {/* Kiro's own buttons, so the sidebar matches the rest of the app. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <Btn primary onClick={onNew}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={14} />New effort</span></Btn>
-          <span title="Pick wayfinder maps from your repos to work on">
-            <Btn onClick={onMaps}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><MapIcon size={14} />Open map</span></Btn>
+          <span title="Your repos, with their efforts and wayfinder maps: choose what's on this sidebar">
+            <Btn onClick={onMaps}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderGit2 size={14} />Repos</span></Btn>
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -174,8 +174,8 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
           title={`Remove "${menu.item.title}" from the sidebar?`}
           onConfirm={() => onHide(menu.item)}>
           {menu.item.kind === 'map'
-            ? 'The map stays open on GitHub. Open it again from Open map.'
-            : 'Its issue stays open on GitHub. Bring it back from Open map.'}
+            ? 'The map stays open on GitHub. Put it back from Repos.'
+            : 'Its issue stays open on GitHub. Put it back from Repos.'}
         </Confirm>
       )}
     </nav>

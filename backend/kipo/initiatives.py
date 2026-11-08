@@ -669,20 +669,6 @@ class Initiatives:
         self.storage.unhide(repo, number)
         return {"hidden": False, "repo": repo, "number": number}
 
-    def hidden_efforts(self):
-        """The efforts taken off the sidebar, with their titles, for restoring."""
-        out = []
-        for entry in self.storage.get_config()["repos"]:
-            repo = entry.get("slug")
-            for n in sorted(self.storage.hidden(repo)):
-                try:
-                    issue = self.gh.view_issue(repo, n)
-                except KipoError:
-                    issue = None
-                if issue and (issue.get("state") or "OPEN").upper() == "OPEN":
-                    out.append({"repo": repo, "number": n, "title": issue.get("title") or "", "url": issue.get("url") or ""})
-        return out
-
     def _map_of(self, repo, number, body):
         """The map an effort points at: its meta, else its artifacts or state file."""
         meta = body["meta"]

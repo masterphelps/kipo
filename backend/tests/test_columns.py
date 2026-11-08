@@ -617,7 +617,7 @@ class MapAsEffortTests(Columns):
         return number
 
     def open_map(self, number=50):
-        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": REPO, "number": number}]}))
+        status, out = self.app.dispatch("POST", "/sidebar", json.dumps({"repo": REPO, "number": number, "kind": "map", "on": True}))
         self.assertEqual(status, 200, out)
         return out
 
@@ -632,19 +632,6 @@ class MapAsEffortTests(Columns):
         self.open_map()
         m = self.listed()[50]
         self.assertEqual((m["kind"], m["column"], m["destination"]), ("map", "shape", "A spec for the thing."))
-
-    def test_the_picker_lists_maps_and_marks_the_open_ones(self):
-        self.add_map(50)
-        self.fake.add_issue(REPO, 60, title="Map: other", labels=["wayfinder:map"])
-        self.make_effort(column="shape", meta={"mapIssue": 70})
-        self.fake.add_issue(REPO, 70, title="Map: wrapped", labels=["wayfinder:map"])
-        self.open_map(50)
-        status, out = self.app.dispatch("GET", "/maps", "")
-        self.assertEqual(status, 200, out)
-        by = {m["number"]: m for m in out["maps"]}
-        self.assertEqual(sorted(by), [50, 60, 70])
-        self.assertEqual((by[50]["opened"], by[60]["opened"], by[70]["opened"], by[70]["effort"]), (True, False, True, 7))
-        self.assertTrue(by[60]["repoAdded"])
 
     def test_a_map_an_effort_already_wraps_is_not_listed_twice(self):
         self.make_effort(column="shape", meta={"mapIssue": 50})
@@ -674,8 +661,8 @@ class MapAsEffortTests(Columns):
         self.post("/hide")
         self.assertNotIn(7, self.listed())
         self.assertEqual(self.fake.issues[(REPO, 7)]["state"], "OPEN")
-        hidden = self.app.dispatch("GET", "/maps", "")[1]["hidden"]
-        self.assertEqual([(h["number"], h["title"] != "") for h in hidden], [(7, True)])
+        tree = self.app.dispatch("GET", "/tree", "")[1]["repos"][0]["items"]
+        self.assertEqual([(i["number"], i["onSidebar"]) for i in tree if i["kind"] == "effort"], [(7, False)])
         self.post("/unhide")
         self.assertIn(7, self.listed())
 

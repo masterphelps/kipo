@@ -1,6 +1,6 @@
 // Client for the KiPo backend, reached through the gateway's reverse proxy.
 import type {
-  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, HiddenEffort, MapListing, SessionStart, Start, Ticket, TicketCard,
+  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoTree, SessionStart, Start, Ticket, TicketCard,
 } from './types'
 
 const BASE = '/apps/kipo/api'
@@ -71,9 +71,10 @@ export const backend = {
   skillMessage: (repo: string, n: number, skill: string) =>
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
-  listMaps: () => call<{ maps: MapListing[]; hidden: HiddenEffort[] }>('/maps'),
-  openMaps: (maps: { repo: string; number: number }[]) =>
-    call<{ opened: { repo: string; number: number }[]; errors: { repo: string; number: number; error: string }[] }>('/maps/open', 'POST', { maps }),
+  tree: () => call<RepoTree>('/tree'),
+  // The green dot: on the sidebar or off. Nothing changes on GitHub.
+  setOnSidebar: (repo: string, number: number, kind: 'effort' | 'map', on: boolean) =>
+    call<{ onSidebar: boolean }>('/sidebar', 'POST', { repo, number, kind, on }),
   // Off the sidebar and back; nothing changes on GitHub.
   hide: (repo: string, n: number) => call<{ hidden: boolean }>(`${issuePath(repo, n)}/hide`, 'POST', {}),
   unhide: (repo: string, n: number) => call<{ hidden: boolean }>(`${issuePath(repo, n)}/unhide`, 'POST', {}),

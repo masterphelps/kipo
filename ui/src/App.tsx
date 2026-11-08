@@ -5,7 +5,7 @@ import { Divider, useStoredSize } from './layout'
 import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
 import { Rail, RailStrip } from './Rail'
-import { MapsPage } from './MapsPage'
+import { ReposPage } from './ReposPage'
 import { StartPlan } from './StartPlan'
 import type { Effort } from './types'
 import { Workspace } from './Workspace'
@@ -103,9 +103,7 @@ export default function KiPo() {
           </div>
         )}
         {main?.kind === 'maps' && (
-          <MapsPage
-            onOpened={first => { load(); if (first) setMain({ kind: 'initiative', repo: first.repo, number: first.number }) }}
-            onRestored={load} />
+          <ReposPage onChanged={load} onOpen={(repo, number) => { load(); setMain({ kind: 'initiative', repo, number }) }} />
         )}
         {main?.kind === 'initiative' && (
           <Workspace

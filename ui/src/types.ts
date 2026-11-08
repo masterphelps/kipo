@@ -90,15 +90,15 @@ export type FoundRepo = {
   worktree: boolean; configured: boolean;
   maps?: number // open wayfinder maps on GitHub; absent when the search failed
 }
-// An open wayfinder map in one of your repos, for the map picker.
-export type MapListing = {
-  repo: string; number: number; title: string; url: string; updatedAt: string
-  repoAdded: boolean      // KiPo already watches its repo
-  checkout: string | null // where it's checked out on this Mac; null: nowhere
-  effort: number | null   // the KiPo effort that already points at it
-  opened: boolean         // already on the sidebar
+// The Repos page: each repo KiPo watches, with its efforts and open maps.
+export type TreeItem = {
+  kind: 'effort' | 'map'; number: number; title: string; url: string; updatedAt: string
+  onSidebar: boolean
+  map: number | null // an effort's wayfinder map
 }
-export type HiddenEffort = { repo: string; number: number; title: string; url: string }
+export type TreeRepo = { slug: string; path: string; items: TreeItem[]; error?: string }
+export type AvailableRepo = { slug: string; path: string; name: string; maps: number }
+export type RepoTree = { repos: TreeRepo[]; available: AvailableRepo[]; searchError?: string }
 export type BrowseFolder = { path: string; name: string; repo: boolean; slug: string | null }
 export type BrowseResult = {
   path: string; parent: string | null; home: string; folders: BrowseFolder[];

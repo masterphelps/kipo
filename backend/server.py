@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from kipo import KipoError, repos  # noqa: E402
 from kipo.gh import Gh  # noqa: E402
-from kipo.initiatives import Initiatives, validate_repo_slug  # noqa: E402
+from kipo.initiatives import EFFORT_LABEL, Initiatives, parse_body, validate_repo_slug  # noqa: E402
 from kipo.storage import Storage  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
@@ -84,8 +84,8 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
     ("POST", re.compile(_ISSUE + r"/hide$"), "hide"),
     ("POST", re.compile(_ISSUE + r"/unhide$"), "unhide"),
-    ("GET", re.compile(r"^/maps$"), "list_maps"),
-    ("POST", re.compile(r"^/maps/open$"), "open_maps"),
+    ("GET", re.compile(r"^/tree$"), "tree"),
+    ("POST", re.compile(r"^/sidebar$"), "sidebar"),
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
     ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
@@ -263,59 +263,88 @@ class App:
                 paths.setdefault(r["slug"].lower(), r["path"])
         return paths
 
-    def list_maps(self, body):
-        """Every open wayfinder map in your repos' owners, each marked open in
-        KiPo or not, plus the efforts taken off the sidebar."""
-        checkouts = self._checkouts()
-        configured = {r["slug"].lower() for r in self.storage.get_config()["repos"]}
-        owners = {slug.split("/")[0] for slug in checkouts}
-        maps = self.gh.search_open_maps(owners) if owners else []
-        wrapped = {}
-        out = []
-        for m in maps:
-            key = m["repo"].lower()
-            if key in configured and key not in wrapped:
-                try:
-                    wrapped[key] = self.initiatives.wrapped_maps(m["repo"])
-                except KipoError:
-                    wrapped[key] = {}
-            by = (wrapped.get(key) or {}).get(m["number"])
-            out.append({
-                **m,
-                "repoAdded": key in configured,
-                "checkout": checkouts.get(key),
-                "effort": by,
-                "opened": bool(by) or (key in configured and m["number"] in self.storage.opened_maps(m["repo"])),
-            })
-        out.sort(key=lambda m: (m["repo"].lower(), m["updatedAt"]), reverse=False)
-        return {"maps": out, "hidden": self.initiatives.hidden_efforts()}
+    def tree(self, body):
+        """Your repos, each with everything in it KiPo can show: its efforts and
+        its open wayfinder maps, each marked on the sidebar or not. Plus the
+        checkouts on this Mac you could add, with how many open maps each has."""
+        config = self.storage.get_config()["repos"]
+        found = repos.discover(roots=self.repo_roots, configured=self._configured_paths())
+        owners = {r["slug"].split("/")[0] for r in config} | {r["slug"].split("/")[0] for r in found if r.get("slug")}
+        search_error = None
+        try:
+            hits = self.gh.search_open_maps(owners) if owners else []
+        except KipoError as e:
+            hits, search_error = [], e.message
+        by_repo = {}
+        for h in hits:
+            by_repo.setdefault(h["repo"].lower(), []).append(h)
 
-    def open_maps(self, body):
-        """Open the picked maps as efforts, adding each one's repo first if needed."""
-        picked = body.get("maps") if isinstance(body, dict) else None
-        if not isinstance(picked, list) or not picked:
-            raise KipoError("Pick at least one map.", "invalid_request", 400)
-        checkouts = None
-        opened, errors = [], []
-        for item in picked:
-            repo = (item or {}).get("repo")
-            number = (item or {}).get("number")
+        out = []
+        for entry in config:
+            slug = entry["slug"]
+            hidden = self.storage.hidden(slug)
+            opened = self.storage.opened_maps(slug)
+            items, wrapped, error = [], set(), None
             try:
-                validate_repo_slug(repo)
-                if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
-                    raise KipoError("A map needs its issue number.", "invalid_request", 400)
-                if not self.storage.repo_path(repo):
-                    checkouts = checkouts if checkouts is not None else self._checkouts()
-                    path = checkouts.get(repo.lower())
-                    if not path:
-                        raise KipoError(f"{repo} isn't checked out on this Mac, so KiPo can't work in it.", "no_checkout", 400)
-                    self.add_repo({"path": path})
+                efforts = self.gh.list_issues(slug, EFFORT_LABEL)
+            except KipoError as e:
+                efforts, error = [], e.message
+            for issue in efforts:
+                m = self.initiatives._map_of(slug, issue["number"], parse_body(issue.get("body")))
+                if m:
+                    wrapped.add(m)
+                items.append({
+                    "kind": "effort", "number": issue["number"], "title": issue.get("title") or "",
+                    "url": issue.get("url") or "", "updatedAt": issue.get("updatedAt") or "",
+                    "onSidebar": issue["number"] not in hidden, "map": m,
+                })
+            for h in by_repo.get(slug.lower(), []):
+                if h["number"] in wrapped:
+                    continue  # it's on the board as the effort that points at it
+                items.append({
+                    "kind": "map", "number": h["number"], "title": h["title"], "url": h["url"],
+                    "updatedAt": h["updatedAt"], "onSidebar": h["number"] in opened and h["number"] not in hidden, "map": None,
+                })
+            items.sort(key=lambda i: i["updatedAt"], reverse=True)
+            repo = {"slug": slug, "path": entry.get("path"), "items": items}
+            if error:
+                repo["error"] = error
+            out.append(repo)
+
+        configured = {r["slug"].lower() for r in config}
+        available = [
+            {"slug": r["slug"], "path": r["path"], "name": r["name"], "maps": len(by_repo.get(r["slug"].lower(), []))}
+            for r in found
+            if r.get("slug") and not r.get("worktree") and r["slug"].lower() not in configured
+        ]
+        available.sort(key=lambda r: (-r["maps"], r["name"].lower()))
+        result = {"repos": out, "available": available}
+        if search_error:
+            result["searchError"] = search_error
+        return result
+
+    def sidebar(self, body):
+        """Put an effort or a map on the sidebar, or take it off. Local to KiPo."""
+        body = body if isinstance(body, dict) else {}
+        repo, number, kind, on = body.get("repo"), body.get("number"), body.get("kind"), body.get("on")
+        validate_repo_slug(repo)
+        if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+            raise KipoError("Say which issue.", "invalid_request", 400)
+        if kind not in ("effort", "map") or not isinstance(on, bool):
+            raise KipoError("Say whether it's an effort or a map, and on or off.", "invalid_request", 400)
+        if not self.storage.repo_path(repo):
+            raise KipoError(f"{repo} isn't one of your KiPo repos.", "unknown_repo", 404)
+        if kind == "map":
+            if on:
                 self.storage.open_map(repo, number)
                 self.storage.unhide(repo, number)
-                opened.append({"repo": repo, "number": number})
-            except KipoError as e:
-                errors.append({"repo": repo, "number": number, "error": e.message})
-        return {"opened": opened, "errors": errors}
+            else:
+                self.storage.close_map(repo, number)
+        elif on:
+            self.storage.unhide(repo, number)
+        else:
+            self.storage.hide(repo, number)
+        return {"repo": repo, "number": number, "kind": kind, "onSidebar": on}
 
     def frontier(self, body, owner, repo, n):
         return self.initiatives.frontier(f"{owner}/{repo}", int(n))

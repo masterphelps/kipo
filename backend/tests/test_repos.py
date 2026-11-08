@@ -78,19 +78,39 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual(status, 200, out)
         self.assertTrue(all("maps" not in r for r in out["repos"]))
 
-    def test_opening_a_map_adds_its_repo_from_this_mac(self):
+    def test_the_tree_nests_maps_and_efforts_under_each_added_repo(self):
+        widgets = os.path.join(self.root, "widgets")
+        self.app.dispatch("POST", "/repos", json.dumps({"path": widgets}))
+        self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 6, title="Map: six", labels=["wayfinder:map"])
+        body = "## Destination\n\nx\n\n<!-- kipo:meta {\"mapIssue\": 6} -->"
+        self.fake.add_issue("acme/widgets", 7, title="Effort on six", body=body, labels=["kipo:effort"])
         self.fake.add_issue("acme/gadgets", 9, title="Map: gadgets", labels=["wayfinder:map"])
-        listed = self.app.dispatch("GET", "/maps", "")[1]["maps"]
-        self.assertEqual([(m["repo"], m["repoAdded"], m["opened"]) for m in listed], [("acme/gadgets", False, False)])
-        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": "acme/gadgets", "number": 9}]}))
-        self.assertEqual((status, out["errors"]), (200, []), out)
-        self.assertEqual([r["slug"] for r in self.storage.get_config()["repos"]], ["acme/gadgets"])
-        self.assertTrue(self.app.dispatch("GET", "/maps", "")[1]["maps"][0]["opened"])
+        out = self.app.dispatch("GET", "/tree", "")[1]
+        self.assertEqual([r["slug"] for r in out["repos"]], ["acme/widgets"])
+        items = {(i["kind"], i["number"]): i for i in out["repos"][0]["items"]}
+        self.assertEqual(set(items), {("map", 5), ("effort", 7)})  # map 6 is effort 7
+        self.assertEqual((items[("map", 5)]["onSidebar"], items[("effort", 7)]["onSidebar"]), (False, True))
+        self.assertEqual([(a["slug"], a["maps"]) for a in out["available"]], [("acme/gadgets", 1)])
 
-    def test_a_map_in_a_repo_not_on_this_mac_is_refused_by_name(self):
-        status, out = self.app.dispatch("POST", "/maps/open", json.dumps({"maps": [{"repo": "acme/elsewhere", "number": 3}]}))
-        self.assertEqual(status, 200, out)
-        self.assertIn("isn't checked out on this Mac", out["errors"][0]["error"])
+    def test_the_green_dot_puts_things_on_and_off_the_sidebar(self):
+        self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
+        self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 7, title="Effort", labels=["kipo:effort"])
+        flip = lambda kind, n, on: self.app.dispatch("POST", "/sidebar", json.dumps({"repo": "acme/widgets", "number": n, "kind": kind, "on": on}))
+        self.assertEqual(flip("map", 5, True)[0], 200)
+        self.assertEqual(flip("effort", 7, False)[0], 200)
+        listed = {i["number"] for i in self.app.dispatch("GET", "/initiatives", "")[1]["initiatives"]}
+        self.assertEqual(listed, {5})
+        flip("map", 5, False)
+        flip("effort", 7, True)
+        listed = {i["number"] for i in self.app.dispatch("GET", "/initiatives", "")[1]["initiatives"]}
+        self.assertEqual(listed, {7})
+        self.assertEqual(self.fake.issues[("acme/widgets", 7)]["state"], "OPEN")
+
+    def test_the_sidebar_refuses_a_repo_kipo_doesnt_watch(self):
+        status, out = self.app.dispatch("POST", "/sidebar", json.dumps({"repo": "acme/elsewhere", "number": 1, "kind": "map", "on": True}))
+        self.assertEqual((status, out["code"]), (404, "unknown_repo"))
 
     def test_add_by_folder_derives_slug_and_marks_configured(self):
         path = os.path.join(self.root, "widgets")
