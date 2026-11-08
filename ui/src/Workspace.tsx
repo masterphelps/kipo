@@ -7,7 +7,7 @@ import {
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
-import { TileGraph } from './Graph'
+import { NetworkMap } from './Network'
 import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
 import { closeFinished, isClosed, openSession } from './sessions'
@@ -342,11 +342,11 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {view === 'map' && hasMap ? (
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket and what blocks what. Hover one to trace its chain; click it to open its conversation.</span>
+                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket in its container (the map, the spec's tickets, the source issue), linked by what blocks what. Hover one to trace its chain; click it to open its conversation.</span>
               </div>
               <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
-              <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} bands labeled
-                highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null} dimOthers={false}
+              <NetworkMap tiles={detail.frontier!.tiles} fogItems={detail.frontier!.fogItems ?? []} mapIssue={detail.mapIssue ?? null} effort={detail.number}
+                highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
                 statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
             </div>
           ) : (<>
