@@ -5,7 +5,15 @@
 // loaded, so the in-memory map survives the round trip. localStorage covers a full
 // reload. Every cached value is replaced by the next real answer.
 
-const PREFIX = 'kipo.cache.v1:'
+// Bump the version whenever a cached shape changes: an old shape rendered by new
+// code crashes the page before the fresh answer arrives.
+const PREFIX = 'kipo.cache.v2:'
+try {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i)
+    if (k && k.startsWith('kipo.cache.') && !k.startsWith(PREFIX)) localStorage.removeItem(k)
+  }
+} catch { /* storage blocked: nothing to clean */ }
 const mem = new Map<string, unknown>()
 
 export function cached<T>(key: string): T | null {

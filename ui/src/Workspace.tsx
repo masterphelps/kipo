@@ -272,10 +272,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     : focus.kind === 'decision' ? `decide #${focus.t}` : focus.kind === 'stage' ? COLUMN_LABELS[focus.column].toLowerCase()
     : COLUMN_LABELS[detail.column].toLowerCase()
   // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
-  const stage: Stage = detail.frontier?.stage ?? stageOfColumn(detail.column)
+  const stage: Stage = (detail.frontier?.stage && STAGES.includes(detail.frontier.stage) ? detail.frontier.stage : null) ?? stageOfColumn(detail.column)
   // Whose skills the panel shows: the open tile's, else the stage picked in the track.
-  const skillStage: Stage = viewStage ?? (focusTile ? focusTile.lane : stage)
-  const skills = focusTile && !viewStage ? TILE_SKILLS[focusTile.type] : stageSkills(skillStage)
+  const skillStage: Stage = viewStage ?? (focusTile?.lane === 'decide' || focusTile?.lane === 'deliver' ? focusTile.lane : stage)
+  const skills = (focusTile && !viewStage ? TILE_SKILLS[focusTile.type] : null) ?? stageSkills(skillStage)
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
@@ -293,7 +293,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               {detail.repoPath}
             </span>
           </div>
-          {detail.frontier && (
+          {detail.frontier?.lanes && (
             <FrontierPanel frontier={detail.frontier} onTile={openTile} onStartAgents={startAgents} starting={startingAgents}
               openNumber={focusTile?.number ?? null} statuses={statuses}
               autopilot={autopilot} onAutopilot={setAutopilot}
@@ -601,7 +601,8 @@ function StepRow({ detail, stage, viewing, onPick }: {
   viewing: Column | null
   onPick: (c: Column) => void
 }) {
-  const cols = STAGE_COLUMNS[stage]
+  const cols = STAGE_COLUMNS[stage] ?? []
+  if (!cols.length) return null
   if (cols.length < 2 && !detail.history?.[cols[0]] && cols[0] !== detail.column) return null
   return (
     <div style={{ ...scrollRow, gap: 4, padding: '4px 12px', borderBottom: '1px solid var(--border)', fontSize: T.tiny }}>
