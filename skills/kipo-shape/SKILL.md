@@ -1,64 +1,48 @@
 ---
 name: kipo-shape
-description: KiPo Shape column. Loaded by a KiPo column session seed ("Load the skill `kipo-shape`"); works the open questions of a foggy effort (wayfinder map, prototype, research, questionnaire) until the way to a spec is clear.
+description: KiPo decide conversation for a foggy effort: charts a wayfinder map, or resolves one decision ticket from it. Loaded by a KiPo seed ("Load the skill `kipo-shape`"); produces decisions, not deliverables, until the way to a spec is clear.
 ---
 
-# Column 2 of 7: Shape
+# KiPo: shape (wayfinder)
 
-There are open questions: a wayfinder map, a prototype branch, a research file, a questionnaire waiting on someone. Shape produces decisions, not deliverables, until nothing is left to decide before a spec.
+The effort is too big or too foggy for one session. This conversation either charts its wayfinder map (the effort's own conversation on a `huge` start), or resolves one decision ticket from the map (a ticket conversation: the seed has `Ticket:`). It produces decisions, not deliverables.
+
+## How KiPo works now
+
+- An effort's tickets are tiles in two lanes, **Decide** and **Deliver**. KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. Nobody moves it: there are no columns, no Next and no Skip. Never edit the effort's `kipo:` labels or its `kipo:meta` comment.
+- The human starts conversations from the tiles and from KiPo's **Next** line (start a ticket, start agents, write the spec, review the PRs, run /retro). This is one of those conversations; the seed's `Conversation:` line says which. Do this conversation's job, then stop. Work outside it isn't yours: name it as a candidate ticket.
+- There are no skill buttons. You choose which of Matt's skills to run, from the list below. The human may also type any `/skill` in the chat: follow it for this effort, record it, then carry on.
 
 ## Ground rules
 
-- The seed gives the effort (number, title, issue URL), `Column:`, `Start:`, the repo checkout and the state file. Work in that checkout with absolute paths. The authority for everything here is `/Users/masterphelps/repos/kipo/CONTRACT.md`.
-- **State file**: the path on the seed's `State file:` line. The effort's own conversation uses `<checkout>/.kipo/<n>/state.json`; a ticket's conversation has its own, such as `<checkout>/.kipo/<n>/build-t22.json` or `shape-t24.json`, so conversations running side by side never overwrite each other. Write only your own. Shape: `{"phase": "<column id>", "summary", "blocking", "decisions": [{id, title, options, recommended, answer}], "gate": [{id, label, done}], "artifacts": [{label, href}], "skillsUsed": []}`. Create its directory if missing; if it already holds this column, resume from it. Rewrite it on every decision asked or answered, gate item done, artifact produced and skill loaded. It is plumbing: never mention it in chat.
+- The seed gives the effort (number, title, issue URL), `Conversation:`, `Stage:`, `Start:`, the repo checkout and the state file. Work in that checkout with absolute paths. The authority for everything here is `/Users/masterphelps/repos/kipo/CONTRACT.md`.
+- **State file**: the path on the seed's `State file:` line, and only that one (conversations run side by side, each with its own). Shape: `{"summary", "blocking", "decisions": [{id, title, options, recommended, answer}], "artifacts": [{label, href}], "skillsUsed": []}`. Create its directory if missing; if it exists, resume from it, and re-read it before every write. Rewrite it whenever a decision is asked or answered, a document is produced, or a skill is loaded. KiPo shows `decisions`, `blocking`, `artifacts` and `skillsUsed` to the human. It is plumbing: never mention it in chat.
 - `.kipo/` stays out of commits: if `git status` shows it, add `.kipo/` to `<checkout>/.git/info/exclude`.
-- **Decisions are cards.** Write the `decisions` entry first (stable `id`, 2-4 short `options`, your `recommended`), then ask in one line pointing at it; 1-3 at a time. Answers arrive together in one message, one numbered line each: `<n>. <title> (<id>): <answer>`. Put each in its decision's `answer` and act on all of them in the same turn; any listed as still open stay open. (An older single answer may arrive as `<title>: <answer>`.) Never use the `ask_question` tool.
+- **Decisions are cards** on KiPo's right panel, for choices only the human can make. Write the `decisions` entry first (stable `id`, 2-4 short `options`, your `recommended`), then say in one line that they're waiting. Ask every question you have at that point together, not one at a time. Answers arrive together in one message, one numbered line each: `<n>. <title> (<id>): <answer>`. Put each in its decision's `answer` and act on all of them in the same turn; any listed as still open stay open. Never use the `ask_question` tool, and never make a card for something you can decide or look up yourself.
 - Facts are your job: read, run and look them up. Decisions are the human's.
-- **Load a skill by reading** `/Users/masterphelps/.agents/skills/<name>/SKILL.md` (and any file it links to), never through the Skill tool: most refuse model invocation. When a loaded skill says "call the Skill tool with X", read X's file the same way.
-- **Record every skill** (button, chip or session control) by appending its name to `skillsUsed` the moment you load it.
-- The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), tell the human to run `setup-matt-pocock-skills` (Intake's first button).
-- Session controls (`handoff`, `wait-what`, `teach`, `writing-for-agents`) can arrive in any column as "Run /<skill>: …": follow and record them, then resume.
-- Never edit the effort's `kipo:` labels or its `kipo:meta` comment: the backend owns them. There is no Next: KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. When every gate item is done, say so in one line and stop.
-- Shape ticket sessions (`shape-t<t>`) run in parallel and may share the state file: re-read it before every write and change only your own entries.
+- **Load a skill by reading** `/Users/masterphelps/.agents/skills/<name>/SKILL.md` (and any file it links to), never through the Skill tool: most refuse model invocation. When a loaded skill says "call the Skill tool with X", read X's file the same way. Append its name to `skillsUsed` the moment you load it.
+- The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), run `setup-matt-pocock-skills` first.
+- `wait-what`, `handoff`, `teach` and `writing-for-agents` fit any conversation: when the human types one, or when the moment calls for it.
+- Publish a branch as its own command with a literal branch name; write PR bodies to a file and pass `--body-file`. Never publish to main.
+- **When this conversation's job is done**, say so in one line, set `summary`, and stop. Keep `blocking` set to what you're waiting on, or null.
 
-## Buttons
+## Skills
 
-`wayfinder`, `to-questionnaire`, `handoff`, `teach`. The human may press any of them at any time; it arrives as "Run /<skill>: …". Follow that skill for this effort and record it.
+- **`wayfinder`**: the map and its tickets. Read it first, every time.
+- **`grilling`** and **`domain-modeling`**: a grilling ticket is worked with them (wayfinder says so).
+- **`research`**: a question that needs primary sources read. Delegate it to a background agent; it leaves a cited Markdown file. Keep working while it reads.
+- **`prototype`**: a question that needs a runnable answer (a state model, business logic, a UI you have to see). Build it throwaway on a `prototype/<name>` branch off main and link it from the ticket.
+- **`to-questionnaire`**: what blocks the decision is in someone else's head.
 
-If no button has been pressed yet, recommend one as decision `button` (options: the four buttons) and wait. Choose by:
+## Conversations
 
-- **`wayfinder`**: the effort is too big for one session and the way to the destination isn't visible. Never for a well-scoped feature: that belongs in Grill.
-- **`to-questionnaire`**: what blocks you is in someone else's head, not yours or the code's. What comes back feeds Grill or `/to-spec`.
-- **`handoff`**: a question needs its own directory or a fresh session (a prototype detour, a colleague, another harness). Hand off out, and hand back what was learned.
-- **`teach`**: the human must learn a concept before they can decide well.
+- **Charting** (no `Ticket:`, on a `huge` start): run `wayfinder` to name the destination (as the effort's `## Destination`), chart the map with what you can ticket now, and sketch the rest into Not yet specified. Record the map as artifact "Wayfinder map" (exactly that label: KiPo reads the map from it). Then stop: charting resolves nothing.
+- **A ticket** (the seed has `Ticket:`): claim that one ticket first (assign it), resolve it as its `wayfinder:<type>` label says, post the answer as a comment, close it, and add its line to the map's Decisions so far. Graduate any fog the answer made specifiable into new tickets. Then stop: one ticket per conversation.
+- **The way is clear** when the map has no open tickets and nothing in scope left in Not yet specified. KiPo then shows "The map is clear" with a "Write the spec" action. Say so in one line. If the effort turned out small, say that instead: the human can build it directly.
 
-## Chips
+## Documents
 
-- **`prototype`**: a question needs a runnable answer (a state model, business logic, a UI you have to see). Build it throwaway on a `prototype/<name>` branch off main and link it from the ticket it answers.
-- **`research`**: a question needs reading primary sources (docs, APIs, specs). Delegate it to a background agent; it leaves a cited Markdown file in the repo. Keep working while it reads.
-
-## Path
-
-Read `Start:` and the `Column:` line.
-
-- **`huge`** (shape → plan → build → review → done): start with `wayfinder`. Name the destination as the effort's `## Destination`, chart the map, then work the frontier one decision ticket per session.
-- **A ticket session** (the seed has `Ticket:`): claim that one decision ticket first (assign it), resolve it per `wayfinder`, record the answer on the ticket and close it, update the map's Decisions-so-far, then stop. Don't take a second ticket in the same session.
-- **The hand-off.** Wayfinder hands off, it doesn't build. When the frontier is empty and Not yet specified holds nothing in scope, the way is clear: KiPo shows "The map is clear" and a "Write the spec" button, which runs `/to-spec` and then `/to-tickets` (Matt: the front half ends with a spec and a set of tickets). Say so in one line. If the effort turned out genuinely small, say so instead: the human can `/implement` it directly.
-- On any other path an effort reaches Shape only when the human presses a Shape skill (wayfinder, prototype, questionnaire) from the Decide stage: ask which open question brought it here before recommending a button.
-
-## Gate
-
-Write these when the column starts:
-
-- `map-charted`: "Wayfinder map issue exists with its destination, recorded as artifact Wayfinder map" (when `wayfinder` runs)
-- `ticket-<t>-resolved`: "Decision ticket #<t> answered on the ticket and closed" (one per ticket session)
-- `questions-answered`: "Every open question has a recorded answer (map frontier empty, questionnaires back, prototypes and research linked)"
-- `way-clear`: "Nothing in scope is left to decide before a spec"
-
-## Exit artifacts
-
-- "Wayfinder map": the map issue URL. Use exactly this label: the backend reads the map from it.
+- "Wayfinder map": the map issue URL.
 - "Prototype": each `prototype/<name>` branch URL.
 - "Research": each research file path.
 - "Questionnaire": each questionnaire sent, and its answers when they come back.
-- "Handoff": each handoff document path.

@@ -264,14 +264,35 @@ def session_name(repo, number, key):
     return slugify(f"kipo-{owner}-{name}-{number}-{key}")
 
 
-def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=None):
-    """The first message of a KiPo conversation. ``state_key`` gives a ticket's
+STAGE_NAMES = {"intake": "Intake", "decide": "Decide", "deliver": "Deliver", "done": "Done"}
+
+# What each kind of conversation is for, as its seed says it. A ticket's
+# conversation is named by its ticket; the rest by their key.
+CONVERSATIONS = {
+    "build-spec": "build every ready ticket in one run (/implement-spec)",
+    "plan": "the hand-over: the spec, then the tickets",
+    "review": "review and merge the effort's PRs",
+    "done": "the retro",
+}
+
+
+def conversation_of(key, ticket=None):
+    if ticket is not None:
+        lane = "Deliver" if key.startswith("build-") else "Decide"
+        return f"ticket #{ticket['number']}, in the {lane} lane"
+    return CONVERSATIONS.get(key, "the effort's own conversation")
+
+
+def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=None, stage=None):
+    """The first message of a KiPo conversation: which conversation this is,
+    the effort's stage, and the skill to load. ``state_key`` gives a ticket's
     conversation its own state file; the effort's own conversation uses state.json."""
-    n, path = effort["number"], effort["path"]
-    k, total = position(column, path)
+    n = effort["number"]
+    stage = stage or frontier_mod.LEGACY_STAGE.get(column, "intake")
     lines = [
         f'[KiPo] Effort #{n} "{effort["title"]}" in {effort["repo"]}',
-        f"Column: {column} ({k} of {total} on this path: {' → '.join(path)})",
+        f"Conversation: {conversation_of(state_key or column, ticket)}",
+        f"Stage: {STAGE_NAMES.get(stage, stage)}",
         f"Start: {effort['start']}",
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
@@ -289,9 +310,9 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
 
 
 def render_plan_handoff(effort, skill=None):
-    """What goes into the Grill session when the effort moves on to Plan."""
-    k, total = position("plan", effort["path"])
-    text = f"Moving to Plan (column {k} of {total}). Load the skill `kipo-plan` and follow it."
+    """What goes into the grilling conversation when the human chooses to write the spec."""
+    text = ("The hand-over: write the spec, then the tickets, from what this conversation decided. "
+            "Load the skill `kipo-plan` and follow it.")
     if skill:
         text += "\n" + run_line(skill)
     return text
@@ -879,7 +900,8 @@ class Initiatives:
         return {
             "slotName": slot,
             "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill,
-                                state_key=None if key in COLUMNS else key),
+                                state_key=None if key in COLUMNS else key,
+                                stage=(self.storage.get_frontier(repo, number) or {}).get("stage")),
             "existing": False,
         }
 

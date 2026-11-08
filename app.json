@@ -2,7 +2,7 @@
   "name": "kipo",
   "version": "0.1.0",
   "displayName": "KiPo",
-  "description": "Matt Pocock's engineering flow as a board you work in: Intake, Shape, Grill, Plan, Build, Review, Done. Each column has its skills as buttons, an embedded agent session, and the documents it produces.",
+  "description": "Matt Pocock's engineering flow for your repos: each effort's tickets as tiles in two lanes, Decide and Deliver, with the next step on top and a conversation per ticket that runs the right Pocock skills. Open wayfinder maps from your repos as efforts.",
   "author": "masterphelps",
   "iconPath": "assets/icon.png",
   "skills": [

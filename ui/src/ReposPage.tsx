@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { backend, errorText } from './api'
 import { ErrorLine, timeAgo } from './common'
 import { Confirm, Menu, type MenuItem } from './Menu'
-import { FolderPicker } from './Settings'
+import { FolderPicker } from './FolderPicker'
 import type { AvailableRepo, RepoTree, TreeItem, TreeRepo } from './types'
 
 // Your repos as a tree, the way Kiro shows folders: each repo opens to show

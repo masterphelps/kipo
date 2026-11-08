@@ -228,10 +228,11 @@ class ListTests(Columns):
 
 
 class SessionTests(Columns):
-    def seed(self, column, k, path, extra=(), run=None, n=7, state="state.json"):
+    def seed(self, column, conversation, stage, extra=(), run=None, n=7, state="state.json"):
         lines = [
             f'[KiPo] Effort #{n} "Widgets" in {REPO}',
-            f"Column: {column} ({k} of {len(path)} on this path: {' → '.join(path)})",
+            f"Conversation: {conversation}",
+            f"Stage: {stage}",
             "Start: idea",
             f"Repo checkout: {self.checkout}",
             f"Effort issue: https://github.com/{REPO}/issues/{n}",
@@ -250,9 +251,9 @@ class SessionTests(Columns):
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], f"kipo-acme-widgets-7-grill")
         self.assertFalse(out["existing"])
-        self.assertEqual(out["seed"], self.seed("grill", 1, path, run="grill-with-docs"))
+        self.assertEqual(out["seed"], self.seed("grill", "the effort's own conversation", "Decide", run="grill-with-docs"))
         status, out = self.post("/session", {"column": "grill"})
-        self.assertEqual(out["seed"], self.seed("grill", 1, path))
+        self.assertEqual(out["seed"], self.seed("grill", "the effort's own conversation", "Decide"))
 
     def test_grill_and_plan_share_a_session(self):
         self.make_effort(column="plan")
@@ -263,7 +264,8 @@ class SessionTests(Columns):
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-grill")
         self.assertEqual(
             out["seed"],
-            "Moving to Plan (column 2 of 5). Load the skill `kipo-plan` and follow it.\n" + RUN.format(s="to-spec"),
+            "The hand-over: write the spec, then the tickets, from what this conversation decided. "
+            "Load the skill `kipo-plan` and follow it.\n" + RUN.format(s="to-spec"),
         )
         self.assertEqual(self.get()[1]["sessions"], {"grill": "kipo-acme-widgets-7-grill", "plan": "kipo-acme-widgets-7-grill"})
 
@@ -273,7 +275,8 @@ class SessionTests(Columns):
         self.assertEqual(status, 200, out)
         self.assertFalse(out["existing"])
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-plan")
-        self.assertIn("Column: plan (2 of 5 on this path: shape → plan → build → review → done)", out["seed"])
+        self.assertIn("Conversation: the hand-over: the spec, then the tickets", out["seed"])
+        self.assertNotIn("Column:", out["seed"])
         self.assertIn("Start: huge", out["seed"])
 
     def test_build_ticket_session(self):
@@ -285,7 +288,7 @@ class SessionTests(Columns):
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual(out["seed"], self.seed(
-            "build", 3, PATHS["idea"], extra=['Ticket: #20 "Add export"', "Blocked by: #19 (closed)"], run="implement",
+            "build", "ticket #20, in the Deliver lane", "Deliver", extra=['Ticket: #20 "Add export"', "Blocked by: #19 (closed)"], run="implement",
             state="build-t20.json",
         ))
         d = self.get()[1]

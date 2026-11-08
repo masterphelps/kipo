@@ -1,237 +1,196 @@
 # KiPo contract
 
 The single source of truth for KiPo's skills, backend and page. Change it here first.
-KiPo is a fork of Launchpad (`/Users/masterphelps/repos/launchpad`): same layout and
-plumbing, different progression. It is a separate app with its own labels, storage
-and sidebar folder, so both can work in the same repo without colliding.
+KiPo is a fork of Launchpad (`/Users/masterphelps/repos/launchpad`): same plumbing, its own
+labels, storage and sidebar folder, so both can work in the same repo without colliding.
 
-## The seven columns
+## The model in one paragraph
 
-Ids are lowercase, in order: `intake, shape, grill, plan, build, review, done`.
+An **effort** is a GitHub issue (or an open wayfinder map) in a repo KiPo watches. Its
+**tickets** are tiles in two lanes, **Decide** and **Deliver**, after Matt Pocock's two
+halves of the flow (skills v1.3: the front half `/grill-with-docs → /to-spec → /to-tickets`
+ends with a spec and tickets; the back half is `/implement-spec … /pr … /retro`). KiPo reads
+the effort's **stage** (Intake, Decide, Deliver, Done) from its tickets and PRs: nobody moves
+an effort, and there are no columns, no Next and no Skip. The human works through
+**conversations**: one for the effort itself and one per ticket, started from the tiles and
+from the **Next** line above them.
 
-| # | Column | Buttons (skills the human starts) | Chips (skills the agent uses on its own) | An effort is here when |
-|---|---|---|---|---|
-| 1 | Intake | `setup-matt-pocock-skills`, `ask-matt`, `triage`, `improve-codebase-architecture` | | A raw issue, request or refactor candidate exists that nobody has shaped yet |
-| 2 | Shape | `wayfinder`, `to-questionnaire`, `handoff`, `teach` | `research`, `prototype` | There are open questions: a wayfinder map, a prototype branch, a research file, a questionnaire waiting on someone |
-| 3 | Grill | `grill-with-docs`, `grill-me`, `wait-what` | `grilling`, `domain-modeling` | An interview is in progress; it updates `GLOSSARY.md` and adds ADRs |
-| 4 | Plan | `to-spec`, `to-tickets` | `codebase-design` | A spec issue exists and tickets with blocking links hang off it |
-| 5 | Build | `implement`, `implement-spec` | `tdd`, `diagnosing-bugs`, `wizard` | Tickets are being built, or a branch has commits |
-| 6 | Review | | `code-review`, `pr` | A PR is open: reviewed, fixed, then merged by the agent (it asks first when a merge needs something only you can do) |
-| 7 | Done | `retro` | `writing-for-agents` | It's merged; `/retro` turns lessons into checks, standards and agent instruction files |
+## Conversations and skills
 
-27 skills, all installed at `/Users/masterphelps/.agents/skills/<name>/SKILL.md`.
+Each conversation KiPo starts loads one of KiPo's seven skills (`skills/kipo-<name>/SKILL.md`),
+which says what that conversation is for and which of Matt's skills it runs. Matt's 27 skills
+live at `/Users/masterphelps/.agents/skills/<name>/SKILL.md`; KiPo never edits them.
 
-**Session controls** (work in any column, shown in a bar above the chat box):
-`handoff`, `wait-what`, `teach`, `writing-for-agents`.
+| KiPo skill | The conversation | Matt's skills it runs |
+|---|---|---|
+| `kipo-intake` | The effort's own, while it's raw (an `issue` start): get the repo ready, triage, say where it starts | `setup-matt-pocock-skills`, `triage`, `improve-codebase-architecture`, `ask-matt` |
+| `kipo-shape` | Charting a wayfinder map (a `huge` start), or one Decide ticket from it | `wayfinder`, `grilling`, `domain-modeling`, `research`, `prototype`, `to-questionnaire` |
+| `kipo-grill` | The effort's own on an `idea` or `small` start, or a grilling ticket: the interview | `grill-with-docs` (or `grill-me`), `grilling`, `domain-modeling`, `prototype` |
+| `kipo-plan` | The hand-over ("Write the spec"): spec, then tickets | `to-spec`, `to-tickets`, `codebase-design` |
+| `kipo-build` | One Deliver ticket, every ready ticket at once, or a ticketless change | `implement`, `implement-spec`, `tdd`, `diagnosing-bugs`, `wizard` |
+| `kipo-review` | "Review the PRs": review, fix, then merge by Merge Danger | `code-review`, `pr` |
+| `kipo-done` | "Run /retro": the retro and the clean-up | `retro`, `writing-for-agents`, `improve-codebase-architecture` |
 
-**Starting a skill from a button** sends this message into the column's session:
+`wait-what`, `handoff`, `teach` and `writing-for-agents` fit any conversation. The agent
+chooses which of Matt's skills to run; there are no skill buttons. The human may type any
+`/skill`, and the chat box offers `/wait-what` (a reaction to the last message). Skills are
+loaded by reading the file (most refuse the Skill tool). When KiPo starts a conversation for a
+particular skill, the seed ends with:
 
 ```
 Run /<skill>: read /Users/masterphelps/.agents/skills/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
 ```
 
-Most of these skills refuse model invocation through the Skill tool, so they are always
-loaded by reading the file. If the column has no session yet, the backend's seed for the
-new session ends with that line.
-
-Each column also has a KiPo column skill, `skills/kipo-<id>/SKILL.md` (name `kipo-<id>`),
-that the session seed loads first: it says what the column is for, how to keep the state
-file, which button skills fit which situation, and what the checklist is.
-
 ## Start points (the start form's "Where does this start?")
 
-| Start | Path | Meaning |
+| Start | Where it begins | Meaning |
 |---|---|---|
-| `idea` | grill → plan → build → review → done | A normal idea (default) |
-| `small` | grill → build → review → done | A small change: `/implement` in the same session, no Plan |
-| `huge` | shape → plan → build → review → done | Too many unknowns: wayfinder, which merges at `/to-spec` |
-| `issue` | intake → build → review → done | An incoming issue, triaged to `ready-for-agent` |
-| `bug` | build → review → done | A hard bug: start with `/diagnosing-bugs`; `/retro` asks what would have prevented it |
-
-The path is stored in the meta comment (`"start"` and `"path"`). Next moves to the next
-column **on the path**; columns off the path are shown but skipped. The human can move an
-effort to any later column with "Move to…" (the path is rewritten from there).
+| `idea` | a grilling (the effort's own conversation) | A normal idea (default) |
+| `small` | a short grilling, then a build in the same conversation | No spec or tickets |
+| `huge` | a wayfinder map | Too many unknowns: the map's tickets are the Decide lane |
+| `issue` | intake: triage the source issue | The source issue becomes a tile (Deliver once `ready-for-agent`) |
+| `bug` | a build that starts with `/diagnosing-bugs` | The retro asks what would have prevented it |
 
 ## Effort = a GitHub issue in the target repo
 
 Labels (created by the backend when missing):
 
 - `kipo:effort`: marks the issue
-- `kipo:col:<id>`: exactly one, the current column
 - `kipo:start:<start>`: the start point
-- tickets filed by `/to-tickets` for effort `n` carry `kipo:<n>` (the Plan skill adds it)
+- `kipo:col:<id>`: legacy. Read only to pick the effort's own conversation's skill and as
+  the stage before an effort has tickets; nothing moves it any more (except "Close effort")
+- tickets filed by `/to-tickets` for effort `n` carry `kipo:<n>`
 
-Issue body: the same format as Launchpad (`## Destination`, `## Original request`,
-`## Artifacts`, `## Phase log`, then the one-line meta comment), with the meta comment
-named `kipo:meta`:
+Issue body: `## Destination`, `## Original request`, `## Artifacts`, `## Phase log`, then
+the one-line meta comment:
 
 ```
 <!-- kipo:meta {"repoPath":"/abs","start":"idea","path":["grill","plan","build","review","done"],"mapIssue":null,"specPath":null,"sourceIssue":null} -->
 ```
 
-`sourceIssue` is the issue number an `issue` start was opened from (or null).
+`sourceIssue` is the issue an `issue` start was opened from. Agents never edit the labels or
+the meta comment.
 
-## State file (written by the agent, read by the backend)
-
-`<repoPath>/.kipo/<n>/state.json`, the same shape as Launchpad's
-(`summary`, `blocking`, `decisions`, `gate`, `artifacts`, `skillsUsed`). Archived on Next to
-`state.<column>.json`; the detail returns earlier columns' archived states as `history`.
-The agent appends every skill it loads (button or chip) to `skillsUsed`.
-
-## Sessions
-
-- One session per column, key `<column>`, name `kipo-<owner>-<repo>-<n>-<column>`.
-- **Grill and Plan share one session** (Matt: keep grill → spec → tickets in one unbroken
-  context). Plan's key resolves to the Grill session when one exists; the backend returns a
-  short "moving to Plan" message to send into it instead of a new seed. On paths without
-  Grill, Plan gets its own session.
-- Build: one session per ticket for `/implement` (key `build-t<t>`, fresh context per
-  ticket), or one `build-spec` session for `/implement-spec` across every unblocked ticket.
-  A `small` or `bug` effort with no tickets builds in the column's own `build` session.
-- Shape: wayfinder decision tickets keep Launchpad's per-ticket sessions, key `shape-t<t>`.
-- All KiPo sessions go in the sidebar folder **KiPo**.
-
-Seed:
-
-```
-[KiPo] Effort #<n> "<title>" in <owner>/<repo>
-Column: <id> (<k> of <len(path)> on this path: <path joined with " → ">)
-Start: <start>
-Repo checkout: <repoPath>
-Effort issue: <url>
-State file: <repoPath>/.kipo/<n>/state.json
-Ticket: #<t> "<title>"                 (ticket sessions only)
-Blocked by: #a (closed), #b (open)     (ticket sessions with blockers)
-Load the skill `kipo-<id>` and follow it. Destination: <destination>
-Run /<skill>: …                         (when started from a button)
-```
-
-## Backend HTTP API
-
-Same conventions as Launchpad (prefixes `/apps/kipo/api`, `/api/apps/kipo`, `/api`, none;
-`{error, code}` errors; GET handlers read the query string). Kept unchanged from Launchpad:
-`/health`, `/config`, `/repos/discover`, `POST /repos`, `/repos/remove`, `/browse`, `/sessions`,
-`…/remove`, `…/doc?href=`, `…/frontier` (wayfinder map, Shape only).
-`/sessions` also returns `byRepo: [{slot, repo}]`, so the UI can file each session in the
-sidebar folder `KiPo / <repo name>`.
-
-| Method | Path | Body | Returns |
-|---|---|---|---|
-| GET | `/initiatives` | | `{"initiatives":[Effort]}` |
-| POST | `/initiatives` | `{"path","description","start":"idea\|small\|huge\|issue\|bug","worktree":bool,"sourceIssue":n\|null}` | `Effort`, created in the first column of its path |
-| GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` |
-| POST | `/initiatives/{o}/{r}/{n}/advance` | `{"force":false,"to":"<column>"\|null}` | `EffortDetail`; 409 `gate_not_passed` unless the gate passed or `force`; `to` jumps to a later column (rewrites the path from there); from `done` it closes the issue |
-| POST | `/initiatives/{o}/{r}/{n}/session` | `{"column":"<id>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null}` | `{"slotName","seed","existing":bool}`; `existing` true means the slot already exists (Grill↔Plan) and `seed` is the message to send into it |
-| POST | `/initiatives/{o}/{r}/{n}/skill` | `{"skill":"<name>"}` | `{"message"}`: the "Run /<skill>: …" line, for a session that already exists; 400 `unknown_skill` for a name outside the 27 |
-
-```ts
-type Column = 'intake'|'shape'|'grill'|'plan'|'build'|'review'|'done'
-type Start = 'idea'|'small'|'huge'|'issue'|'bug'
-type Effort = { repo; number; title; url; column: Column; start: Start; path: Column[]; destination; updatedAt;
-                ticketCounts: {open:number; closed:number} | null }
-type EffortDetail = Effort & {
-  repoPath; mapIssue; specPath; artifacts; phaseLog; state; gatePassed; sessions: Record<string,string>;
-  history: Partial<Record<Column, PhaseState>>;
-  tickets: { number; title; url; state:'OPEN'|'CLOSED'; blockedBy:number[]; sessionKey:string|null; prs:number[] }[];
-  prs: { number; title; url; state:'OPEN'|'MERGED'|'CLOSED'; isDraft:boolean; headRefName; tickets:number[] }[];
-}
-```
-
-`prs` are the repo's PRs (one `gh pr list --state all --limit 100` per detail) that close a
-ticket of this effort or the effort itself ("Closes/Fixes/Resolves #x" in the body), or whose
-branch starts with `kipo/<n>`. A ticket is blocked while any native `blockedBy` issue is open.
-
-Gates: an agent-written checklist as in Launchpad, except **Review**, which is computed:
-passed when the effort has at least one PR and every PR is `MERGED` (or `CLOSED` and the
-human skipped it). Build's checklist is the agent's; the page also shows tickets closed.
-
-## Storage
-
-`$KIROCREW_HOME/apps/kipo/data/`: `config.json`, `sessions.json`, as in Launchpad.
-
+**A wayfinder map is an effort too.** On the Repos page, an open `wayfinder:map` issue in a
+watched repo can be put on the sidebar as it stands: its Destination is the map's own, its
+tickets are the map's children, and KiPo never writes to it. A map an effort already points at
+shows only as that effort.
 
 ## The frontier
 
-Once an effort has tickets it is no longer in one place: its build tickets
-(`kipo:<n>`) and its wayfinder map's children each have their own state. The
-effort detail returns them as `frontier: {tiles, counts, fog}` (`backend/kipo/frontier.py`).
+The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, handover, landed}`
+(`backend/kipo/frontier.py`).
 
-- **Type** (tile code): `wayfinder:grilling` Gr, `prototype` Pr, `research` Rs,
-  `task` Tk; a `kipo:<n>` ticket is `build` Bd; an untyped map child is a grill,
-  unless it carries a triage label (`needs-triage`, `ready-for-agent`, …): then
-  it's an `issue` Is.
-- **Who**: `you` (HITL) or `afk`. Grilling and prototype are HITL, research is
-  AFK, build is AFK; task and issue are AFK only with `ready-for-agent`;
-  `ready-for-human` makes anything HITL.
-- **State**, first match wins: closed `done`; an open PR closes it `review`; an
-  open blocker `blocked`; AFK with a session or an assignee `building`; else its
-  who (`you` or `afk`). A HITL ticket with a session open is still `you`.
-- **Fog**: list items in the map's "Not yet specified" section (prose with no
-  list counts as one).
-- The map is found from the meta's `mapIssue`, or an artifact labelled
+- **Tiles**: the effort's `kipo:<n>` tickets, its wayfinder map's children, and an `issue`
+  start's source issue. The map is found from the meta's `mapIssue`, or an artifact labelled
   "Wayfinder map" or "Wayfinder map #<n>".
-- `/initiatives` carries each effort's last-seen `frontier: {counts, fog}` (saved
-  whenever its detail is read), so the list can draw a bar per effort without
-  querying every map.
+- **Type** (tile code): `wayfinder:grilling` Gr, `prototype` Pr, `research` Rs, `task` Tk; a
+  `kipo:<n>` ticket is `build` Bd; an untyped map child is a grill unless it carries a triage
+  label, then it's an `issue` Is.
+- **Who**: `you` (HITL) or `afk`. Grilling and prototype are HITL; research and build are AFK;
+  task and issue are AFK only with `ready-for-agent`; `ready-for-human` makes anything HITL.
+- **State**, first match wins: closed `done`; an open PR closes it `review`; an open blocker
+  `blocked`; AFK with a session or an assignee `building`; else its who (`you` or `afk`).
+- **Lane**: `deliver` when it ends in a PR (a build ticket, anything with a PR, or a task/issue
+  labelled `ready-for-agent`); else `decide`. Deliver tiles get `build-t<t>` conversations
+  running `implement`; Decide tiles get `shape-t<t>` conversations running their type's skill.
+- **Fog**: list items in the map's "Not yet specified" section.
+- **Stage**: `done` if the legacy label is `done`; with no tiles and no PRs, the label's stage;
+  else the earliest half with open work; `done` once everything is merged or closed. `active`
+  says which halves have open work: both can be on.
+- **`handover`**: Decide tiles exist, all closed, no fog, no Deliver tiles yet.
+- **`landed`**: everything delivered is merged or closed.
 
-The UI draws `counts` as one bar (done, review, building, you, afk, blocked,
-fog), with the column shown only for efforts that have no tickets yet. "Start N
-agents" opens one session per `afk` tile: build tiles as `build-t<t>` sessions
-running `implement`, map children as `shape-t<t>` sessions running their
-type's skill.
+## What the page shows
 
+- **Left**: the efforts on the sidebar, each with a Decide and a Deliver bar. A row's ⋯ menu
+  (or right-click) opens it on GitHub or removes it from the sidebar (nothing changes on
+  GitHub). **Repos** shows each watched repo as a tree of its efforts and open maps; a green dot
+  means it's on the sidebar, and clicking the dot adds or removes it. Repos are added there.
+- **Middle**: the **Next** line (the one next step, with its button), then every ticket as a
+  tile in a grid: Decide and Deliver by Your move, Agent's move, Working, Waiting, Done, and
+  the fog. A tile opens its ticket's conversation. Below: the open conversation. A **Map** tab
+  draws the blocking graph.
+- **Right**: what's open. A ticket: its card, where it sits (everything upstream and
+  downstream, and what closing it opens up), its decisions, PRs, how it ended, what it asks.
+  The effort: its decisions, Autopilot, Destination and Documents.
+- **Next** comes from the frontier, first match wins (`nextStep` in `ui/src/Inspector.tsx`):
+  `landed` offers "Run /retro" and "Close effort"; `handover` offers "Write the spec"; then
+  your-move tickets (the one that frees the most first); then "Start N agents" for
+  agent's-move tickets (or `/implement-spec`); then "Review the PRs" while agents work.
+- **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
+  becomes `afk` gets an `implement` conversation, once.
 
-## The two halves (stage read from the tickets)
+## Conversations, keys and seeds
 
-Matt's own framing (skills v1.3 notes): "The front half of the main flow …
-/grill-with-docs → /to-spec → /to-tickets. It ends with a spec and a set of
-tickets. … the back half: /implement-spec … /pr … /retro." KiPo shows those
-halves as two lanes, with Intake before and Done after. The seven columns stay
-as the steps inside them and as the skill files; efforts are no longer moved
-between columns, and there is no Next or Skip.
+| Conversation | Key | Skill | State file |
+|---|---|---|---|
+| The effort's own | its legacy label (`intake`, `grill`, `shape`, `build`) | `kipo-<label>` | `.kipo/<n>/state.json` |
+| A Decide ticket | `shape-t<t>` | `kipo-shape`, plus its type's skill | `.kipo/<n>/shape-t<t>.json` |
+| A Deliver ticket | `build-t<t>` | `kipo-build` + `implement` | `.kipo/<n>/build-t<t>.json` |
+| Every ready ticket | `build-spec` | `kipo-build` + `implement-spec` | `.kipo/<n>/build-spec.json` |
+| The hand-over | `plan` | `kipo-plan` + `to-spec` | `.kipo/<n>/state.json` |
+| Review the PRs | `review` | `kipo-review` | `.kipo/<n>/state.json` |
+| The retro | `done` | `kipo-done` + `retro` | `.kipo/<n>/state.json` |
 
-| Stage | Steps (columns) | Ends when |
-|---|---|---|
-| Intake | intake | there's a destination |
-| Decide | shape · grill · plan | spec written and tickets cut, no fog |
-| Deliver | build · review | every PR merged (two-way doors merge on their own) |
-| Done | done | `/retro`, then the human closes the effort |
+Session names are `kipo-<owner>-<repo>-<n>-<key>`, filed in the sidebar folder
+`KiPo / <repo name>`. The hand-over continues the grilling's conversation when there is one
+(Matt: keep grill → spec → tickets in one context); the backend then returns a short hand-over
+message to send into it instead of a new seed. A conversation whose ticket is done is closed.
 
-- **Lane** per tile: `deliver` when it ends in a PR (a `kipo:<n>` build ticket,
-  anything with a PR, or a task/issue labelled `ready-for-agent`); else
-  `decide`. Deliver tiles use `build-t<t>` sessions running `implement` (a map
-  child or the source issue may be built); Decide tiles use `shape-t<t>`.
-- **Source issue**: an `issue` effort's source issue is a tile of type `issue`
-  (Decide while it needs triage, Deliver once `ready-for-agent`).
-- **Stage** (`frontier.stage`): `done` if the column label is `done`; with no
-  tiles and no PRs, the column's stage; else the earliest half with open work;
-  `done` once everything is merged or closed. `frontier.active` says which halves
-  have open work: both can be on.
-- **`handover`**: Decide tiles exist, all closed, no fog, and no Deliver tiles yet:
-  KiPo offers "Write the spec" (`/to-spec`, then `/to-tickets`, in the Plan
-  conversation, which continues the Grill one when there is one).
-- **`landed`**: everything delivered is merged or closed: KiPo offers `/retro`
-  (the Done conversation) and "Close effort" (moves the label to `done`, then
-  closes the issue). Matt retros each run, so `/retro` is also a Deliver button.
-- `/initiatives` returns each effort's `stage` (from its last-seen frontier,
-  else its column) and the saved `frontier: {counts, lanes, fog, stage, active}`.
-- **Review** merges by Merge Danger, the section `/pr` writes into every PR body:
-  a two-way door with a small blast radius merges once findings are fixed and
-  checks are green; a one-way door (migration, live environment, sent messages,
-  published API, secrets) or a large blast radius gets a "Merge #<pr>?" card.
-- **Keep agents on the frontier** (per effort, in the browser): Matt's
-  deterministic loop, run by KiPo while the page is open. Each Deliver tile that
-  becomes `afk` (its blockers closed) gets an `implement` session, once.
+Seed (the first message):
 
-## One state file per conversation
+```
+[KiPo] Effort #<n> "<title>" in <owner>/<repo>
+Conversation: <the effort's own conversation | ticket #<t>, in the Decide|Deliver lane | the hand-over: … | review and merge … | the retro | build every ready ticket …>
+Stage: <Intake|Decide|Deliver|Done>
+Start: <start>
+Repo checkout: <repoPath>
+Effort issue: <url>
+State file: <path>
+Ticket: #<t> "<title>"                 (ticket conversations only)
+Blocked by: #a (closed), #b (open)     (when it has blockers)
+Load the skill `kipo-<name>` and follow it. Destination: <destination>
+Run /<skill>: …                         (when started for a particular skill)
+```
 
-The effort's own conversation writes `.kipo/<n>/state.json`. A ticket's conversation
-writes its own `.kipo/<n>/<key>.json` (`build-t22.json`, `shape-t24.json`,
-`build-spec.json`); the seed's `State file:` line names it. The detail returns them
-as `sessionStates: {key: state}` and merges their artifacts into `artifacts`.
+## State file (written by the agent, read by the backend)
 
-The UI shows the open conversation's `skillsUsed` as "Running …" in its header and
-its own decision cards on the right. There is no skill menu: KiPo starts each
-conversation with the right skill, the effort's next step is on the right, and the
-chat box offers only `/wait-what` (a reaction to the last message). A grill can be
-started with `/grill-me` instead (no docs); any other skill can be typed.
+One per conversation, at the seed's `State file:` path:
+`{summary, blocking, decisions: [{id, title, options, recommended, answer}], artifacts: [{label, href}], skillsUsed}`.
+The detail returns the effort's own as `state` and each ticket conversation's as
+`sessionStates: {key: state}`, and merges their artifacts into `artifacts`. Decisions whose
+id starts `t<N>-` in the effort's file are shown under ticket N's conversation (from
+conversations seeded before each had its own file).
+
+The UI shows the open conversation's `skillsUsed` as "Running …", its `blocking`, and its
+decisions as cards on the right. The human picks answers on any card and sends them together
+as one message, one numbered line each: `<n>. <title> (<id>): <answer>`.
+
+Artifact labels the backend reads: "Wayfinder map", "Spec", "Source issue".
+
+## Backend HTTP API
+
+Prefixes `/apps/kipo/api`, `/api/apps/kipo`, `/api`, none; errors are `{error, code}`; GET
+handlers read the query string.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/initiatives` | | `{"initiatives":[Effort]}`: the sidebar (watched repos' efforts and opened maps, minus hidden ones) |
+| POST | `/initiatives` | `{"path","description","start","worktree":bool,"sourceIssue":n\|null}` | `Effort` |
+| GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` |
+| POST | `…/{n}/session` | `{"column":"<key base>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null}` | `{"slotName","seed","existing":bool}` |
+| GET | `…/{n}/tickets/{t}` | | a ticket's card: body and latest comment |
+| POST | `…/{n}/hide`, `…/{n}/unhide` | | off and back on the sidebar (local) |
+| POST | `…/{n}/remove` | | closes a KiPo effort's issue as not planned; a map is only taken off the sidebar |
+| POST | `…/{n}/advance` | `{"force":bool,"to":"done"\|null}` | legacy: "Close effort" moves the label to `done`, then the issue closes; refused for a map |
+| GET | `/tree` | | `{repos: [{slug, path, items: [{kind:'effort'\|'map', number, title, url, updatedAt, onSidebar, map}]}], available, searchError?}` |
+| POST | `/sidebar` | `{"repo","number","kind":"effort"\|"map","on":bool}` | the green dot |
+| GET | `/sessions` | | `{sessions, byRepo: [{slot, repo}]}` |
+| | `/health`, `/config`, `/repos/discover`, `POST /repos`, `/repos/remove`, `/browse`, `…/doc?href=`, `…/frontier`, `…/skill` | | as in Launchpad |
+
+## Storage
+
+`$KIROCREW_HOME/apps/kipo/data/`: `config.json` (watched repos), `sessions.json`,
+`frontier.json` (each effort's last frontier, for the sidebar bars), `maps.json` (maps put on
+the sidebar), `hidden.json` (efforts taken off it).

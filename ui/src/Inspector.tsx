@@ -77,8 +77,8 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
   else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
   else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
   else if (tile.state === 'building') status = 'An agent is working on it.'
-  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is on the left.' : 'Your move. Start its conversation on the left.'
-  else status = hasSession ? 'Its conversation is on the left.' : 'An agent can take it on its own. Start it on the left.'
+  else if (tile.who === 'you') status = hasSession ? 'Your move: its conversation is open in the middle.' : 'Your move: start its conversation in the middle.'
+  else status = hasSession ? 'Its conversation is open in the middle.' : 'An agent can take it on its own: start it in the middle.'
 
   const list = (ts: Tile[]) => ts.map(t => `#${t.number}`).join(', ').replace(/, ([^,]*)$/, ' and $1')
   return (
@@ -260,7 +260,7 @@ export function nextStep(detail: EffortDetail, h: {
     return { text: <><b>Everything left is blocked</b> on tickets outside this effort, or on fog that needs mapping.</>, actions: [] }
   }
   return h.hasMain
-    ? { text: <>The effort's conversation is open on the left.</>, actions: [] }
+    ? { text: <>Nothing to start right now: the effort's conversation is open below.</>, actions: [] }
     : { text: <>Nothing has started yet.</>, actions: [{ label: 'Start the conversation', onClick: h.startMain, kind: 'afk' }] }
 }
 

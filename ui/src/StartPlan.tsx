@@ -1,18 +1,18 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useEffect, useState } from 'react'
 import { backend, errorText } from './api'
-import { ErrorLine, PathChip, T, fieldStyle, muted, pathText, strong } from './common'
-import { FolderPicker } from './Settings'
-import type { Column, Effort, FoundRepo, Start } from './types'
+import { ErrorLine, PathChip, T, fieldStyle, muted, strong } from './common'
+import { FolderPicker } from './FolderPicker'
+import type { Effort, FoundRepo, Start } from './types'
 
 // The start form, after Spec Builder's. KiPo asks where the work starts, because
 // that picks which columns it walks through (CONTRACT.md, "Start points").
-const STARTS: { id: Start; title: string; hint: string; path: Column[] }[] = [
-  { id: 'idea', title: 'An idea', hint: 'Grill it, spec and ticket it, build it.', path: ['grill', 'plan', 'build', 'review', 'done'] },
-  { id: 'small', title: 'A small change', hint: 'Grill briefly, then build in the same session.', path: ['grill', 'build', 'review', 'done'] },
-  { id: 'huge', title: 'A huge effort', hint: 'Too many unknowns: map the decisions first.', path: ['shape', 'plan', 'build', 'review', 'done'] },
-  { id: 'issue', title: 'An incoming issue', hint: 'Triage it until an agent can pick it up.', path: ['intake', 'build', 'review', 'done'] },
-  { id: 'bug', title: 'A hard bug', hint: 'Diagnose it with a tight loop, then fix it.', path: ['build', 'review', 'done'] },
+const STARTS: { id: Start; title: string; hint: string; begins: string }[] = [
+  { id: 'idea', title: 'An idea', hint: 'Grill it, spec and ticket it, build it.', begins: 'a grilling: an interview that sharpens the idea. Then the spec and tickets, then the build.' },
+  { id: 'small', title: 'A small change', hint: 'Grill briefly, then build in the same session.', begins: 'a short grilling, then the build in the same conversation. No spec or tickets.' },
+  { id: 'huge', title: 'A huge effort', hint: 'Too many unknowns: map the decisions first.', begins: 'a wayfinder map. Its decision tickets fill the Decide lane.' },
+  { id: 'issue', title: 'An incoming issue', hint: 'Triage it until an agent can pick it up.', begins: 'triaging the issue. Once an agent can take it, it moves to the Deliver lane.' },
+  { id: 'bug', title: 'A hard bug', hint: 'Diagnose it with a tight loop, then fix it.', begins: 'a diagnosis: a command that goes red on the bug, then the fix.' },
 ]
 
 const label = (text: string) => (
@@ -156,7 +156,7 @@ export function StartPlan({ onStarted, onCancel }: {
             )
           })}
         </div>
-        <div style={{ ...muted, fontSize: T.small, marginTop: 8 }}>Path: {pathText(chosen.path)}</div>
+        <div style={{ ...muted, fontSize: T.small, marginTop: 8 }}>Starts with {chosen.begins}</div>
       </fieldset>
 
       {start === 'issue' && (
