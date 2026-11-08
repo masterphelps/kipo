@@ -35,8 +35,9 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, view, onNew, onSelect, onView }: {
+export function Rail({ width, items, error, selected, view, onNew, onSelect, onView, onCollapse }: {
   width: number
+  onCollapse: () => void
   items: Effort[] | null
   error: string
   selected: string | null
@@ -65,6 +66,7 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
       }}
     >
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
         <button
           type="button"
           onClick={onNew}
@@ -81,6 +83,12 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
         >
           + New effort
         </button>
+        <span style={{ flex: 1 }} />
+        <button type="button" onClick={onCollapse} title="Fold the effort list away" aria-label="Fold the effort list away"
+          style={{ background: 'transparent', color: 'var(--muted)', cursor: 'pointer', padding: '2px 6px', borderRadius: 4, fontSize: 14 }}>
+          «
+        </button>
+        </div>
         <input
           value={filter}
           onChange={e => setFilter(e.target.value)}
@@ -160,6 +168,49 @@ export function Rail({ width, items, error, selected, view, onNew, onSelect, onV
         ))}
         <span style={{ flex: 1 }} />
         <span style={{ ...muted, fontSize: T.tiny, alignSelf: 'center' }}>KiPo</span>
+      </div>
+    </nav>
+  )
+}
+
+// The effort list folded away: a narrow strip that still lets you switch efforts.
+// Each effort is a small marker colored by who's up (amber: you, teal: an agent,
+// blue: building or in review, green: all done, grey: nothing yet); hover for its title.
+export function RailStrip({ items, selected, onNew, onSelect, onExpand }: {
+  items: Effort[] | null
+  selected: string | null
+  onNew: () => void
+  onSelect: (i: Effort) => void
+  onExpand: () => void
+}) {
+  const color = (e: Effort) => {
+    const c = e.frontier?.counts
+    if (!c) return 'var(--muted)'
+    if (c.you) return '#f5b14c'
+    if (c.afk) return '#2dd4bf'
+    if (c.building || c.review) return '#60a5fa'
+    if (c.done) return '#3fae6a'
+    return 'var(--muted)'
+  }
+  const icon = { width: 28, height: 28, borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' } as const
+  return (
+    <nav aria-label="Efforts" style={{ width: 44, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '12px 0', borderRight: '1px solid var(--border)', background: 'var(--bg)', minHeight: 0 }}>
+      <button type="button" onClick={onExpand} title="Show the effort list" aria-label="Show the effort list"
+        style={{ ...icon, background: 'transparent', color: 'var(--muted)', fontSize: 14 }}>»</button>
+      <button type="button" onClick={onNew} title="New effort" aria-label="New effort"
+        style={{ ...icon, background: 'var(--accent)', color: 'var(--accent-fg, #fff)', fontWeight: 700, fontSize: 16, borderRadius: 999 }}>+</button>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingTop: 6, scrollbarWidth: 'none' }}>
+        {(items ?? []).map(e => {
+          const key = `${e.repo}#${e.number}`
+          const on = key === selected
+          return (
+            <button key={key} type="button" onClick={() => onSelect(e)} title={`${e.title} (${e.repo.split('/').pop()})`}
+              aria-current={on ? 'page' : undefined}
+              style={{ ...icon, background: on ? 'var(--bg-elevated)' : 'transparent', border: on ? '1px solid var(--border)' : '1px solid transparent', flexShrink: 0 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: color(e) }} />
+            </button>
+          )
+        })}
       </div>
     </nav>
   )

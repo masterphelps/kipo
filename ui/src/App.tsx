@@ -5,7 +5,7 @@ import { Board } from './Board'
 import { Divider, useStoredSize } from './layout'
 import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
-import { Rail, type RailView } from './Rail'
+import { Rail, RailStrip, type RailView } from './Rail'
 import { Settings } from './Settings'
 import { StartPlan } from './StartPlan'
 import type { Effort } from './types'
@@ -32,6 +32,9 @@ export default function KiPo() {
   })
   useEffect(() => { if (main) remember('main', main) }, [main])
   const [railWidth, setRailWidth] = useStoredSize('rail', 228, 168, 400)
+  // The effort list can be folded to a narrow strip; remembered per browser.
+  const [railOpen, setRailOpenState] = useState(() => localStorage.getItem('kipo.railOpen') !== '0')
+  const setRailOpen = (on: boolean) => { setRailOpenState(on); localStorage.setItem('kipo.railOpen', on ? '1' : '0') }
 
   // Sessions started before KiPo filed them are moved into its folder once.
   useEffect(() => { void fileExistingSessions(api).catch(() => undefined) }, [api])
@@ -66,8 +69,10 @@ export default function KiPo() {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--bg)', color: 'var(--text)' }}>
+      {railOpen ? (<>
       <Rail
         width={railWidth}
+        onCollapse={() => setRailOpen(false)}
         items={items}
         error={error}
         selected={selected}
@@ -76,7 +81,11 @@ export default function KiPo() {
         onSelect={i => open(i)}
         onView={(v: RailView) => setMain({ kind: v })}
       />
-      <Divider direction="vertical" label="Resize the initiative list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
+      <Divider direction="vertical" label="Resize the effort list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
+      </>) : (
+        <RailStrip items={items} selected={selected} onNew={() => setMain({ kind: 'new' })}
+          onSelect={i => open(i)} onExpand={() => setRailOpen(true)} />
+      )}
       <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
         {main?.kind === 'new' && (
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '40px 24px' }}>
