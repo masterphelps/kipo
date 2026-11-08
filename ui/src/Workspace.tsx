@@ -8,7 +8,7 @@ import {
 import { cached, remember } from './cache'
 import { FrontierPanel, type SessionStatus } from './Frontier'
 import { Divider, useStoredSize } from './layout'
-import { openSession } from './sessions'
+import { closeFinished, isClosed, openSession } from './sessions'
 import {
   BUTTONS, CHIPS, COLUMN_HINTS, COLUMN_LABELS, SESSION_CONTROLS, SKILL_HINTS,
   STAGES, STAGE_COLUMNS, STAGE_HINTS, STAGE_LABELS, stageOfColumn,
@@ -83,7 +83,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   useEffect(() => { if (!sent) return; const id = setTimeout(() => setSent(null), 4000); return () => clearTimeout(id) }, [sent])
 
   const key = detail ? focusKey(focus, detail.column) : null
-  const slotKey = detail && key ? detail.sessions[key] ?? null : null
+  const recorded = detail && key ? detail.sessions[key] ?? null : null
+  // A session KiPo closed (its ticket is done) isn't opened again: the card says
+  // where its conversation went instead.
+  const slotKey = recorded && !isClosed(recorded) ? recorded : null
   const ticket = detail && focus.kind === 'ticket' ? detail.tickets.find(t => t.number === focus.t) ?? null : null
 
   // Open (or continue) the session for the current focus, optionally starting a skill.
@@ -212,12 +215,32 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     try {
       if (detail.column !== 'done') await backend.advance(repo, number, true, 'done')
       await backend.advance(repo, number, true, null)
+      // The effort is closed: close every session it started.
+      await closeFinished(api, Object.values(detail.sessions), null)
       onRemoved()
     } catch (e) {
       setActionError(`Couldn't close it: ${errorText(e)}`)
       setBusy(false)
     }
   }
+
+  // Close sessions whose work is done: a ticket's session once the ticket is
+  // closed, and the review and implement-spec sessions once everything landed.
+  // Skips one that's still running or on screen; it closes on a later pass.
+  const closingRef = useRef(false)
+  useEffect(() => {
+    if (!detail?.frontier || !active || closingRef.current) return
+    const slots: string[] = []
+    for (const t of detail.frontier.tiles) {
+      if (t.state === 'done' && t.sessionKey && detail.sessions[t.sessionKey]) slots.push(detail.sessions[t.sessionKey])
+    }
+    if (detail.frontier.landed) {
+      for (const k of ['review', 'build-spec']) if (detail.sessions[k]) slots.push(detail.sessions[k])
+    }
+    if (!slots.length) return
+    closingRef.current = true
+    void closeFinished(api, slots, slotKey).finally(() => { closingRef.current = false })
+  }, [api, detail, active, slotKey])
 
   // A skill button: into the open conversation, or start the conversation with it.
   const runSkill = async (skill: string) => {
@@ -497,7 +520,9 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart }: {
     const who = tile.who === 'you' ? 'Your move' : "Agent's move"
     title = `${a.what} #${tile.number}: ${tile.title}`
     if (tile.state === 'done') {
-      body = 'Closed. Its resolution is on the issue.'
+      body = tile.sessionKey
+        ? 'Closed. Its resolution is on the issue, and its conversation is in the sidebar\'s History.'
+        : 'Closed. Its resolution is on the issue.'
       action = null
     } else if (tile.state === 'blocked') {
       body = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those are closed.`
