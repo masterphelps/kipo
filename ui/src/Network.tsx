@@ -316,22 +316,66 @@ export function NetworkMap({ tiles, prs = [], fogItems = [], mapIssue, effort, s
     drag.current = { kind, ids, sx: e.clientX, sy: e.clientY, last: kind === 'pan' ? { x: e.clientX, y: e.clientY } : world(e), moved: false, onClick }
   }
 
-  // Scroll to zoom around the pointer.
+  // Wheel, trackpad and keyboard navigation, following the usual canvas conventions:
+  //   wheel                 zoom around the pointer (map convention)
+  //   Ctrl/⌘ + wheel        zoom; Chrome and Firefox report a trackpad pinch this way too
+  //   Shift + wheel         pan sideways
+  //   Alt/⌥ + wheel         pan up and down
+  //   two-finger swipe      pan (a trackpad sends sideways movement with it)
+  //   Safari pinch          gesture events, zoom around the pointer
+  //   + / − / 0, arrows     zoom in, out, fit, pan (when the map has focus)
   useEffect(() => {
     const el = box.current
     if (!el) return
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault()
+    const zoomAt = (clientX: number, clientY: number, f: number) => {
       const r = el.getBoundingClientRect()
-      const sx = e.clientX - r.left, sy = e.clientY - r.top
+      const sx = clientX - r.left, sy = clientY - r.top
       setView(v => {
-        const k = Math.max(0.3, Math.min(3, v.k * Math.exp(-e.deltaY * 0.0015)))
+        const k = Math.max(0.3, Math.min(3, v.k * f))
         return { k, tx: sx - (sx - v.tx) * (k / v.k), ty: sy - (sy - v.ty) * (k / v.k) }
       })
     }
+    const pan = (dx: number, dy: number) => setView(v => ({ ...v, tx: v.tx - dx, ty: v.ty - dy }))
+    const clamp = (d: number, m: number) => Math.max(-m, Math.min(m, d))
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1
+      const dx = e.deltaX * unit, dy = e.deltaY * unit
+      if (e.ctrlKey || e.metaKey) return zoomAt(e.clientX, e.clientY, Math.exp(-clamp(dy, 50) * 0.01))
+      if (e.shiftKey) return pan(dx || dy, 0)
+      if (e.altKey) return pan(0, dy)
+      if (dx !== 0) return pan(dx, dy)
+      zoomAt(e.clientX, e.clientY, Math.exp(-clamp(dy, 120) * 0.0015))
+    }
+    // Safari reports a trackpad pinch as gesture events, not ctrl + wheel.
+    let lastScale = 1
+    const gstart = (e: Event) => { e.preventDefault(); lastScale = 1 }
+    const gchange = (e: Event) => {
+      e.preventDefault()
+      const g = e as Event & { scale: number; clientX: number; clientY: number }
+      zoomAt(g.clientX, g.clientY, g.scale / lastScale)
+      lastScale = g.scale
+    }
     el.addEventListener('wheel', wheel, { passive: false })
-    return () => el.removeEventListener('wheel', wheel)
+    el.addEventListener('gesturestart', gstart)
+    el.addEventListener('gesturechange', gchange)
+    return () => {
+      el.removeEventListener('wheel', wheel)
+      el.removeEventListener('gesturestart', gstart)
+      el.removeEventListener('gesturechange', gchange)
+    }
   }, [])
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    const step = e.shiftKey ? 200 : 60
+    const keys: Record<string, () => void> = {
+      '+': () => zoomBy(1.25), '=': () => zoomBy(1.25), '-': () => zoomBy(1 / 1.25), '_': () => zoomBy(1 / 1.25), '0': () => fit(),
+      ArrowLeft: () => setView(v => ({ ...v, tx: v.tx + step })), ArrowRight: () => setView(v => ({ ...v, tx: v.tx - step })),
+      ArrowUp: () => setView(v => ({ ...v, ty: v.ty + step })), ArrowDown: () => setView(v => ({ ...v, ty: v.ty - step })),
+    }
+    const k = keys[e.key]
+    if (k) { e.preventDefault(); k() }
+  }
   useEffect(() => { const t = setTimeout(() => save(view), 400); return () => clearTimeout(t) }, [view, save])
 
   const zoomBy = (f: number) => setView(v => {
@@ -359,7 +403,9 @@ export function NetworkMap({ tiles, prs = [], fogItems = [], mapIssue, effort, s
 
   return (
     <div ref={box} style={{ position: 'relative', width: '100%', height: '100%', minHeight: 420, overflow: 'hidden', touchAction: 'none', userSelect: 'none',
-      cursor: dragging === 'pan' ? 'grabbing' : dragging ? 'grabbing' : 'grab' }}
+      cursor: dragging ? 'grabbing' : 'grab', outline: 'none' }}
+      tabIndex={0} onKeyDown={onKey} aria-label="Effort network map"
+      onPointerDownCapture={e => e.currentTarget.focus({ preventScroll: true })}
       onPointerDown={e => startDrag(e, 'pan', [])}>
       <div style={{ position: 'absolute', left: 0, top: 0, transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.k})`, transformOrigin: '0 0' }}>
         <svg width={1} height={1} style={{ position: 'absolute', overflow: 'visible' }} aria-hidden>
@@ -458,7 +504,7 @@ export function NetworkMap({ tiles, prs = [], fogItems = [], mapIssue, effort, s
       </div>
 
       <div style={{ position: 'absolute', right: 8, top: 8, display: 'flex', gap: 4 }} onPointerDown={e => e.stopPropagation()}>
-        <button type="button" style={btn} title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+        <button type="button" style={btn} title="Zoom out (−). Scroll or pinch to zoom, Shift+scroll to pan sideways, Alt+scroll to pan up and down, drag empty space to pan" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
         <button type="button" style={btn} title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
         <button type="button" style={btn} title="Fit everything in view" onClick={() => fit()}>Fit</button>
         <button type="button" style={btn} title="Forget where you placed things and lay it out again" onClick={resetLayout}>Reset layout</button>
