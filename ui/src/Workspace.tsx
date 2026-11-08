@@ -8,6 +8,7 @@ import {
 import { cached, remember } from './cache'
 import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
 import { NetworkMap } from './Network'
+import { SkillBoard } from './SkillBoard'
 import { Abbr } from './glossary'
 import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
@@ -62,6 +63,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // effort's tickets (where you pick one to open).
   const [view, setView] = useState<'conversation' | 'map'>('conversation')
   const [mapPick, setMapPick] = useState<Pick | null>(null)
+  const [mapLayout, setMapLayoutState] = useState<'board' | 'network'>(() => (localStorage.getItem('kipo.mapLayout') === 'network' ? 'network' : 'board'))
+  const setMapLayout = (v: 'board' | 'network') => { setMapLayoutState(v); try { localStorage.setItem('kipo.mapLayout', v) } catch { /* private mode */ } }
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -343,14 +346,28 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {view === 'map' && hasMap ? (
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '10px 16px 8px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border)' }}>
-                <span style={{ ...muted, fontSize: T.tiny }}>The effort's map, its spec tickets and its source issue as rings; what blocks what, which PR closes what. Hover a ticket to trace its chain, click it to open its conversation, drag anything to arrange it.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>
+                    {mapLayout === 'board'
+                      ? 'One column per KiPo skill, in the order work flows; each ticket sits with the skill that handles it now. Red lines: what blocks what. Hover a card to trace its chain, click it to open its conversation.'
+                      : 'The same tickets as a network: panels for the map and the spec, lines for what blocks what. Drag, pan and zoom.'}
+                  </span>
+                  <Segmented value={mapLayout} onChange={setMapLayout}
+                    options={[{ value: 'board', label: 'Board', title: 'Columns by KiPo skill' }, { value: 'network', label: 'Network', title: 'Free-form network you can drag' }]} />
+                </div>
                 <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
-                <NetworkMap tiles={detail.frontier!.tiles} prs={detail.prs} fogItems={detail.frontier!.fogItems ?? []}
-                  mapIssue={detail.mapIssue ?? null} effort={detail.number} storageKey={`kipo.net.${repo}#${number}`}
-                  highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
-                  statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+                {mapLayout === 'board' ? (
+                  <SkillBoard tiles={detail.frontier!.tiles} prs={detail.prs} fogItems={detail.frontier!.fogItems ?? []} effort={detail.number}
+                    highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
+                    statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+                ) : (
+                  <NetworkMap tiles={detail.frontier!.tiles} prs={detail.prs} fogItems={detail.frontier!.fogItems ?? []}
+                    mapIssue={detail.mapIssue ?? null} effort={detail.number} storageKey={`kipo.net.${repo}#${number}`}
+                    highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null}
+                    statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+                )}
               </div>
             </div>
           ) : (<>
@@ -819,6 +836,29 @@ function Running({ skills }: { skills: string[] }) {
         </span>
       ))}
     </span>
+  )
+}
+
+// A two- or three-way switch, Kiro style.
+function Segmented<V extends string>({ value, onChange, options }: {
+  value: V
+  onChange: (v: V) => void
+  options: { value: V; label: string; title?: string }[]
+}) {
+  return (
+    <div role="radiogroup" style={{ display: 'inline-flex', padding: 2, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-elevated)', flexShrink: 0 }}>
+      {options.map(o => {
+        const on = o.value === value
+        return (
+          <button key={o.value} type="button" role="radio" aria-checked={on} title={o.title} onClick={() => onChange(o.value)}
+            style={{ padding: '3px 10px', borderRadius: 6, fontSize: T.tiny, cursor: 'pointer', fontWeight: on ? 600 : 400,
+              background: on ? 'var(--bg)' : 'transparent', color: on ? 'var(--text)' : 'var(--muted)',
+              boxShadow: on ? '0 1px 3px rgba(0,0,0,.3)' : undefined }}>
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
