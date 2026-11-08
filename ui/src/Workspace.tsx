@@ -6,7 +6,7 @@ import {
   ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, strong,
 } from './common'
 import { cached, remember } from './cache'
-import { FrontierPanel, type SessionStatus } from './Frontier'
+import { FrontierSummary, MapLegend, pickedSet, type Pick, type SessionStatus } from './Frontier'
 import { TileGraph } from './Graph'
 import { EffortInspector, TicketInspector, nextStep } from './Inspector'
 import { Divider, useStoredSize } from './layout'
@@ -54,11 +54,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [wide, setWide] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
-  // The map under the bars: where you open a ticket. Fold it away to give the
-  // conversation the room; drag its bottom edge to resize it.
-  const [mapOpen, setMapOpenState] = useState(() => localStorage.getItem('kipo.mapOpen') !== '0')
-  const setMapOpen = (on: boolean) => { setMapOpenState(on); localStorage.setItem('kipo.mapOpen', on ? '1' : '0') }
-  const [mapHeight, setMapHeight] = useStoredSize('map', 360, 90, 900)
+  // The middle shows one thing at a time: the conversation, or the map of the
+  // effort's tickets (where you pick one to open).
+  const [view, setView] = useState<'conversation' | 'map'>('conversation')
+  const [mapPick, setMapPick] = useState<Pick | null>(null)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -74,7 +73,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   }, [load, active])
 
   const column = detail?.column
-  useEffect(() => { setConfirm(null); setActionError(''); }, [column, focus])
+  // Opening a conversation (from the map, Next, or ← Effort) shows it.
+  useEffect(() => { setConfirm(null); setActionError(''); setView('conversation') }, [column, focus])
   // Back to the column view when the effort moves on, but not on first load, so
   // the remembered ticket or decision stays open when you come back to KiPo.
   const lastColumn = useRef(column)
@@ -299,6 +299,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
+  const hasMap = !!detail.frontier?.lanes && (detail.frontier.tiles.length > 0 || detail.frontier.fog > 0)
   const next = nextStep(detail, {
     openTile,
     startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
@@ -316,10 +317,39 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
       {/* Middle: the conversation. */}
       {!wide && (
-        <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* The one place to navigate between conversations: back to the effort's
-              own conversation here, any ticket's from the tiles below. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+        <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Two tabs: the conversation, or the map of the effort's tickets. One
+              at a time, each with the full height. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 16px 0', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+            {(['conversation', 'map'] as const).filter(v => v === 'conversation' || hasMap).map(v => {
+              const on = view === v
+              return (
+                <button key={v} type="button" role="tab" aria-selected={on} onClick={() => setView(v)}
+                  style={{ background: 'transparent', padding: '6px 10px 8px', marginBottom: -1, cursor: 'pointer', fontSize: T.small,
+                    color: on ? 'var(--text)' : 'var(--muted)', fontWeight: on ? 600 : 400,
+                    borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}>
+                  {v === 'conversation' ? 'Conversation' : `Map · ${detail.frontier!.tiles.length}`}
+                </button>
+              )
+            })}
+            <span style={{ flex: 1 }} />
+            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', paddingBottom: 6 }} title={detail.repoPath}>{detail.repo}</span>
+          </div>
+
+          {view === 'map' && hasMap ? (
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ ...muted, fontSize: T.tiny }}>Every ticket and what blocks what. Click one to open its conversation.</span>
+              </div>
+              <MapLegend frontier={detail.frontier!} picked={mapPick} onPick={setMapPick} />
+              <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} bands labeled
+                highlight={pickedSet(detail.frontier!, mapPick)} focus={focusTile?.number ?? null} dimOthers={false}
+                statuses={statuses} onOpen={t => { openTile(t); setView('conversation') }} />
+            </div>
+          ) : (<>
+          {/* The conversation's own header: the one place to go back to the effort's
+              conversation; tickets are opened from the map. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
             {focus.kind !== 'column' && (
               <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
             )}
@@ -327,33 +357,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
               : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
             {slotKey && running.length > 0 && <Running skills={running} />}
-            <span style={{ flex: 1 }} />
-            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
           </div>
           {detail.frontier?.lanes && (
-            <FrontierPanel frontier={detail.frontier} renderMap={highlight => (
-              <div>
-                <button type="button" onClick={() => setMapOpen(!mapOpen)} aria-expanded={mapOpen}
-                  title={mapOpen ? 'Fold the map away' : 'Show the map: every ticket and what blocks what. Click one to open it.'}
-                  style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: 'var(--muted)', fontSize: T.tiny, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span aria-hidden style={{ fontSize: 9 }}>{mapOpen ? '▾' : '▸'}</span>
-                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>Map</span>
-                  <span>{mapOpen ? 'click a ticket to open it' : `${detail.frontier!.tiles.length} tickets`}</span>
-                </button>
-                {mapOpen && (
-                  <div style={{ maxHeight: mapHeight, overflow: 'auto', marginTop: 6, padding: '8px 8px 0', scrollbarWidth: 'thin' }}>
-                    <TileGraph tiles={detail.frontier!.tiles} fog={detail.frontier!.fog} bands highlight={highlight}
-                      focus={focusTile?.number ?? null} dimOthers={false} statuses={statuses} onOpen={openTile} />
-                  </div>
-                )}
-              </div>
-            )} />
-          )}
-          {detail.frontier?.lanes && mapOpen ? (
-            <Divider direction="horizontal" label="Resize the map and the conversation"
-              onDrag={d => setMapHeight(h => h + d)} onReset={() => setMapHeight(360)} />
-          ) : (
-            <div style={{ borderBottom: '1px solid var(--border)' }} />
+            <FrontierSummary frontier={detail.frontier} onPick={p => { setMapPick(p); setView('map') }} />
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
@@ -364,6 +370,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                 alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
             )}
           </div>
+          </>)}
         </section>
       )}
 

@@ -68,7 +68,7 @@ export default function KiPo() {
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--bg)', color: 'var(--text)' }}>
+    <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', background: 'var(--bg)', color: 'var(--text)' }}>
       {railOpen ? (<>
       <Rail
         width={railWidth}

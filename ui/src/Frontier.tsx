@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+
 import { T, muted } from './common'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
@@ -141,7 +141,7 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
 // two bars (Decide: the front half, ending in a spec and tickets; Deliver: the
 // back half, ending in merged PRs), a legend that picks a segment, and that
 // segment's tiles.
-type Pick = { lane: Lane | null; state: TileState | 'fog' | 'open' }
+export type Pick = { lane: Lane | null; state: TileState | 'fog' }
 
 const LANE_LABEL: Record<Lane, string> = { decide: 'Decide', deliver: 'Deliver' }
 const LANE_HINT: Record<Lane, string> = {
@@ -149,76 +149,64 @@ const LANE_HINT: Record<Lane, string> = {
   deliver: 'The back half: tickets that end in a PR. Implement, review, merge.',
 }
 
-// The effort at a glance: who's up, the two bars, and a legend. Picking a bar
-// segment or a legend entry highlights those tickets on the map, which the
-// caller draws below (renderMap) and which is where you open a ticket.
-export function FrontierPanel({ frontier, renderMap }: {
-  frontier: Frontier
-  renderMap: (highlight: Set<number> | null) => ReactNode
-}) {
-  const { counts, fog, tiles, lanes } = frontier
-  const [sel, setSel] = useState<Pick | null>(null)
-  const total = frontierTotal(counts, fog)
-  if (!total) return null
+export const laneTotal = (f: Frontier, l: Lane) =>
+  TILE_STATES.reduce((n, s) => n + (f.lanes[l][s] || 0), 0) + (l === 'decide' ? f.fog : 0)
 
-  const toggle = (p: Pick) => setSel(cur => (cur && cur.lane === p.lane && cur.state === p.state ? null : p))
-  const isSel = (lane: Lane | null, state: Pick['state']) => !!sel && sel.state === state && (sel.lane === null || sel.lane === lane)
-  const highlight = !sel || sel.state === 'fog' || sel.state === 'open' ? null
-    : new Set(tiles.filter(t => t.state === sel.state && (sel.lane === null || t.lane === sel.lane)).map(t => t.number))
-  const laneTotal = (l: Lane) => TILE_STATES.reduce((n, s) => n + (lanes[l][s] || 0), 0) + (l === 'decide' ? fog : 0)
-
+// The thin summary over the conversation: who's up, and the two halves as thin
+// bars. Clicking a segment opens the Map tab with those tickets highlighted.
+export function FrontierSummary({ frontier, onPick }: { frontier: Frontier; onPick: (p: Pick) => void }) {
+  const { counts, fog, tiles } = frontier
+  if (!frontierTotal(counts, fog)) return null
   return (
-    <div style={{ padding: '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ padding: '6px 16px 8px', display: 'flex', flexDirection: 'column', gap: 4, borderBottom: '1px solid var(--border)' }}>
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.body, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: T.small, minWidth: 0 }}>
         {counts.you > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.you.text }}>Your move:</b> {counts.you}</span>}
         {counts.afk > 0 && <span style={{ whiteSpace: 'nowrap' }}><b style={{ color: STATE_META.afk.text }}>Agent's move:</b> {counts.afk}</span>}
-        <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+        <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
           {counts.done} of {tiles.length} done{fog ? ` · ${fog} in the fog` : ''}
         </span>
       </div>
-
-      {(['decide', 'deliver'] as Lane[]).map(lane => {
-        const c = lanes[lane]
-        const n = laneTotal(lane)
-        return (
-          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '58px minmax(0, 1fr)', alignItems: 'center', gap: 10, minHeight: 16 }}>
-            <span title={LANE_HINT[lane]} style={{ fontSize: T.small, fontWeight: 600, color: frontier.active[lane] ? 'var(--text)' : 'var(--muted)' }}>
-              {LANE_LABEL[lane]}
-            </span>
-            {n > 0 ? (
-              <FrontierBar counts={c} fog={lane === 'decide' ? fog : 0} height={10}
-                selected={sel && (sel.lane === lane || sel.lane === null) && sel.state !== 'open' ? sel.state : null}
-                onSelect={s => toggle({ lane, state: s })} />
-            ) : (
-              <span style={{ ...muted, fontSize: T.tiny }}>
-                {lane === 'deliver' ? (frontier.handover ? 'No tickets yet: write the spec first.' : 'No tickets yet.') : 'Nothing left to decide.'}
-              </span>
-            )}
+      {(['decide', 'deliver'] as Lane[]).map(lane => (
+        laneTotal(frontier, lane) > 0 ? (
+          <div key={lane} style={{ display: 'grid', gridTemplateColumns: '50px minmax(0, 1fr)', alignItems: 'center', gap: 8 }}>
+            <span title={LANE_HINT[lane]} style={{ fontSize: T.tiny, color: frontier.active[lane] ? 'var(--text)' : 'var(--muted)' }}>{LANE_LABEL[lane]}</span>
+            <FrontierBar counts={frontier.lanes[lane]} fog={lane === 'decide' ? fog : 0} height={5}
+              onSelect={st => onPick({ lane, state: st })} />
           </div>
-        )
-      })}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: T.tiny, paddingLeft: 68 }}>
-        {([...TILE_STATES, 'fog'] as const).map(s => {
-          const n = s === 'fog' ? fog : counts[s]
-          if (!n) return null
-          const on = isSel(null, s) && (!sel || sel.lane === null)
-          return (
-            <button key={s} type="button" onClick={() => toggle({ lane: null, state: s })}
-              title={s === 'fog' ? "Questions in the map's Not yet specified: in scope, not sharp enough to ticket yet" : `Highlight these on the map`}
-              style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: on ? STATE_META[s].text : 'var(--muted)', fontWeight: on ? 600 : 400 }}>
-              <span style={{
-                display: 'inline-block', width: 8, height: 8, borderRadius: 2, marginRight: 5,
-                background: s === 'fog' ? FOG_FILL : STATE_META[s].color, border: s === 'fog' ? '1px dashed var(--muted)' : undefined,
-              }} />
-              {n} {STATE_META[s].label}
-            </button>
-          )
-        })}
-      </div>
-
-      {renderMap(highlight)}
+        ) : null
+      ))}
     </div>
   )
 }
+
+// The legend for the Map tab: counts per state; picking one highlights those
+// tickets on the map.
+export function MapLegend({ frontier, picked, onPick }: { frontier: Frontier; picked: Pick | null; onPick: (p: Pick | null) => void }) {
+  const { counts, fog } = frontier
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: T.tiny }}>
+      {([...TILE_STATES, 'fog'] as const).map(s => {
+        const n = s === 'fog' ? fog : counts[s]
+        if (!n) return null
+        const on = picked?.state === s
+        return (
+          <button key={s} type="button" onClick={() => onPick(on ? null : { lane: null, state: s })}
+            title={s === 'fog' ? "Questions in the map's Not yet specified: in scope, not sharp enough to ticket yet" : 'Highlight these on the map'}
+            style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: on ? STATE_META[s].text : 'var(--muted)', fontWeight: on ? 600 : 400 }}>
+            <span style={{
+              display: 'inline-block', width: 8, height: 8, borderRadius: 2, marginRight: 5,
+              background: s === 'fog' ? FOG_FILL : STATE_META[s].color, border: s === 'fog' ? '1px dashed var(--muted)' : undefined,
+            }} />
+            {n} {STATE_META[s].label}
+          </button>
+        )
+      })}
+      {picked && <button type="button" onClick={() => onPick(null)} style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: 'var(--muted)', textDecoration: 'underline' }}>show all</button>}
+    </div>
+  )
+}
+
+export const pickedSet = (f: Frontier, p: Pick | null) =>
+  !p || p.state === 'fog' ? null
+    : new Set(f.tiles.filter(t => t.state === p.state && (p.lane === null || t.lane === p.lane)).map(t => t.number))

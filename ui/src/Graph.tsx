@@ -108,13 +108,14 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   const size = 30
   const labelW = bands ? 52 : 0
   const gapX = labeled ? 32 : 48
-  const fit = avail && cols ? Math.floor((avail - 2 - labelW - (cols - 1) * gapX) / cols) : 168
+  const fogN = fog > 0 ? Math.min(fog, 4) : 0
+  const fogW = fogN ? gapX + size : 0 // the fog column is one narrow tile wide
+  const fit = avail && cols ? Math.floor((avail - 2 - labelW - fogW - (cols - 1) * gapX) / cols) : 168
   const nodeW = labeled ? Math.max(110, Math.min(200, fit)) : size
   const nodeH = size + 6
   const gapY = labeled ? 10 : 8
-  const fogN = fog > 0 ? Math.min(fog, 4) : 0
   const graphCols = inGraph.length ? cols : 0
-  const width = labelW + (graphCols + (fogN ? 1 : 0)) * (nodeW + gapX) - gapX + 2
+  const width = labelW + (graphCols ? graphCols * (nodeW + gapX) - gapX : 0) + fogW + 2
   // The fog belongs to Decide: center it in the Decide band (the whole graph
   // when there are no bands).
   const decideRows = split ?? rows
