@@ -3,6 +3,7 @@ import { ChevronRight, ExternalLink, FolderGit2, FolderOpen, FolderPlus, Map as 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, timeAgo } from './common'
+import { LaneBars } from './Frontier'
 import { Confirm, Menu, type MenuItem } from './Menu'
 import { FolderPicker } from './FolderPicker'
 import type { AvailableRepo, RepoTree, TreeItem, TreeRepo } from './types'
@@ -159,7 +160,7 @@ export function ReposPage({ onOpen, onChanged }: {
                   lead={<FolderGlyph open={open} />}
                   title={<span className="font-medium">{repo.slug}</span>}
                   sub={repo.path}
-                  meta={repo.items.length ? `${onCount} of ${repo.items.length} on sidebar` : 'empty'} />
+                  meta={repo.items.length ? `${repoDone(repo)}${onCount} of ${repo.items.length} on sidebar` : 'empty'} />
                 <Collapse open={open}>
                   <div role="group" style={{ paddingLeft: 22 }}>
                     {repo.error && <div className="text-xs" style={{ color: 'var(--danger-text)', padding: '4px 10px' }}>{repo.error}</div>}
@@ -172,6 +173,7 @@ export function ReposPage({ onOpen, onChanged }: {
                         lead={<DotButton on={item.onSidebar} kind={item.kind} onToggle={() => void flip(repo, item)} />}
                         icon={item.kind === 'map' ? <MapIcon size={13} /> : <Target size={13} />}
                         title={<span style={{ color: item.onSidebar ? 'var(--text)' : 'var(--muted)' }}>{item.title}</span>}
+                        progress={<Progress p={item.progress} />}
                         meta={`${item.kind === 'map' ? 'Map' : item.map ? `Effort · map #${item.map}` : 'Effort'} · #${item.number} · ${timeAgo(item.updatedAt)}`}
                         onMenu={() => { window.open(item.url, '_blank', 'noreferrer') }}
                         menuIcon={<ExternalLink size={13} />} menuLabel="Open on GitHub" />
@@ -206,8 +208,8 @@ export function ReposPage({ onOpen, onChanged }: {
 }
 
 // One tree row, in Kiro's sidebar style: hover highlight, a ⋯ on hover.
-function Row({ lead, icon, title, sub, meta, small, onClick, onMenu, onContextMenu, menuIcon, menuLabel = 'More' }: {
-  lead: ReactNode; icon?: ReactNode; title: ReactNode; sub?: string; meta?: string; small?: boolean
+function Row({ lead, icon, title, sub, meta, progress, small, onClick, onMenu, onContextMenu, menuIcon, menuLabel = 'More' }: {
+  lead: ReactNode; icon?: ReactNode; title: ReactNode; sub?: string; meta?: string; progress?: ReactNode; small?: boolean
   onClick: () => void
   onMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void
   onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -215,16 +217,26 @@ function Row({ lead, icon, title, sub, meta, small, onClick, onMenu, onContextMe
 }) {
   const [hover, setHover] = useState(false)
   return (
-    <div className="group flex items-center gap-2 rounded-md cursor-pointer select-none hover:bg-bg-hover transition-colors"
+    <div className="group items-center gap-2 rounded-md cursor-pointer select-none hover:bg-bg-hover transition-colors"
       onClick={onClick} onContextMenu={onContextMenu}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ height: small ? 28 : 34, padding: '0 6px 0 8px', background: hover ? 'var(--bg-hover, rgba(255,255,255,0.05))' : undefined }}>
+      style={{ height: small ? 28 : 34, padding: '0 6px 0 8px', background: hover ? 'var(--bg-hover, rgba(255,255,255,0.05))' : undefined,
+        // Rows with a progress column use fixed columns, so bars line up across repos.
+        ...(progress
+          ? { display: 'grid', gridTemplateColumns: `18px ${icon ? '14px ' : ''}minmax(0, 1fr) 230px 190px 22px`, columnGap: 8 }
+          : { display: 'flex' }) }}>
       {lead}
       {icon && <span className="text-muted" style={{ display: 'inline-flex', flexShrink: 0 }}>{icon}</span>}
       <span className={small ? 'text-sm' : 'text-sm'} style={{ minWidth: 0, flexShrink: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       {sub && <span className="text-xs text-muted" style={{ minWidth: 0, flexShrink: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</span>}
-      <span style={{ flex: 1 }} />
-      {meta && <span className="text-xs text-muted" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{meta}</span>}
+      {!progress && <span style={{ flex: 1 }} />}
+      {progress}
+      {meta && (
+        // A fixed width when there's a progress column, so the bars line up row to row.
+        <span className="text-xs text-muted" title={meta}
+          style={{ whiteSpace: 'nowrap', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right',
+            ...(progress ? { width: 190 } : {}) }}>{meta}</span>
+      )}
       {onMenu && (
         <button type="button" aria-label={menuLabel} title={menuLabel}
           onClick={e => { e.stopPropagation(); onMenu(e) }}
@@ -236,6 +248,36 @@ function Row({ lead, icon, title, sub, meta, small, onClick, onMenu, onContextMe
       )}
     </div>
   )
+}
+
+// How far a map or effort has got: its Decide and Deliver bars, and "done of
+// total" tickets (fog, the map's not-yet-specified questions, alongside).
+function Progress({ p }: { p: TreeItem['progress'] }) {
+  const total = p?.counts ? Object.values(p.counts).reduce((a, b) => a + (b || 0), 0) : 0
+  const width = { width: 230, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 } as const
+  if (!p || !p.counts) {
+    return <span className="text-xs text-muted" style={width} title="KiPo hasn't read this effort yet: open it once.">not read yet</span>
+  }
+  if (!total) {
+    return <span className="text-xs text-muted" style={width}>no tickets yet{p.fog ? ` · ${p.fog} fog` : ''}</span>
+  }
+  const done = p.counts.done || 0
+  return (
+    <span style={width} title={`${done} of ${total} tickets done${p.fog ? `, ${p.fog} not yet specified` : ''}`}>
+      <span style={{ width: 110, flexShrink: 0 }}><LaneBars frontier={{ counts: p.counts, fog: p.fog, lanes: p.lanes }} height={3} /></span>
+      <span className="text-xs" style={{ whiteSpace: 'nowrap', color: done === total ? 'var(--ok, #3fae6a)' : 'var(--text)' }}>
+        {done}/{total}<span className="text-muted"> done{p.fog ? ` · ${p.fog} fog` : ''}</span>
+      </span>
+    </span>
+  )
+}
+
+const repoDone = (repo: TreeRepo) => {
+  let done = 0, total = 0
+  for (const i of repo.items) {
+    for (const [k, v] of Object.entries(i.progress?.counts ?? {})) { total += v || 0; if (k === 'done') done += v || 0 }
+  }
+  return total ? `${done} of ${total} tickets done · ` : ''
 }
 
 // Kiro's folder glyph: a folder with a small disclosure chevron in its corner.

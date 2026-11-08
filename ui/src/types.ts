@@ -95,6 +95,8 @@ export type TreeItem = {
   kind: 'effort' | 'map'; number: number; title: string; url: string; updatedAt: string
   onSidebar: boolean
   map: number | null // an effort's wayfinder map
+  // A map's tickets read from GitHub; an effort's from the last time KiPo read it (null: never).
+  progress?: { counts: FrontierCounts; lanes?: Record<'decide' | 'deliver', FrontierCounts>; fog: number } | null
 }
 export type TreeRepo = { slug: string; path: string; items: TreeItem[]; error?: string }
 export type AvailableRepo = { slug: string; path: string; name: string; maps: number }

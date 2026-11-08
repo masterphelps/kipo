@@ -666,6 +666,50 @@ class Initiatives:
             result["errors"] = errors
         return result
 
+    MAPS_PER_QUERY = 20
+
+    def maps_progress(self, repo, numbers):
+        """``{map number: {counts, lanes, fog}}`` for several wayfinder maps, from
+        one GraphQL query per 20 maps: each map's children read as an effort's."""
+        owner, name = repo.split("/", 1)
+        out = {}
+        numbers = sorted(set(int(n) for n in numbers))
+        for i in range(0, len(numbers), self.MAPS_PER_QUERY):
+            chunk = numbers[i:i + self.MAPS_PER_QUERY]
+
+            def query(blocked):
+                parts = " ".join(
+                    f"m{n}: issue(number: {n}) {{ body subIssues(first: 100) {{ nodes {{ number title url state"
+                    f" assignees(first: 1) {{ totalCount }} labels(first: 50) {{ nodes {{ name }} }} {blocked} }} }} }}"
+                    for n in chunk
+                )
+                return "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + parts + " } }"
+
+            try:
+                data = self.gh.graphql(query(_TICKET_BLOCKED_FIELD), owner=owner, name=name)
+            except KipoError as e:
+                if "blockedBy" not in e.message:
+                    raise
+                data = self.gh.graphql(query(""), owner=owner, name=name)
+            found = ((data or {}).get("data") or {}).get("repository") or {}
+            for n in chunk:
+                issue = found.get(f"m{n}")
+                if not issue:
+                    continue
+                nodes = []
+                for node in (issue.get("subIssues") or {}).get("nodes") or []:
+                    blockers = (node.get("blockedBy") or {}).get("nodes") or []
+                    nodes.append({
+                        "number": node["number"], "title": node.get("title") or "", "url": node.get("url") or "",
+                        "state": node.get("state") or "OPEN",
+                        "labels": [l["name"] for l in (node.get("labels") or {}).get("nodes") or []],
+                        "blockers": [{"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b],
+                        "assigned": bool((node.get("assignees") or {}).get("totalCount")),
+                    })
+                f = frontier_mod.build([], nodes, [], {}, issue.get("body") or "")
+                out[n] = {"counts": f["counts"], "lanes": f["lanes"], "fog": f["fog"]}
+        return out
+
     def wrapped_maps(self, repo):
         """``{map number: effort number}`` for the efforts in a repo that point at a map."""
         out = {}

@@ -93,6 +93,21 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual((items[("map", 5)]["onSidebar"], items[("effort", 7)]["onSidebar"]), (False, True))
         self.assertEqual([(a["slug"], a["maps"]) for a in out["available"]], [("acme/gadgets", 1)])
 
+    def test_the_tree_shows_each_maps_progress(self):
+        self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
+        body = "## Not yet specified\n- later\n"
+        self.fake.add_issue("acme/widgets", 5, title="Map: five", body=body, labels=["wayfinder:map"])
+        self.fake.add_issue("acme/widgets", 6, title="Decided", labels=["wayfinder:grilling"], state="CLOSED")
+        self.fake.add_issue("acme/widgets", 7, title="Open question", labels=["wayfinder:grilling"])
+        self.fake.add_issue("acme/widgets", 8, title="Build it", labels=["wayfinder:task", "ready-for-agent"])
+        self.fake.sub_issues[("acme/widgets", 5)] = [6, 7, 8]
+        self.fake.add_issue("acme/widgets", 9, title="Map: empty", labels=["wayfinder:map"])
+        items = {i["number"]: i for i in self.app.dispatch("GET", "/tree", "")[1]["repos"][0]["items"]}
+        p = items[5]["progress"]
+        self.assertEqual((p["counts"]["done"], p["counts"]["you"], p["counts"]["afk"], p["fog"]), (1, 1, 1, 1))
+        self.assertEqual((p["lanes"]["decide"]["done"], p["lanes"]["deliver"]["afk"]), (1, 1))
+        self.assertEqual(sum(items[9]["progress"]["counts"].values()), 0)
+
     def test_the_green_dot_puts_things_on_and_off_the_sidebar(self):
         self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
         self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])

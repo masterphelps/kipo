@@ -144,6 +144,10 @@ class FakeGh:
             repo = f"{variables.get('owner')}/{variables.get('name')}"
             if " issues(" in query:
                 return 0, json.dumps(self._issues_query(repo, query)), ""
+            aliased = re.findall(r"(m\d+): issue\(number: (\d+)\)", query)
+            if aliased and self.graphql_response is None:
+                out = {alias: self._sub_issues_query(repo, int(n))["data"]["repository"]["issue"] for alias, n in aliased}
+                return 0, json.dumps({"data": {"repository": out}}), ""
             if "subIssues" in query and self.graphql_response is None:
                 return 0, json.dumps(self._sub_issues_query(repo, int(variables["number"]))), ""
             return 0, json.dumps(self.graphql_response), ""

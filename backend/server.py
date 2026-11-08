@@ -305,6 +305,17 @@ class App:
                     "kind": "map", "number": h["number"], "title": h["title"], "url": h["url"],
                     "updatedAt": h["updatedAt"], "onSidebar": h["number"] in opened and h["number"] not in hidden, "map": None,
                 })
+            # Progress: a map's from its children (one query per repo); an
+            # effort's from the last time KiPo read it.
+            maps = [i["number"] for i in items if i["kind"] == "map"]
+            try:
+                progress = self.initiatives.maps_progress(slug, maps) if maps else {}
+            except KipoError:
+                progress = {}
+            for i in items:
+                saved = self.storage.get_frontier(slug, i["number"]) if i["kind"] == "effort" else None
+                i["progress"] = progress.get(i["number"]) if i["kind"] == "map" else (
+                    {"counts": saved.get("counts"), "lanes": saved.get("lanes"), "fog": saved.get("fog", 0)} if saved else None)
             items.sort(key=lambda i: i["updatedAt"], reverse=True)
             repo = {"slug": slug, "path": entry.get("path"), "items": items}
             if error:
