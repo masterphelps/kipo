@@ -2,6 +2,7 @@
 import { Fragment, useState, type ReactNode } from 'react'
 import { Popover } from './Menu'
 import { T } from './common'
+import { STATE_MEANING, tileMeaning } from './glossary'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
@@ -103,7 +104,7 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
     <button
       type="button"
       onClick={onClick}
-      title={hint + sessionHint}
+      title={`${hint}${sessionHint}\n\n${tileMeaning(tile)}`}
       aria-current={open ? 'true' : undefined}
       style={{
         position: 'relative', width: size, height: size + 6, flexShrink: 0, borderRadius: 6, padding: 0,
@@ -158,8 +159,8 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // whose move it is as columns. Nothing hides behind a bar segment; a tile opens
 // its conversation. `next` is the one thing to do now, above it all.
 const GROUPS: { key: string; label: string; states: TileState[]; hint: string }[] = [
-  { key: 'you', label: 'HITL', states: ['you'], hint: 'Human in the loop: open, unblocked, and it needs you (a grilling, a prototype, a ticket labelled ready-for-human).' },
-  { key: 'afk', label: 'Agent', states: ['afk'], hint: 'AFK: open, unblocked, and an agent can take it on its own.' },
+  { key: 'you', label: 'HITL', states: ['you'], hint: 'HITL = human in the loop: open, unblocked, and it needs you (a grilling, a prototype, a ticket labelled ready-for-human).' },
+  { key: 'afk', label: 'Agent', states: ['afk'], hint: 'Agent (AFK = away from keyboard): open, unblocked, and an agent can take it on its own.' },
   { key: 'working', label: 'In progress', states: ['building', 'review'], hint: 'An agent is building it, or its PR is open for review.' },
   { key: 'blocked', label: 'Blocked', states: ['blocked'], hint: 'Blocked by a ticket that is still open.' },
   { key: 'done', label: 'Done', states: ['done'], hint: 'Closed.' },
@@ -200,7 +201,7 @@ export function FrontierSummary({ frontier, onTile, openNumber, statuses, next, 
             )
           })}
           {fog > 0 && (
-            <span role="columnheader" title="In the map's Not yet specified: in scope, but not sharp enough to ticket yet."
+            <span role="columnheader" title={STATE_MEANING.fog}
               style={{ fontSize: T.tiny, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', padding: '0 6px' }}>
               Fog <span style={{ fontWeight: 400 }}>{fog}</span>
             </span>
@@ -282,7 +283,7 @@ export function MapLegend({ frontier, picked, onPick }: { frontier: Frontier; pi
         const on = picked?.state === s && picked.lane === null
         return (
           <button key={s} type="button" onClick={() => onPick(on ? null : { lane: null, state: s })}
-            title={s === 'fog' ? "Questions in the map's Not yet specified: in scope, not sharp enough to ticket yet" : 'Highlight these on the map'}
+            title={`${STATE_MEANING[s]}.\nClick to highlight these on the map.`}
             style={{ background: 'transparent', padding: 0, cursor: 'pointer', color: on ? STATE_META[s].text : 'var(--muted)', fontWeight: on ? 600 : 400 }}>
             <span style={{
               display: 'inline-block', width: 8, height: 8, borderRadius: 2, marginRight: 5,

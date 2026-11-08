@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, StartBadge, T, isUrl, muted, strong } from './common'
 import { STATE_META, TileButton, type SessionStatus } from './Frontier'
+import { Abbr, STATE_MEANING } from './glossary'
 import { TileGraph, chain, opensUp } from './Graph'
 import { STAGE_LABELS, type Artifact, type EffortDetail, type Stage, type Tile, type TicketCard } from './types'
 
@@ -77,7 +78,7 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
   else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
   else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
   else if (tile.state === 'building') status = 'An agent is working on it.'
-  else if (tile.who === 'you') status = hasSession ? 'HITL: its conversation is open in the middle.' : 'HITL: start its conversation in the middle.'
+  else if (tile.who === 'you') status = <><Abbr term="HITL">HITL</Abbr>: {hasSession ? 'its conversation is open in the middle.' : 'start its conversation in the middle.'}</>
   else status = hasSession ? 'Its conversation is open in the middle.' : 'An agent can take it on its own: start it in the middle.'
 
   const list = (ts: Tile[]) => ts.map(t => `#${t.number}`).join(', ').replace(/, ([^,]*)$/, ' and $1')
@@ -87,8 +88,10 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
         <TileButton tile={tile} size={34} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ ...muted, fontSize: T.small }}>#{tile.number} · {TYPE_LABEL[tile.type]} · {tile.lane === 'deliver' ? 'Deliver' : 'Decide'}</span>
-            <Pill color={meta.color === 'transparent' ? 'var(--border)' : meta.color} text={meta.text}>{meta.label}</Pill>
+            <span style={{ ...muted, fontSize: T.small }}>#{tile.number} · {TYPE_LABEL[tile.type]} · {tile.lane === 'deliver' ? <Abbr term="Deliver">Deliver</Abbr> : <Abbr term="Decide">Decide</Abbr>}</span>
+            <span title={STATE_MEANING[tile.state]} style={{ cursor: 'help', display: 'inline-flex' }}>
+              <Pill color={meta.color === 'transparent' ? 'var(--border)' : meta.color} text={meta.text}>{meta.label}</Pill>
+            </span>
             {tile.source && <Pill color="var(--border)" text="var(--muted)">source issue</Pill>}
             <span style={{ flex: 1 }} />
             <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>
@@ -233,7 +236,7 @@ export function nextStep(detail: EffortDetail, h: {
     const first = yours[0]
     const frees = unblockCount(first)
     return {
-      text: <><b>{yours.length} HITL ticket{yours.length === 1 ? '' : 's'} open.</b> Start with <b>#{first.number}</b>, {first.title}{frees ? <>: closing it frees {frees} more</> : null}.</>,
+      text: <><b>{yours.length} <Abbr term="HITL">HITL</Abbr> ticket{yours.length === 1 ? '' : 's'} open.</b> Start with <b>#{first.number}</b>, {first.title}{frees ? <>: closing it frees {frees} more</> : null}.</>,
       actions: [{ label: first.sessionKey ? `Continue #${first.number}` : `Start #${first.number}`, onClick: () => h.startTile(first), kind: 'you' }],
     }
   }
@@ -241,7 +244,7 @@ export function nextStep(detail: EffortDetail, h: {
   if (ready.length) {
     const deliver = ready.filter(t => t.lane === 'deliver')
     return {
-      text: <><b>{ready.length} ready for agents.</b> Nothing HITL is open.</>,
+      text: <><b>{ready.length} ready for <Abbr term="Agent">agents</Abbr>.</b> Nothing <Abbr term="HITL">HITL</Abbr> is open.</>,
       actions: [
         { label: `Start ${ready.length} agent${ready.length === 1 ? '' : 's'}`, onClick: () => h.startAgents(ready), kind: 'afk' },
         ...(deliver.length > 1 ? [{ label: 'Or /implement-spec', onClick: h.implementSpec, kind: 'quiet' as const }] : []),
@@ -295,7 +298,7 @@ function docRow(a: Artifact, detail: EffortDetail) {
     const isMap = detail.mapIssue === Number(issue[1])
     return {
       label: isMap ? `Wayfinder map #${issue[1]}` : t ? `#${t.number} · ${t.title}` : a.label,
-      state: t ? { label: STATE_META[t.state].label, color: STATE_META[t.state].text } : null,
+      state: t ? { label: STATE_META[t.state].label, color: STATE_META[t.state].text, hint: STATE_MEANING[t.state] } : null,
       tile: t,
     }
   }
@@ -337,7 +340,7 @@ function Documents({ repo, number, detail, onOpenTile }: { repo: string; number:
               }}>
               <span aria-hidden style={{ width: 14, color: 'var(--muted)', flexShrink: 0 }}>{file ? (on ? '▾' : '▸') : '↗'}</span>
               <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
-              {r.state && <span style={{ fontSize: T.tiny, color: r.state.color, flexShrink: 0 }}>{r.state.label}</span>}
+              {r.state && <span title={'hint' in r.state ? r.state.hint : undefined} style={{ fontSize: T.tiny, color: r.state.color, flexShrink: 0 }}>{r.state.label}</span>}
             </button>
           )
         })}

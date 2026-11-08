@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
 import { T, fieldStyle, muted, strong, timeAgo } from './common'
 import { LaneBars, frontierTotal, whoIsUp } from './Frontier'
+import { TERM } from './glossary'
 import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
 
 // The left rail, after Spec Builder's spec list: one place to start something new,
@@ -141,7 +142,7 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
                         <span title="A wayfinder map, shown as it stands" style={{ flexShrink: 0, padding: '0 5px', borderRadius: 4, border: '1px solid var(--border)', color: 'var(--muted)' }}>Map</span>
                       )}
                       {!hasFrontier(i) && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
-                      <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
+                      <span title={`${progress(i)}\n\n${TERM.HITL}\n${TERM.Agent}`} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                     </div>
                   </button>
