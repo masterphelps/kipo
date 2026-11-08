@@ -501,8 +501,8 @@ export function NetworkMap({ tiles, prs = [], fogItems = [], mapIssue, effort, s
             const color = done ? STATE_META.done.color : STATE_META.blocked.color
             return (
               <path key={`${a.id}-${b.id}`} d={curve(a, b, 3)} fill="none" stroke={color}
-                strokeWidth={bold ? 2.6 : done ? 1.4 : 2} strokeDasharray={done ? '5 5' : undefined}
-                opacity={on ? (done ? 0.5 : 0.9) : 0.08} markerEnd={`url(#kipo-net-${done ? 'done' : 'open'})`} />
+                strokeWidth={bold ? 2.6 : 1.9} strokeDasharray={done ? '7 4' : undefined}
+                opacity={on ? 0.9 : 0.1} markerEnd={`url(#kipo-net-${done ? 'done' : 'open'})`} />
             )
           })}
         </svg>
