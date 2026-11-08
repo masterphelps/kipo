@@ -407,12 +407,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
           {focusTile ? (
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              decisions={<Decisions state={convState} slotKey={slotKey} onError={setActionError} />} />
+              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />} />
           ) : (
             <EffortInspector repo={repo} number={number} detail={detail} stage={stage} next={next}
               busy={busy || starting || !!startingAgents} autopilot={autopilot} onAutopilot={setAutopilot}
               showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
-              decisions={<Decisions state={convState} slotKey={slotKey} onError={setActionError} />}
+              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />}
               onOpenTile={openTile} />
           )}
         </div>
@@ -423,17 +423,89 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
 // The open conversation's decision cards (the agent writes them to its state file),
 // what it's waiting on, and what's been decided.
+// The open questions are answered together: pick an answer on each card (in any
+// order, change your mind freely), then send them all as one message. One reply
+// lets the agent take every answer in one turn, instead of a queue of single
+// answers it has to work through one at a time.
 function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slotKey: string | null; onError: (m: string) => void }) {
-  const open = state?.decisions.filter(d => !d.answer) ?? []
+  const api = useAppApi()
+  const [picks, setPicks] = useState<Record<string, string>>({})
+  const [sent, setSent] = useState<Record<string, string>>({}) // sent, until the agent records them
+  const [sending, setSending] = useState(false)
+  const open = state?.decisions.filter(d => !d.answer && !sent[d.id]) ?? []
+  const waiting = state?.decisions.filter(d => !d.answer && sent[d.id]) ?? []
   const decided = state?.decisions.filter(d => d.answer) ?? []
-  if (!open.length && !decided.length && !state?.blocking) return null
+  if (!open.length && !waiting.length && !decided.length && !state?.blocking) return null
+
+  const picked = open.filter(d => (picks[d.id] ?? '').trim())
+  const withRecommendation = open.filter(d => d.recommended)
+  const pick = (id: string, answer: string) => setPicks(p => ({ ...p, [id]: answer }))
+  const takeRecommended = () => setPicks(p => {
+    const next = { ...p }
+    for (const d of withRecommendation) if (!(next[d.id] ?? '').trim()) next[d.id] = d.recommended!
+    return next
+  })
+
+  const send = async () => {
+    if (!slotKey || !picked.length) return
+    const left = open.filter(d => !(picks[d.id] ?? '').trim())
+    const lines = picked.map((d, i) => `${i + 1}. ${d.title} (${d.id}): ${picks[d.id].trim()}`)
+    const message = [
+      `My answers to your ${picked.length === 1 ? 'question' : `${picked.length} questions`}:`,
+      '',
+      ...lines,
+      '',
+      left.length
+        ? `Still open, I'll answer later: ${left.map(d => d.title).join('; ')}.`
+        : "That's all of them. Record each answer, then carry on.",
+    ].join('\n')
+    setSending(true)
+    try {
+      await api.post('/api/chat?ws=1', { slot: slotKey, message })
+      setSent(s => ({ ...s, ...Object.fromEntries(picked.map(d => [d.id, picks[d.id].trim()])) }))
+      setPicks({})
+    } catch (e) {
+      onError(`Couldn't send your answers: ${errorText(e)}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {open.length > 0 && (
-        <Block title="Decisions for you">
+        <Block title="Decisions for you" aside={`${picked.length} of ${open.length} answered`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {open.map(d => <DecisionCard key={d.id} decision={d} slotKey={slotKey} onError={onError} />)}
+            {open.map((d, i) => (
+              <DecisionCard key={d.id} n={i + 1} decision={d} pick={picks[d.id] ?? null} disabled={!slotKey || sending}
+                onPick={a => pick(d.id, a)} />
+            ))}
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <Btn primary disabled={!slotKey || !picked.length || sending} onClick={() => void send()}>
+              {sending ? 'Sending…' : picked.length === open.length ? `Send all ${open.length} answers` : picked.length ? `Send ${picked.length} answer${picked.length === 1 ? '' : 's'}` : 'Send answers'}
+            </Btn>
+            {withRecommendation.some(d => !(picks[d.id] ?? '').trim()) && (
+              <Btn disabled={!slotKey || sending} onClick={takeRecommended}>Take all recommendations</Btn>
+            )}
+            <span style={{ ...muted, fontSize: T.tiny }}>
+              {!slotKey ? 'Start the conversation to answer.'
+                : picked.length && picked.length < open.length ? 'Unanswered ones stay here for later.'
+                : 'Sent together, as one message.'}
+            </span>
+          </div>
+        </Block>
+      )}
+      {waiting.length > 0 && (
+        <Block title="Sent, waiting for the agent" aside={waiting.length}>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {waiting.map(d => (
+              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
+                <div style={muted}>{d.title}</div>
+                <div>{sent[d.id]}</div>
+              </li>
+            ))}
+          </ul>
         </Block>
       )}
       {state?.blocking && (
@@ -770,53 +842,45 @@ function Block({ title, aside, children, collapsible, defaultOpen = true }: {
   )
 }
 
-// A decision as Spec Builder shows one: the question, then its options as a radio
-// list with the recommended one marked. A click sends the answer to the agent.
-function DecisionCard({ decision: d, slotKey, onError }: { decision: Decision; slotKey: string | null; onError: (m: string) => void }) {
-  const api = useAppApi()
-  const [sent, setSent] = useState<string | null>(null)
-  const [other, setOther] = useState('')
-
-  const answer = async (choice: string) => {
-    const text = choice.trim()
-    if (!text || !slotKey) return
-    setSent(text)
-    try {
-      await api.post('/api/chat?ws=1', { slot: slotKey, message: `${d.title}: ${text}` })
-    } catch (e) {
-      setSent(null)
-      onError(`Couldn't send your answer: ${errorText(e)}`)
-    }
-  }
-
+// One question: its options as a radio list with the recommended one marked, and
+// a box for any other answer. Picking only marks it; the answers go together.
+function DecisionCard({ n, decision: d, pick, disabled, onPick }: {
+  n: number; decision: Decision; pick: string | null; disabled: boolean; onPick: (answer: string) => void
+}) {
+  const custom = pick !== null && !d.options.includes(pick)
+  const done = !!(pick ?? '').trim()
   return (
-    <div style={{ border: '1px solid var(--accent)', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ border: `1px solid ${done ? 'var(--border)' : 'var(--accent)'}`, borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 10px', fontSize: T.body }}>
+        <span style={{ ...muted, fontSize: T.small, flexShrink: 0 }}>{n}.</span>
         <span style={{ ...strong, flex: 1 }}>{d.title}</span>
-        <Badge variant={sent ? 'muted' : 'aim'}>{sent ? 'sent' : 'pending'}</Badge>
+        <Badge variant={done ? 'muted' : 'aim'}>{done ? 'answered' : 'open'}</Badge>
       </div>
       {d.options.map(o => {
-        const chosen = sent === o
+        const chosen = pick === o
         return (
-          <button key={o} type="button" disabled={!!sent || !slotKey} onClick={() => answer(o)}
+          <button key={o} type="button" role="radio" aria-checked={chosen} disabled={disabled} onClick={() => onPick(o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px',
               borderTop: '1px solid var(--border)', background: chosen ? 'var(--bg-elevated)' : 'transparent', color: 'var(--text)',
-              fontSize: T.small, cursor: sent ? 'default' : 'pointer',
+              fontSize: T.small, cursor: disabled ? 'default' : 'pointer',
             }}>
-            <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, border: '1.5px solid var(--muted)', flexShrink: 0, background: chosen ? 'var(--accent)' : 'transparent' }} />
+            <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, border: `1.5px solid ${chosen ? 'var(--accent)' : 'var(--muted)'}`,
+              flexShrink: 0, background: chosen ? 'var(--accent)' : 'transparent', boxShadow: chosen ? 'inset 0 0 0 2px var(--bg)' : undefined }} />
             <span style={{ flex: 1 }}>{o}</span>
             {o === d.recommended && <span style={{ fontSize: T.tiny, color: 'var(--accent)' }}>recommended</span>}
           </button>
         )
       })}
-      {!sent && (
-        <form onSubmit={e => { e.preventDefault(); void answer(other) }} style={{ borderTop: '1px solid var(--border)', padding: '5px 10px' }}>
-          <input value={other} onChange={e => setOther(e.target.value)} disabled={!slotKey}
-            placeholder={slotKey ? 'Something else… (Enter to send)' : 'Start the conversation to answer'}
-            style={{ width: '100%', background: 'transparent', color: 'var(--text)', fontSize: T.small, border: 0, outline: 'none', padding: '2px 0' }} />
-        </form>
-      )}
+      <div style={{ borderTop: '1px solid var(--border)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 8,
+        background: custom ? 'var(--bg-elevated)' : 'transparent' }}>
+        <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, border: `1.5px solid ${custom ? 'var(--accent)' : 'var(--muted)'}`,
+          flexShrink: 0, background: custom ? 'var(--accent)' : 'transparent', boxShadow: custom ? 'inset 0 0 0 2px var(--bg)' : undefined }} />
+        <input value={custom ? pick! : ''} onChange={e => onPick(e.target.value)} disabled={disabled}
+          aria-label={`Another answer to: ${d.title}`}
+          placeholder="Something else…"
+          style={{ flex: 1, background: 'transparent', color: 'var(--text)', fontSize: T.small, border: 0, outline: 'none', padding: '2px 0' }} />
+      </div>
     </div>
   )
 }
