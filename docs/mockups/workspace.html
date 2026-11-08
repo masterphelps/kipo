@@ -1,0 +1,116 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.app{display:flex;width:1600px;height:900px}
+.rail{width:250px;border-right:1px solid #24222d;display:flex;flex-direction:column;padding:12px 8px}
+.mid{flex:1;display:flex;flex-direction:column;min-width:0}
+.right{width:440px;border-left:1px solid #24222d;display:flex;flex-direction:column;overflow:hidden}
+.row{padding:7px 8px;border-radius:6px;margin-bottom:2px}
+.row.on{background:#1a1922;border:1px solid #2a2833}
+.strip{display:flex;gap:2px;margin-top:5px}
+.sec{border-top:1px solid #24222d;padding:12px 16px}
+.sh{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.item{display:flex;align-items:center;gap:10px;padding:6px 0}
+.chat p{margin:0 0 10px;line-height:1.55;max-width:760px}
+.bub{background:#1a1922;border:1px solid #24222d;border-radius:10px;padding:10px 12px;margin-bottom:12px;max-width:760px;line-height:1.5}
+</style></head><body><div class="app">
+
+<!-- RAIL -->
+<div class="rail">
+  <div style="padding:0 4px 10px"><span class="btn p" style="border-radius:999px">+ New effort</span></div>
+  <div class="row" style="background:rgba(245,177,76,.10);border:1px solid rgba(245,177,76,.45);display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="color:#f5b14c;font-size:14px">●</span><span class="strong" style="flex:1">Your move</span>
+    <span style="background:#f5b14c;color:#251a05;font-weight:700;font-size:11px;border-radius:999px;padding:0 7px;line-height:17px">5</span>
+  </div>
+  <div style="padding:0 4px 8px"><div style="border:1px solid #2a2833;border-radius:6px;padding:5px 8px;font-size:12px" class="muted">Filter efforts</div></div>
+
+  <div class="row on">
+    <div class="strong" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Every product activates against its…</div>
+    <div class="strip"><span class="m done"></span><span class="m done"></span><span class="m done"></span><span class="m done"></span><span class="m done"></span><span class="m done"></span><span class="m rev"></span><span class="m bld"></span><span class="m you"></span><span class="m you"></span><span class="m afk"></span><span class="m afk"></span><span class="m afk"></span><span class="m afk"></span><span class="m blk"></span><span class="m blk"></span><span class="m blk"></span><span class="m fog"></span><span class="m fog"></span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px;display:flex"><span style="flex:1">portal · <span style="color:#f5b14c">2 for you</span> · <span style="color:#2dd4bf">4 for agents</span></span><span>4 min</span></div>
+  </div>
+  <div class="row">
+    <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Billing platform our products share</div>
+    <div class="strip"><span class="m you"></span><span class="m afk"></span><span class="m blk"></span><span class="m blk"></span><span class="m blk"></span><span class="m blk"></span><span class="m fog"></span><span class="m fog"></span><span class="m fog"></span><span class="m fog"></span><span class="m fog"></span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px;display:flex"><span style="flex:1">billing · <span style="color:#f5b14c">1 for you</span> · <span style="color:#2dd4bf">1 for agents</span></span><span>1 h</span></div>
+  </div>
+  <div class="row">
+    <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Export crashes on large files</div>
+    <div class="strip"><span class="m done"></span><span class="m bld"></span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px;display:flex"><span style="flex:1">widgets · agent building</span><span>12 min</span></div>
+  </div>
+  <div class="row">
+    <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Add login with Google</div>
+    <div style="margin-top:5px"><span class="pill">Shape · grilling</span></div>
+    <div class="muted" style="font-size:11px;margin-top:4px;display:flex"><span style="flex:1">widgets · <span style="color:#f5b14c">your move</span></span><span>17 h</span></div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="muted" style="border-top:1px solid #24222d;padding:8px 6px 0;font-size:12px;display:flex;gap:14px"><span>Board</span><span>Repos</span><span style="flex:1"></span><span style="font-size:11px">KiPo</span></div>
+</div>
+
+<!-- MIDDLE -->
+<div class="mid">
+  <div style="padding:14px 20px 12px;border-bottom:1px solid #24222d">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="strong" style="font-size:16px">Every product activates against its own license</span>
+      <span class="pill">In flight</span>
+      <span class="muted" style="font-size:11px">wayfinder map #20</span>
+      <span style="flex:1"></span><span class="muted" style="font-size:11px">~/repos/interrosec-portal</span>
+    </div>
+    <div style="margin-top:10px;font-size:14px;display:flex;gap:18px;align-items:baseline">
+      <span><b style="color:#f5b14c">Your move:</b> 2 grills</span>
+      <span><b style="color:#2dd4bf">Agent's move:</b> 4 ready</span>
+      <span class="muted">1 building · 1 in review · 3 blocked · 6 of 17 done · 2 in the fog</span>
+    </div>
+    <div style="display:flex;gap:14px;margin-top:12px"><div><div style="display:flex;gap:4px"><div class="t done"><i>21</i>Gr</div><div class="t done"><i>22</i>Bd</div><div class="t done"><i>23</i>Rs</div><div class="t done"><i>25</i>Gr</div><div class="t done"><i>26</i>Tk</div><div class="t done"><i>27</i>Pr</div></div><div class="muted" style="font-size:10px;margin-top:5px;border-top:1px solid #2a2833;padding-top:3px">done</div></div><div><div style="display:flex;gap:4px"><div class="t rev"><i>33</i>Bd</div><div class="t bld"><i>29</i>Bd</div></div><div class="muted" style="font-size:10px;margin-top:5px;border-top:1px solid #2a2833;padding-top:3px">in flight</div></div><div><div style="display:flex;gap:4px"><div class="t you" style="outline:2px solid #fff;outline-offset:2px"><i>24</i>Gr</div><div class="t you"><i>31</i>Pr</div><div class="t afk"><i>28</i>Bd</div><div class="t afk"><i>30</i>Rs</div><div class="t afk"><i>32</i>Bd</div><div class="t afk"><i>34</i>Bd</div></div><div class="muted" style="font-size:10px;margin-top:5px;border-top:1px solid #2a2833;padding-top:3px">the frontier</div></div><div><div style="display:flex;gap:4px"><div class="t blk"><i>35</i>Bd</div><div class="t blk"><i>36</i>Gr</div><div class="t blk"><i>37</i>Bd</div></div><div class="muted" style="font-size:10px;margin-top:5px;border-top:1px solid #2a2833;padding-top:3px">blocked</div></div><div><div style="display:flex;gap:4px"><div class="t fog">?</div><div class="t fog">?</div></div><div class="muted" style="font-size:10px;margin-top:5px;border-top:1px solid #2a2833;padding-top:3px">fog</div></div></div>
+  </div>
+  <div style="padding:8px 20px;border-bottom:1px solid #24222d;display:flex;align-items:center;gap:10px;font-size:12px">
+    <span class="muted">←  Map</span><span style="color:#f5b14c;font-weight:600">#24 Grill</span><span>What happens to an install whose license is deleted?</span>
+    <span style="flex:1"></span><span class="muted">blocks #35, #36</span>
+  </div>
+  <div class="chat" style="flex:1;padding:18px 20px;overflow:hidden">
+    <div class="bub muted" style="font-size:12px">[KiPo] Grill #24 on map #20. Load grilling and domain-modeling. Destination: every product activates against its own license.</div>
+    <p>When the poll finds no license, that license was deleted after approval. Two ways to go:</p>
+    <p><b>A.</b> The install falls back to <code style="color:#a993ff">pending</code> and the admin re-approves it.<br><b>B.</b> The install keeps working until its token expires, then stops.</p>
+    <p>I'd pick <b>A</b>: a deleted license should never keep a product running. Which one matches how your admins think about it?</p>
+    <div class="bub" style="margin-left:auto;max-width:420px;background:#221f33;border-color:#3a3160">A. And log it on the install so support can see why.</div>
+    <p>Recorded. I'm writing ADR-0007 and adding <i>orphaned install</i> to GLOSSARY.md. Closing #24 frees <b>#35</b> and <b>#36</b>.</p>
+    <div style="border:1px solid rgba(45,212,191,.5);background:rgba(45,212,191,.08);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:12px;max-width:760px">
+      <span style="color:#2dd4bf;font-size:16px">⇢</span>
+      <span style="flex:1">Closing <b>#24</b> unblocked <b>#35</b> (build, AFK). <span class="muted">#36 is a grill, so it joins your move.</span></span>
+      <span class="btn" style="background:#2dd4bf;color:#062621;border:0;font-weight:600">Start #35</span>
+    </div>
+  </div>
+  <div style="padding:8px 20px 14px">
+    <div class="muted" style="font-size:11px;margin-bottom:6px;display:flex;gap:6px;align-items:center">Any time: <span class="btn" style="height:20px;font-size:11px">/handoff</span><span class="btn" style="height:20px;font-size:11px">/wait-what</span><span class="btn" style="height:20px;font-size:11px">/teach</span><span class="btn" style="height:20px;font-size:11px">/writing-for-agents</span></div>
+    <div style="border:1px solid #3a3160;border-radius:8px;padding:9px 12px" class="muted">Reply to the agent…</div>
+  </div>
+</div>
+
+<!-- RIGHT -->
+<div class="right">
+  <div style="padding:12px 16px;display:flex;align-items:center;gap:8px">
+    <span class="strong" style="font-size:14px">The frontier</span><span class="muted" style="font-size:11px">open, unblocked, unclaimed</span>
+    <span style="flex:1"></span><span class="btn">Map</span>
+  </div>
+  <div class="sec" style="background:rgba(245,177,76,.05)">
+    <div class="sh"><span class="dot" style="background:#f5b14c"></span><span class="strong">Your move</span><span class="muted" style="font-size:11px">HITL · only you can do these</span></div>
+    <div class="item"><div class="t you" style="width:30px;height:34px;font-size:12px"><i>24</i>Gr</div><div style="flex:1"><div>What happens to an install whose license is deleted?</div><div class="muted" style="font-size:11px">grilling · open now · blocks 2</div></div><span class="btn">Open</span></div>
+    <div class="item"><div class="t you" style="width:30px;height:34px;font-size:12px"><i>31</i>Pr</div><div style="flex:1"><div>How should the license picker look per product?</div><div class="muted" style="font-size:11px">prototype · blocks 1</div></div><span class="btn y">Prototype</span></div>
+  </div>
+  <div class="sec" style="background:rgba(45,212,191,.05)">
+    <div class="sh"><span class="dot" style="background:#2dd4bf"></span><span class="strong">Agent's move</span><span class="muted" style="font-size:11px">AFK · ready-for-agent</span><span style="flex:1"></span><span class="btn" style="background:#2dd4bf;color:#062621;border:0;font-weight:600">Start 4 agents</span></div>
+    <div class="item"><div class="t afk" style="width:30px;height:34px;font-size:12px"><i>28</i>Bd</div><div style="flex:1">Record product on activation/start</div><span class="muted" style="font-size:11px">/implement</span></div>
+    <div class="item"><div class="t afk" style="width:30px;height:34px;font-size:12px"><i>30</i>Rs</div><div style="flex:1">How does Stripe model per-product entitlements?</div><span class="muted" style="font-size:11px">/research</span></div>
+    <div class="item"><div class="t afk" style="width:30px;height:34px;font-size:12px"><i>32</i>Bd</div><div style="flex:1">Refuse mismatched licenses in approve</div><span class="muted" style="font-size:11px">/implement</span></div>
+    <div class="item"><div class="t afk" style="width:30px;height:34px;font-size:12px"><i>34</i>Bd</div><div style="flex:1">Backfill product on existing installs</div><span class="muted" style="font-size:11px">/implement</span></div>
+  </div>
+  <div class="sec">
+    <div class="sh"><span class="dot" style="background:#60a5fa"></span><span class="strong">Running</span></div>
+    <div class="item" style="padding:3px 0"><div class="t bld" style="width:30px;height:34px;font-size:12px"><i>29</i>Bd</div><div style="flex:1">validateInstallToken reads the install's product</div><span class="muted" style="font-size:11px">agent · 3 commits</span></div>
+    <div class="item" style="padding:3px 0"><div class="t rev" style="width:30px;height:34px;font-size:12px"><i>33</i>Bd</div><div style="flex:1">PR #33 · review running</div><span class="muted" style="font-size:11px">merge when green</span></div>
+  </div>
+  <div class="sec">
+    <div class="sh"><span class="strong muted" style="color:#8a8698">Blocked</span><span class="muted" style="font-size:11px">3 · behind #24 and #31</span></div>
+    <div class="sh" style="margin:0"><span class="strong" style="color:#8a8698">Fog</span><span class="muted" style="font-size:11px">2 questions not yet specified: offline activation, license transfer</span></div>
+  </div>
+</div>
+</div></body></html>

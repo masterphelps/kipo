@@ -22,7 +22,7 @@ export const COLUMN_HINTS: Record<Column, string> = {
   grill: 'An interview in progress. It updates GLOSSARY.md and adds ADRs.',
   plan: 'A spec and the tickets that hang off it, with their blocking links.',
   build: 'Tickets being built, or a branch with commits.',
-  review: 'A PR is open and waiting for you to merge.',
+  review: 'A PR is open: the agent reviews it, fixes what it finds and merges it.',
   done: 'Merged. /retro turns what went wrong into checks, standards and agent instructions.',
 }
 

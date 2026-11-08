@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+.wrap{width:1600px;padding:18px 20px}
+.grid{display:grid;grid-template-columns:230px 150px 1fr 1fr 150px 150px 1fr 120px;gap:6px}
+.h{font-size:11px;padding:6px 8px;border-radius:6px;background:#16151d;font-weight:600}
+.cell{background:#14131a;border-radius:8px;padding:8px;display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start;min-height:64px}
+.lane{background:#16151d;border-radius:8px;padding:9px 10px}
+.t{width:34px;height:40px;font-size:13px}
+</style></head><body><div class="wrap">
+<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+  <span class="strong" style="font-size:16px">Board</span><span class="muted" style="font-size:12px">one row per effort · tiles are tickets, in the state they're really in</span>
+  <span style="flex:1"></span>
+  <span class="muted" style="font-size:12px"><span class="dot" style="background:#f5b14c"></span>Your move 5 &nbsp; <span class="dot" style="background:#2dd4bf"></span>Agent's move 6 &nbsp; <span class="dot" style="background:#60a5fa"></span>Running 2</span>
+</div>
+<div class="grid">
+  <div class="h muted">Effort</div><div class="h muted">Shaping</div>
+  <div class="h" style="color:#f5b14c">Your move · HITL</div><div class="h" style="color:#2dd4bf">Agent's move · AFK</div>
+  <div class="h" style="color:#60a5fa">Building</div><div class="h" style="color:#a78bfa">In review</div>
+  <div class="h muted">Blocked · fog</div><div class="h" style="color:#7fd39a">Done</div>
+
+  <div class="lane"><div class="strong">Every product activates against its own license</div><div class="muted" style="font-size:11px;margin-top:3px">interrosec-portal · map #20</div><div style="margin-top:7px;display:flex;gap:6px"><span class="btn" style="height:22px;font-size:11px;background:#2dd4bf;color:#062621;border:0;font-weight:600">Start 4 agents</span></div></div>
+  <div class="cell"></div>
+  <div class="cell" style="background:rgba(245,177,76,.06)"><div class="t you"><i>24</i>Gr</div><div class="t you"><i>31</i>Pr</div></div>
+  <div class="cell" style="background:rgba(45,212,191,.06)"><div class="t afk"><i>28</i>Bd</div><div class="t afk"><i>30</i>Rs</div><div class="t afk"><i>32</i>Bd</div><div class="t afk"><i>34</i>Bd</div></div>
+  <div class="cell"><div class="t bld"><i>29</i>Bd</div></div>
+  <div class="cell"><div class="t rev"><i>33</i>Bd</div></div>
+  <div class="cell"><div class="t blk"><i>35</i>Bd</div><div class="t blk"><i>36</i>Gr</div><div class="t blk"><i>37</i>Bd</div><div class="t fog">?</div><div class="t fog">?</div></div>
+  <div class="cell" style="align-items:center"><span style="color:#7fd39a;font-weight:700;font-size:15px">6</span><span class="muted" style="font-size:11px">&nbsp;of 17</span></div>
+
+  <div class="lane"><div class="strong">Billing platform our products share</div><div class="muted" style="font-size:11px;margin-top:3px">billing · map #4</div><div style="margin-top:7px"><span class="btn" style="height:22px;font-size:11px;background:#2dd4bf;color:#062621;border:0;font-weight:600">Start 1 agent</span></div></div>
+  <div class="cell"></div>
+  <div class="cell" style="background:rgba(245,177,76,.06)"><div class="t you"><i>5</i>Gr</div></div>
+  <div class="cell" style="background:rgba(45,212,191,.06)"><div class="t afk"><i>6</i>Rs</div></div>
+  <div class="cell"></div><div class="cell"></div>
+  <div class="cell"><div class="t blk"><i>7</i>Gr</div><div class="t blk"><i>8</i>Tk</div><div class="t blk"><i>9</i>Gr</div><div class="t blk"><i>10</i>Pr</div><div class="t fog">?</div><div class="t fog">?</div><div class="t fog">?</div><div class="t fog">?</div><div class="t fog">?</div></div>
+  <div class="cell" style="align-items:center"><span class="muted" style="font-size:11px">0 of 6</span></div>
+
+  <div class="lane"><div class="strong">Export crashes on large files</div><div class="muted" style="font-size:11px;margin-top:3px">widgets · hard bug</div></div>
+  <div class="cell"></div>
+  <div class="cell" style="background:rgba(245,177,76,.06)"></div>
+  <div class="cell" style="background:rgba(45,212,191,.06)"></div>
+  <div class="cell"><div class="t bld"><i>41</i>Bd</div></div><div class="cell"></div><div class="cell"></div>
+  <div class="cell" style="align-items:center"><span style="color:#7fd39a;font-weight:700;font-size:15px">1</span><span class="muted" style="font-size:11px">&nbsp;of 2</span></div>
+
+  <div class="lane"><div class="strong">Add login with Google</div><div class="muted" style="font-size:11px;margin-top:3px">widgets · idea</div></div>
+  <div class="cell" style="flex-direction:column;gap:6px"><span class="pill" style="border-color:#f5b14c;color:#f5b14c">Grill · your move</span><span class="muted" style="font-size:11px">no tickets yet</span></div>
+  <div class="cell" style="background:rgba(245,177,76,.06)"></div><div class="cell" style="background:rgba(45,212,191,.06)"></div>
+  <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+</div>
+<div class="muted" style="margin-top:14px;font-size:11px;display:flex;gap:16px;align-items:center">
+  <span><b style="color:#dcd9e6">Gr</b> grill</span><span><b style="color:#dcd9e6">Pr</b> prototype</span><span><b style="color:#dcd9e6">Rs</b> research</span><span><b style="color:#dcd9e6">Tk</b> task</span><span><b style="color:#dcd9e6">Bd</b> build</span><span>small number: the GitHub issue</span><span style="border:1px dashed #3a3846;padding:0 6px;border-radius:4px">?</span><span>a question still in the fog</span>
+</div>
+</div></body></html>

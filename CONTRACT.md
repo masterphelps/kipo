@@ -16,7 +16,7 @@ Ids are lowercase, in order: `intake, shape, grill, plan, build, review, done`.
 | 3 | Grill | `grill-with-docs`, `grill-me`, `wait-what` | `grilling`, `domain-modeling` | An interview is in progress; it updates `GLOSSARY.md` and adds ADRs |
 | 4 | Plan | `to-spec`, `to-tickets` | `codebase-design` | A spec issue exists and tickets with blocking links hang off it |
 | 5 | Build | `implement`, `implement-spec` | `tdd`, `diagnosing-bugs`, `wizard` | Tickets are being built, or a branch has commits |
-| 6 | Review | | `code-review`, `pr` | A PR is open and waiting for the human to merge |
+| 6 | Review | | `code-review`, `pr` | A PR is open: reviewed, fixed, then merged by the agent (it asks first when a merge needs something only you can do) |
 | 7 | Done | `retro` | `writing-for-agents` | It's merged; `/retro` turns lessons into checks, standards and agent instruction files |
 
 27 skills, all installed at `/Users/masterphelps/.agents/skills/<name>/SKILL.md`.

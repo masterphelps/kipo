@@ -658,7 +658,7 @@ function PrPanel({ detail }: { detail: EffortDetail }) {
       </div>
       {!prs.length && (
         <div style={{ ...muted, fontSize: T.small, lineHeight: 1.5 }}>
-          PRs that close this effort's tickets, or that sit on a kipo/{detail.number} branch, show up here. Review is done when you've merged them.
+          PRs that close this effort's tickets, or that sit on a kipo/{detail.number} branch, show up here. The agent merges each one once it's reviewed and green, and asks first if it needs something from you.
         </div>
       )}
       {prs.map(p => (

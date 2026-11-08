@@ -1,11 +1,11 @@
 ---
 name: kipo-review
-description: KiPo Review column. Loaded by a KiPo column session seed ("Load the skill `kipo-review`"); reviews the effort's open PRs against the spec or ticket with /code-review, fixes what it finds, shapes PR bodies with /pr, and leaves the merge to the human.
+description: KiPo Review column. Loaded by a KiPo column session seed ("Load the skill `kipo-review`"); reviews the effort's open PRs against the spec or ticket with /code-review, fixes what it finds, shapes PR bodies with /pr, then merges each PR once it's clean and green.
 ---
 
 # Column 6 of 7: Review
 
-A PR is open and waiting for the human to merge. Review makes each PR worth merging: reviewed against what was asked, findings fixed, body clear.
+A PR is open. Review makes each PR worth merging (reviewed against what was asked, findings fixed, body clear) and then merges it. Merging is Review's last step; Done starts after it.
 
 ## Ground rules
 
@@ -35,9 +35,19 @@ None. Review's skills are chips: run them yourself.
 2. For each open PR: run `code-review`. Fix every finding on the PR's own branch, in its worktree, test-first where it's behaviour. Re-run the suite; push as its own command.
 3. Rewrite the body with `pr` (`gh pr edit <pr> --body-file <file>`), and mark a draft ready (`gh pr ready <pr>`).
 4. Post the review result as one PR comment: what each axis found and what was fixed.
-5. Tell the human which PRs are ready to merge, one line each.
+5. **Merge it.** A PR is ready when every finding is fixed or answered, its checks are green (`gh pr checks <pr> --watch`), and nothing in the "Before merging" list below applies. Then:
+   - Say "Merging #<pr>." in one line, and merge with the repo's allowed method, squash first: `gh pr merge <pr> --squash` (fall back to `--merge` or `--rebase` only if squash is refused). Never pass `--delete-branch` and never chain anything onto the merge: Done deletes branches.
+   - Confirm it landed: `gh pr view <pr> --json state -q .state` must print `MERGED`. If it doesn't, say why in one line and stop on that PR.
+   - Its "Closes #<t>" lines close the tickets. Say which tickets closed and what that unblocked.
+6. When every PR is merged, say so in one line: the human clicks Next to move to Done.
 
-**Never merge yourself**, and never close a PR. The column is done when the human merges: the app computes that gate (every PR merged, or closed and skipped).
+**Before merging, ask instead.** Write a decision card (options "Merge now", "Hold") and wait when:
+- the PR needs something only the human can do first: a migration or config change on a live environment, a secret, a deploy order, a feature flag;
+- a review finding is a judgement call you didn't fix (scope, product behaviour, an API change other code depends on);
+- checks are red or missing and the cause isn't in this PR.
+Put the reason in `blocking`. On "Merge now", run step 5. On "Hold", leave it open and say what would unblock it.
+
+Never close a PR, never force-push to main, and never merge a PR that doesn't belong to this effort.
 
 ## Path
 
@@ -45,7 +55,7 @@ Read `Start:` and the `Column:` line. Every path passes through Review. On `bug`
 
 ## Gate
 
-Write none: Review's gate is computed from the PRs. Keep `summary` and `blocking` current (for example "PR #12 waiting on the human to merge").
+Write none: Review's gate is computed from the PRs. Keep `summary` and `blocking` current (for example "PR #12 holds until migration 013 runs on Production").
 
 ## Exit artifacts
 
