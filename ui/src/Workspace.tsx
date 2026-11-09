@@ -8,8 +8,10 @@ import {
 import { cached, remember } from './cache'
 import { FrontierSummary, type SessionStatus } from './Frontier'
 import { Abbr } from './glossary'
+import { chain, TileGraph } from './Graph'
 import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
+import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
@@ -481,42 +483,66 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         )
 
         if (!onBoard) {
+          // The slim header: the way back and what's running. The embedded chat
+          // page carries the session's title, renaming and Kiro's side panel
+          // (subagents, browser, terminal, changes) itself.
+          const chatHead = (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 30 }}>
+              {focus.kind !== 'column' && (
+                <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
+              )}
+              <span style={{ ...(slotKey ? muted : strong), fontSize: slotKey ? T.small : T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                {focusTile ? `#${focusTile.number}${slotKey ? '' : ` ${focusTile.title}`}` : focus.kind === 'column' ? 'Conductor' : detail.title}
+              </span>
+              {slotKey && running.length > 0 && <Running skills={running} />}
+              <span style={{ flex: 1 }} />
+            </div>
+          )
+          const chatBody = slotKey ? (
+            <KiroChatFrame key={slotKey} slotKey={slotKey} />
+          ) : (
+            <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
+              onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
+              alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
+          )
+
+          if (focus.kind === 'column') {
+            // The conductor screen: its conversation, and the effort as seven
+            // stations on the right. A station expands to its queue; a queue row
+            // opens that ticket's session.
+            return (
+              <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+                <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {chatHead}
+                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
+                </section>
+                <Divider direction="vertical" label="Resize the conversation and the stations"
+                  onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
+                <section style={{ flex: `0 0 ${rightWidth}px`, width: rightWidth, minWidth: 340, minHeight: 0 }}>
+                  <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
+                    onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} />
+                </section>
+              </div>
+            )
+          }
+
+          // A ticket's (or stage's) session, full width: its map over the
+          // conversation; the questions and answers happen in the chat itself.
+          const chainTiles = focusTile && detail.frontier ? chain(detail.frontier.tiles, focusTile.number) : []
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              {detail.frontier && (
-                <FrontierSummary variant="strip" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
-                  onTile={t => setFocus(tileFocus(t))} openNumber={focusTile?.number ?? null} statuses={statuses}
-                  conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })}
-                  onMore={() => setTab('board')} mapUrl={mapUrl} />
-              )}
-              <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                {/* Middle: the conversation, Kiro's own chat page. Its title, renaming
-                    and the agent side panel live inside it; this slim row holds only
-                    the way back and what the conversation is running. */}
-                <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 30 }}>
-                    {focus.kind !== 'column' && (
-                      <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
-                    )}
-                    <span style={{ ...(slotKey ? muted : strong), fontSize: slotKey ? T.small : T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                      {focusTile ? `#${focusTile.number}${slotKey ? '' : ` ${focusTile.title}`}` : focus.kind === 'column' ? 'Conductor' : detail.title}
-                    </span>
-                    {slotKey && running.length > 0 && <Running skills={running} />}
-                    <span style={{ flex: 1 }} />
+              {chatHead}
+              {focusTile && chainTiles.length > 1 && (<>
+                <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
+                  <div style={{ padding: '6px 16px 0', fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                    Where it sits
                   </div>
-                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                    {slotKey ? (
-                      <KiroChatFrame key={slotKey} slotKey={slotKey} />
-                    ) : (
-                      <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
-                        onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
-                        alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
-                    )}
-                  </div>
-                </section>
-                {divider}
-                {rightPanel}
-              </div>
+                  <TileGraph tiles={chainTiles} focus={focusTile.number} onOpen={openTile} labeled dimOthers={false} statuses={statuses} down />
+                </div>
+                <Divider direction="horizontal" label="Resize the ticket's map and its conversation"
+                  onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
+              </>)}
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
             </div>
           )
         }
@@ -675,14 +701,32 @@ function Decisions({ state, slotKey, settled, onError }: {
 function KiroChatFrame({ slotKey }: { slotKey: string }) {
   const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
   const ref = useRef<HTMLIFrameElement>(null)
+  const nudged = useRef(false)
   // A control inside the page ("return to main") would navigate the frame to the
   // whole dashboard; put it back on the popout chat instead.
   const onLoad = () => {
     const frame = ref.current
     try {
       const path = frame?.contentWindow?.location.pathname
-      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
-    } catch { /* same origin, so never unreadable; just in case */ }
+      if (frame && path && !path.startsWith('/popout/chat')) { frame.src = src; return }
+    } catch { return /* same origin, so never unreadable; just in case */ }
+    // Kiro opens a fresh chat window with its side panel closed unless the
+    // "Keep Side Panel Open" setting is on. The panel is the point of embedding
+    // the full page, so open it once per mount by clicking the page's own
+    // toggle (its stable guide id). If the panel is already open, or the build
+    // changes the id, this quietly does nothing — and never closes anything.
+    if (nudged.current) return
+    let tries = 0
+    const tick = () => {
+      if (nudged.current || ref.current?.src === undefined) return
+      tries += 1
+      try {
+        const btn = ref.current?.contentDocument?.querySelector<HTMLElement>('[data-ui-location="chat.side-panel-open"]')
+        if (btn) { nudged.current = true; btn.click(); return }
+      } catch { nudged.current = true; return }
+      if (tries < 20) setTimeout(tick, 400)
+    }
+    setTimeout(tick, 400)
   }
   return (
     <iframe ref={ref} src={src} title="The session in Kiro's chat" onLoad={onLoad}

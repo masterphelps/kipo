@@ -12,7 +12,7 @@ import type { PrInfo, Tile } from './types'
 export type ColId = 'intake' | 'shape' | 'grill' | 'plan' | 'build' | 'review' | 'done'
 // Matt's 27 under the KiPo skill that runs them (4 + 6 + 5 + 3 + 5 + 2 + 2);
 // `any` ones are also usable from any stage.
-const COLUMNS: { id: ColId; label: string; skill: string; matt: string[]; any?: string[]; what: string }[] = [
+export const COLUMN_DEFS: { id: ColId; label: string; skill: string; matt: string[]; any?: string[]; what: string }[] = [
   { id: 'intake', label: 'Intake', skill: 'kipo-intake', matt: ['setup-matt-pocock-skills', 'ask-matt', 'triage', 'improve-codebase-architecture'], what: 'Set the repo up, triage the issue, pick a start' },
   { id: 'shape', label: 'Shape', skill: 'kipo-shape', matt: ['wayfinder', 'research', 'prototype', 'to-questionnaire'], any: ['handoff', 'teach'], what: "Huge, foggy: chart the map, work its decision tickets" },
   { id: 'grill', label: 'Grill', skill: 'kipo-grill', matt: ['grill-with-docs', 'grill-me', 'grilling', 'domain-modeling'], any: ['wait-what'], what: "An idea: interview until it's sharp" },
@@ -35,7 +35,7 @@ const STATE_LABEL: Record<Tile['state'], string> = {
 }
 const ORDER: Tile['state'][] = ['you', 'afk', 'building', 'review', 'blocked', 'done']
 
-const columnOf = (t: Tile): ColId =>
+export const columnOf = (t: Tile): ColId =>
   t.state === 'done' ? 'done'
     : t.source ? 'intake'
       : t.state === 'review' ? 'review'
@@ -57,7 +57,7 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
   onFog?: (at: { x: number; y: number }) => void
   onSkill?: (stage: ColId, skill: string) => void // run one of Matt's skills in that stage's own conversation
 }) {
-  const byCol = new Map<ColId, Tile[]>(COLUMNS.map(c => [c.id, []]))
+  const byCol = new Map<ColId, Tile[]>(COLUMN_DEFS.map(c => [c.id, []]))
   for (const t of tiles) byCol.get(columnOf(t))!.push(t)
   for (const ts of byCol.values()) ts.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.number - b.number)
 
@@ -139,7 +139,7 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
             </div>
             <div style={{ display: 'flex', gap: 6, flex: 1 }}>
               {s.cols.map(id => {
-                const col = COLUMNS.find(c => c.id === id)!
+                const col = COLUMN_DEFS.find(c => c.id === id)!
                 const ts = byCol.get(id)!
                 const live = ts.some(t => t.state === 'you' || t.state === 'afk' || t.state === 'building' || statuses[t.number] === 'running')
                 return (
@@ -274,7 +274,7 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
   onFog?: (at: { x: number; y: number }) => void
   onMore?: () => void // "+N": the rest are on the Board
 }) {
-  const byCol = new Map<ColId, Tile[]>(COLUMNS.map(c => [c.id, []]))
+  const byCol = new Map<ColId, Tile[]>(COLUMN_DEFS.map(c => [c.id, []]))
   for (const t of tiles) byCol.get(columnOf(t))!.push(t)
   for (const ts of byCol.values()) ts.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.number - b.number)
   const known = new Set(tiles.map(t => t.number))
@@ -300,7 +300,7 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
   const room = perRow * 2
 
   return (
-    <div ref={box} style={{ display: 'grid', gridTemplateColumns: `auto repeat(${COLUMNS.length}, minmax(64px, 1fr))`, gap: 4, alignItems: 'stretch' }}>
+    <div ref={box} style={{ display: 'grid', gridTemplateColumns: `auto repeat(${COLUMN_DEFS.length}, minmax(64px, 1fr))`, gap: 4, alignItems: 'stretch' }}>
       <button type="button" onClick={onConductor} title={`The conductor (${status}). Click to open its conversation.`}
         style={{ flex: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', textAlign: 'left',
           background: conductorOpen ? 'color-mix(in srgb, var(--accent) 22%, var(--bg-elevated))' : 'var(--bg-elevated)', color: 'var(--text)',
@@ -311,7 +311,7 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
           {status}
         </span>
       </button>
-      {COLUMNS.map(col => {
+      {COLUMN_DEFS.map(col => {
         const ts = byCol.get(col.id)!
         const loose: ReactNode[] = []
         if (col.id === 'shape' && fogItems.length) loose.push(<Mini key="fog" text={`☁ ${fogItems.length}`} title={`${STATE_MEANING.fog}\n\n${fogItems.map(f => `• ${plain(f)}`).join('\n')}`} onClick={onFog} />)
