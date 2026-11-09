@@ -265,6 +265,33 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frontierSig, conductorSlot, active])
 
+  // The conductor's Reports: every stage session reports to it (kipo_cli.py
+  // report). Wake it with the ones it hasn't read yet, unless it's mid-turn
+  // (then on a later poll; its frontier carries them anyway). Each report is
+  // sent once per browser; one it already read in its frontier isn't sent.
+  useEffect(() => {
+    const r = detail?.reports
+    if (!r || !conductorSlot || !active) return
+    const sentKey = `kipo.reportsSent:${repo}#${number}`
+    const sent = Number(localStorage.getItem(sentKey) || '0')
+    const fresh = r.reports.filter(x => x.id > Math.max(sent, r.read))
+    if (!fresh.length) return
+    void (async () => {
+      try {
+        const info = await api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(conductorSlot)}?limit=1`)
+        if (info?.running) return
+        const what = (x: typeof fresh[number]) =>
+          `${x.event}: ${x.text}${x.items?.length ? ` (${x.items.join('; ')})` : ''}`
+        const head = fresh.length === 1
+          ? `[KiPo] Report from ${fresh[0].from}: ${what(fresh[0])}`
+          : `[KiPo] Reports from the sessions:\n${fresh.slice(-12).map(x => `- ${x.from} ${what(x)}`).join('\n')}`
+        await api.post('/api/chat?ws=1', { slot: conductorSlot, message: `${head}\nRun the frontier and carry on.` })
+        localStorage.setItem(sentKey, String(fresh[fresh.length - 1].id))
+      } catch { /* try again on the next poll */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail, conductorSlot, active])
+
   // A column's own conversation: open it if it exists, else start it with a skill.
   const openStage = (column: Column, skill: string | null) => {
     if (!detail) return

@@ -228,7 +228,11 @@ class ListTests(Columns):
 
 
 class SessionTests(Columns):
-    def seed(self, column, conversation, stage, extra=(), run=None, n=7, state="state.json"):
+    def report(self, source, n=7):
+        return (f"Report: python3 {ini.KIPO_CLI} report {REPO} {n} --from {source} --checkout {self.checkout} "
+                '--event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...')
+
+    def seed(self, column, conversation, stage, extra=(), run=None, n=7, state="state.json", source=None):
         lines = [
             f'[KiPo] Effort #{n} "Widgets" in {REPO}',
             f"Conversation: {conversation}",
@@ -237,6 +241,7 @@ class SessionTests(Columns):
             f"Repo checkout: {self.checkout}",
             f"Effort issue: https://github.com/{REPO}/issues/{n}",
             f"State file: {self.checkout}/.kipo/{n}/{state}",
+            self.report(source or column, n),
             *extra,
             f"Load the skill `kipo-{column}` and follow it. Destination: Ship widgets.",
         ]
@@ -265,7 +270,8 @@ class SessionTests(Columns):
         self.assertEqual(
             out["seed"],
             "The hand-over: write the spec, then the tickets, from what this conversation decided. "
-            "Load the skill `kipo-plan` and follow it.\n" + RUN.format(s="to-spec"),
+            "Load the skill `kipo-plan` and follow it. From now on report as the hand-over:\n"
+            + self.report("plan") + "\n" + RUN.format(s="to-spec"),
         )
         self.assertEqual(self.get()[1]["sessions"], {"grill": "kipo-acme-widgets-7-grill", "plan": "kipo-acme-widgets-7-grill"})
 
@@ -289,7 +295,7 @@ class SessionTests(Columns):
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual(out["seed"], self.seed(
             "build", "ticket #20, in the Deliver lane", "Deliver", extra=['Ticket: #20 "Add export"', "Blocked by: #19 (closed)"], run="implement",
-            state="build-t20.json",
+            state="build-t20.json", source="t20",
         ))
         d = self.get()[1]
         self.assertEqual(d["sessions"]["build-t20"], "kipo-acme-widgets-7-build-t20")
@@ -335,6 +341,7 @@ class SessionTests(Columns):
         self.assertIn("Load the skill `kipo-conductor`", out["seed"])
         self.assertIn("kipo_cli.py frontier acme/widgets 7", out["seed"])
         self.assertIn("conductor.json", out["seed"])
+        self.assertIn("kipo_cli.py reports acme/widgets 7 --checkout", out["seed"])
         self.assertIn("conductor", self.get()[1]["sessions"])
 
     def test_shape_decision_ticket(self):
@@ -344,6 +351,7 @@ class SessionTests(Columns):
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-shape-t31")
         self.assertIn('Ticket: #31 "Pick auth"\nLoad the skill `kipo-shape`', out["seed"])
+        self.assertIn(self.report("t31"), out["seed"])
 
     def test_bad_input(self):
         self.make_effort()

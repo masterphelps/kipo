@@ -232,6 +232,11 @@ export type PhaseState = {
 
 export type DispatchEntry = { ticket?: number; stage?: 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string }
 
+// What a stage session told the conductor (kipo_cli.py report), in .kipo/<n>/reports.json.
+// `read` is the highest id the conductor has been shown by its frontier.
+export type SessionReport = { id: number; at: string; from: string; event: string; text: string; items?: string[] }
+export type Reports = { reports: SessionReport[]; read: number }
+
 export type TicketInfo = {
   number: number
   title: string
@@ -264,6 +269,7 @@ export type EffortDetail = Effort & {
   history?: Partial<Record<Column, PhaseState>>
   // Each ticket conversation's own state file, by session key (build-t22, shape-t24).
   sessionStates?: Record<string, PhaseState>
+  reports?: Reports
   tickets: TicketInfo[]
   prs: PrInfo[]
   frontier?: Frontier

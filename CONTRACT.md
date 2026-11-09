@@ -12,8 +12,9 @@ halves of the flow (skills v1.3: the front half `/grill-with-docs → /to-spec �
 ends with a spec and tickets; the back half is `/implement-spec … /pr … /retro`). KiPo reads
 the effort's **stage** (Intake, Decide, Deliver, Done) from its tickets and PRs: nobody moves
 an effort, and there are no columns, no Next and no Skip. The human works through
-**conversations**: one for the effort itself and one per ticket, started from the tiles and
-from the **Next** line above them.
+**conversations**: the effort's own (its **conductor**) and one per thread (a ticket, the
+hand-over, the review, the retro), dispatched by the conductor or started from the stations
+panel. Every stage conversation reports to the conductor.
 
 ## Conversations and skills
 
@@ -143,14 +144,57 @@ the effort's own conversation and never does the work itself.
   HITL / Agent / Running / Blocked, and next action) from GitHub through KiPo's own frontier
   code. It works from that output only. It wakes when the human writes, and when the page sees
   a ticket's or PR's state change (`[KiPo] Frontier changed: …`, sent only if it's not mid-turn;
-  what it last saw is remembered per effort in the browser).
+  what it last saw is remembered per effort in the browser), and when a stage session reports
+  (`[KiPo] Report from <session>: <event>: <text>`, or `[KiPo] Reports from the sessions:` with a
+  list; also only when it's not mid-turn; the last report id sent is remembered per effort in
+  the browser, and a report the conductor has already read is never sent).
 - **Dispatch**: `kipo_cli.py dispatch <repo> <n> --ticket <t> | --stage shape|plan|review|done`
   appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`); the page starts each
   queued session once while it's open (skipping a ticket that's done, blocked or already has
   its conversation, and a stage conversation that exists).
-- **Ask you**: every HITL thread as one batch of decision cards in its state file.
+- **Hear**: every stage session reports to it (below). The frontier command's JSON also carries
+  `reports` (the unread reports, oldest first, marked read once printed; `--peek` leaves them
+  unread), `waiting` (every stage session's unanswered decision cards, `{from, id, title,
+  options, recommended}`: not the conductor's own, not a done ticket's) and `sessionsBlocking`
+  (`{from, blocking}`). `kipo_cli.py reports <repo> <n> [--checkout <path>] [--peek]` prints
+  the unread reports without GitHub, for when the frontier fails. Each wake it relays the
+  reports, one line each.
+- **Ask you**: every HITL thread as one batch of decision cards in its state file. Its reply's
+  **Waiting on you** also lists each session's open cards from `waiting`, grouped by session,
+  and each `blocked` or `failed` session; it never copies a session's cards into its own
+  `decisions` or answers them, and drops its own card when a session's asks the same thing.
 - **Merge**: through the kipo-review conversation it dispatches (Merge Danger).
-- **Close**: dispatches kipo-done when the retro is the only thread, then closes the effort issue.
+- **Close**: dispatches kipo-done when the retro is the only thread, then closes the effort
+  issue once `done` reports `finished`.
+- **Reply**: short, in this order, empty lines left out: Changed, Reports, Dispatched,
+  Waiting on you.
+- **Cron**: with Kiro Crew's cron tools it arms one 15-minute `[KiPo] Check the frontier`
+  while there are `Agent` or `Running` threads or a dispatched session hasn't reported
+  `finished`, `nothing-to-do` or `failed`. That is how it hears reports while the page is closed.
+
+## Reports: stage sessions to the conductor
+
+Every stage conversation (the seven skills' "Report to the conductor" section) reports at each
+moment, as it happens:
+
+```
+python3 <app>/backend/kipo_cli.py report <repo> <n> --from <session> --checkout <path> --event <kind> --text "<one line>" [--item "<…>"]...
+```
+
+- `--from`: `t<ticket>` (a ticket's conversation, Decide or Deliver), `shape`, `plan`, `review`,
+  `done`, or `intake`, `grill`, `build-spec`.
+- `--event`: `started`; `asked` (one `--item` per question, `<card id>: <title>`); `answered`
+  (`<card id>: <answer>`); `pr-opened`, `pr-merged`; `issue-created`, `issue-closed`;
+  `finished`; `nothing-to-do` (and why); `blocked` (what it waits on); `failed` (what broke).
+- `--checkout`: the effort's checkout (the seed's Report line carries it); without it the CLI
+  reads it from the effort issue's meta, else the repo's configured path.
+
+It appends `{id, at, from, event, text, items?}` to `.kipo/<n>/reports.json`
+(`backend/kipo/reports.py`): `{"reports": [...], "read": <highest id the conductor has been
+shown>}`. Its own file, not `conductor.json`, because the conductor agent rewrites that one;
+appends and reads take a lock (`reports.json.lock`) so parallel sessions lose nothing. Ids
+only rise; the file keeps the last 500. Reports persist whether or not the page is open. The
+effort detail carries `reports: {reports: [the last 50], read}` for the page.
 
 ## Conversations, keys and seeds
 
@@ -168,7 +212,11 @@ the effort's own conversation and never does the work itself.
 Session names are `kipo-<owner>-<repo>-<n>-<key>`, filed in the sidebar folder
 `KiPo / <repo name>`. The hand-over continues the grilling's conversation when there is one
 (Matt: keep grill → spec → tickets in one context); the backend then returns a short hand-over
-message to send into it instead of a new seed. A conversation whose ticket is done is closed.
+message to send into it instead of a new seed, which carries a Report line with
+`--from plan`.
+
+The conductor's seed has, instead of `Stage:`/`Start:`/`Report:`, its `Frontier:`,
+`Dispatch:` and `Reports:` command lines. A conversation whose ticket is done is closed.
 
 Seed (the first message):
 
@@ -180,6 +228,7 @@ Start: <start>
 Repo checkout: <repoPath>
 Effort issue: <url>
 State file: <path>
+Report: python3 <app>/backend/kipo_cli.py report <repo> <n> --from <t<t>|key> --checkout <path> --event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...
 Ticket: #<t> "<title>"                 (ticket conversations only)
 Blocked by: #a (closed), #b (open)     (when it has blockers)
 Load the skill `kipo-<name>` and follow it. Destination: <destination>
@@ -213,7 +262,7 @@ handlers read the query string.
 |---|---|---|---|
 | GET | `/initiatives` | | `{"initiatives":[Effort]}`: the sidebar (watched repos' efforts and opened maps, minus hidden ones) |
 | POST | `/initiatives` | `{"path","description","start","worktree":bool,"sourceIssue":n\|null}` | `Effort` |
-| GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` |
+| GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` (with `reports: {reports, read}`) |
 | POST | `…/{n}/session` | `{"column":"<key base>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null}` | `{"slotName","seed","existing":bool}` |
 | GET | `…/{n}/tickets/{t}` | | a ticket's card: body and latest comment |
 | POST | `…/{n}/hide`, `…/{n}/unhide` | | off and back on the sidebar (local) |

@@ -10,7 +10,7 @@ The effort is too big or too foggy for one session. This conversation either cha
 ## How KiPo works now
 
 - An effort's tickets are tiles in two lanes, **Decide** and **Deliver**. KiPo reads the effort's stage (Intake, Decide, Deliver, Done) from its tickets and PRs. Nobody moves it: there are no columns, no Next and no Skip. Never edit the effort's `kipo:` labels or its `kipo:meta` comment.
-- The human starts conversations from the tiles and from KiPo's **Next** line (start a ticket, start agents, write the spec, review the PRs, run /retro). This is one of those conversations; the seed's `Conversation:` line says which. Do this conversation's job, then stop. Work outside it isn't yours: name it as a candidate ticket.
+- Conversations are started by the effort's **conductor** (it dispatches one per open thread and KiPo's page starts it) or by the human from the stations panel (a ticket's row, or a station's own step: Write the spec, Review the PRs, Run /retro). This is one of those conversations; the seed's `Conversation:` line says which. Do this conversation's job, then stop. Work outside it isn't yours: name it as a candidate ticket.
 - There are no skill buttons. You choose which of Matt's skills to run, from the list below. The human may also type any `/skill` in the chat: follow it for this effort, record it, then carry on.
 
 ## Ground rules
@@ -24,7 +24,33 @@ The effort is too big or too foggy for one session. This conversation either cha
 - The tracker is this repo's GitHub Issues, through `gh`. If a skill finds no tracker config (`docs/agents/issue-tracker.md`), run `setup-matt-pocock-skills` first.
 - `wait-what`, `handoff`, `teach` and `writing-for-agents` fit any conversation: when the human types one, or when the moment calls for it.
 - Publish a branch as its own command with a literal branch name; write PR bodies to a file and pass `--body-file`. Never publish to main.
-- **When this conversation's job is done**, say so in one line, set `summary`, and stop. Keep `blocking` set to what you're waiting on, or null.
+- **When this conversation's job is done**, say so in one line, set `summary`, report `finished` (below), and stop. Keep `blocking` set to what you're waiting on, or null.
+
+## Report to the conductor
+
+The effort's conductor tracks every conversation it dispatched, and knows only what you report. Report with the seed's `Report:` command: it already carries `--from` (this conversation) and `--checkout`; you fill in `--event`, a one-line `--text` of facts, and one `--item` per question, PR or issue. Report each moment as it happens, in the same turn, never saved up for the end:
+
+| When | `--event` | `--text`, `--item` |
+|---|---|---|
+| You begin this conversation's job (after reading the seed and the state file) | `started` | what you are about to do |
+| You ask the human questions (the turn you record their cards) | `asked` | how many; one `--item` per question: `<card id>: <title>` |
+| The human answers | `answered` | what was decided; one `--item` per answer: `<card id>: <answer>` |
+| You open or merge a PR | `pr-opened`, `pr-merged` | the tickets it closes; `--item` `#<pr> <url>` |
+| You create or close an issue | `issue-created`, `issue-closed` | why; `--item` `#<issue> <title>` per issue |
+| The job is done | `finished` | the `summary` you set |
+| There is nothing for you to do | `nothing-to-do` | why, in one line |
+| You can't go on until something happens | `blocked` | what you wait on (the same as `blocking`) |
+| Something broke that you can't fix here | `failed` | what broke: the command and its error |
+
+For example, from the hand-over:
+
+```
+python3 <kipo>/backend/kipo_cli.py report <owner/repo> <n> --from plan --checkout <checkout> --event asked --text "2 decisions on the spec" --item "held-store: One table or two?" --item "spec-approved: Publish the spec and cut the tickets?"
+```
+
+In this conversation: charting reports `issue-created` for the map and its tickets, and `nothing-to-do` (with why) when there is nothing you can chart yet, so the conductor stops telling the human the fog is open with them. A ticket conversation reports `issue-closed` for its ticket and `issue-created` for each ticket its answer graduates.
+
+The report doesn't replace asking in the chat and recording the cards (above), and the conductor never answers for the human. Reporting is plumbing: don't mention it in chat. If the command fails, say so in one line and carry on; don't retry in a loop. A seed with no `Report:` line (a conversation started before reporting existed): skip reporting.
 
 ## Skills
 
@@ -39,7 +65,7 @@ The effort is too big or too foggy for one session. This conversation either cha
 - **Charting** (no `Ticket:`, on a `huge` start): run `wayfinder` to name the destination (as the effort's `## Destination`), chart the map with what you can ticket now, and sketch the rest into Not yet specified. Record the map as artifact "Wayfinder map" (exactly that label: KiPo reads the map from it). Then stop: charting resolves nothing.
 - **A ticket** (the seed has `Ticket:`): claim that one ticket first (assign it), resolve it as its `wayfinder:<type>` label says, post the answer as a comment, close it, and add its line to the map's Decisions so far. Graduate any fog the answer made specifiable into new tickets. Then stop: one ticket per conversation.
 - **Record answers before you close.** Write every decision card's final `answer` into the state file *before* closing the ticket on GitHub: the moment the ticket closes, KiPo shows it as done, and a done ticket with unanswered cards reads as the board asking the human questions about finished work.
-- **The way is clear** when the map has no open tickets and nothing in scope left in Not yet specified. KiPo then shows "The map is clear" with a "Write the spec" action. Say so in one line. If the effort turned out small, say that instead: the human can build it directly.
+- **The way is clear** when the map has no open tickets and nothing in scope left in Not yet specified. The frontier then shows the hand-over, the conductor asks the human "Write the spec now?", and the Plan station offers "Write the spec". Say so in one line and report `finished`. If the effort turned out small, say that instead: the human can build it directly.
 
 ## Documents
 

@@ -12,6 +12,25 @@
       (retro) conversation.
       It's queued in the conductor's state file; the KiPo page starts it
       (once) while it's open.
+
+  python3 kipo_cli.py report OWNER/REPO N --from SESSION --event KIND --text "..." [--item "..."]... [--checkout PATH]
+      For stage sessions: tell the effort's conductor what happened. SESSION
+      is t<ticket>, shape, plan, review or done (also intake, grill,
+      build-spec). KIND is one of: started, asked, answered, pr-opened,
+      pr-merged, issue-created, issue-closed, finished, nothing-to-do,
+      blocked, failed. --item lists things (one per question asked, PR or
+      issue). Appended to .kipo/N/reports.json in the effort's checkout; the
+      KiPo page wakes the conductor with it while it's open, and the
+      conductor's next frontier shows it either way.
+
+  python3 kipo_cli.py reports OWNER/REPO N [--checkout PATH] [--peek]
+      The reports the conductor hasn't seen yet, without GitHub (the
+      frontier carries them too). Marks them seen unless --peek.
+
+The frontier's JSON also carries "reports" (unread session reports, marked
+seen once printed; --peek keeps them unread), "waiting" (every stage
+session's unanswered decision cards) and "sessionsBlocking" (what each stage
+session says it waits on).
 """
 import argparse
 import datetime
@@ -22,6 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from kipo import conductor  # noqa: E402
+from kipo import reports  # noqa: E402
 from kipo import state as col_state  # noqa: E402
 from kipo.gh import Gh  # noqa: E402
 from kipo.initiatives import Initiatives  # noqa: E402
@@ -36,6 +56,20 @@ def main(argv=None):
     f = sub.add_parser("frontier")
     f.add_argument("repo")
     f.add_argument("number", type=int)
+    f.add_argument("--peek", action="store_true")
+    r = sub.add_parser("report")
+    r.add_argument("repo")
+    r.add_argument("number", type=int)
+    r.add_argument("--from", dest="source", required=True)
+    r.add_argument("--event", required=True, choices=reports.EVENTS)
+    r.add_argument("--text", required=True)
+    r.add_argument("--item", action="append", default=[])
+    r.add_argument("--checkout")
+    u = sub.add_parser("reports")
+    u.add_argument("repo")
+    u.add_argument("number", type=int)
+    u.add_argument("--checkout")
+    u.add_argument("--peek", action="store_true")
     d = sub.add_parser("dispatch")
     d.add_argument("repo")
     d.add_argument("number", type=int)
@@ -45,9 +79,17 @@ def main(argv=None):
     d.add_argument("--skill")
     args = ap.parse_args(argv)
 
+    if args.cmd in ("report", "reports"):
+        return _reports(args)
+
     detail = Initiatives(Gh(), Storage()).detail(args.repo, args.number)
     if args.cmd == "frontier":
-        print(json.dumps({"effort": args.number, "repo": args.repo, **conductor.threads(detail)}, indent=1))
+        out = {"effort": args.number, "repo": args.repo, **conductor.threads(detail)}
+        repo_path = detail.get("repoPath")
+        out["reports"] = reports.take_unread(repo_path, args.number, mark=not args.peek) if repo_path else []
+        out["waiting"] = reports.open_decisions(detail)
+        out["sessionsBlocking"] = reports.session_blocking(detail)
+        print(json.dumps(out, indent=1))
         return 0
 
     repo_path = detail.get("repoPath")
@@ -85,6 +127,26 @@ def main(argv=None):
         json.dump(data, fh, indent=1)
     os.replace(tmp, path)
     print(json.dumps({"queued": True, "entry": entry, "stateFile": path}))
+    return 0
+
+
+def _reports(args):
+    """report and reports: the effort's checkout from --checkout (the seed's
+    Report line carries it), else from the effort issue's meta or the repo's
+    configured path."""
+    repo_path = args.checkout or Initiatives(Gh(), Storage()).repo_path(args.repo, args.number)
+    if not repo_path:
+        print("No repo checkout is known for this effort; pass --checkout.", file=sys.stderr)
+        return 2
+    if args.cmd == "reports":
+        print(json.dumps({"reports": reports.take_unread(repo_path, args.number, mark=not args.peek)}, indent=1))
+        return 0
+    try:
+        entry = reports.append(repo_path, args.number, args.source, args.event, args.text, args.item)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(json.dumps({"reported": True, "entry": entry}))
     return 0
 
 

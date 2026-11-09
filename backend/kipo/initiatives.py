@@ -11,10 +11,12 @@ import datetime
 import json
 import os
 import re
+import shlex
 
 from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
 from . import docs
 from . import frontier as frontier_mod
+from . import reports as col_reports
 from . import state as col_state
 
 EFFORT_LABEL = "kipo:effort"
@@ -283,6 +285,17 @@ def conversation_of(key, ticket=None):
     return CONVERSATIONS.get(key, "the effort's own conversation")
 
 
+# KiPo's command line, beside the backend that's running it (the installed app's copy).
+KIPO_CLI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kipo_cli.py")
+
+
+def report_line(effort, repo_path, source):
+    """The seed's Report line: how a stage session tells the conductor what happened."""
+    checkout = f" --checkout {shlex.quote(repo_path)}" if repo_path else ""
+    return (f"Report: python3 {KIPO_CLI} report {effort['repo']} {effort['number']} --from {source}{checkout} "
+            '--event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...')
+
+
 def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=None, stage=None):
     """The first message of a KiPo conversation: which conversation this is,
     the effort's stage, and the skill to load. ``state_key`` gives a ticket's
@@ -297,6 +310,7 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
         f"State file: {col_state.session_state_path(repo_path, n, state_key) if state_key else col_state.state_path(repo_path, n)}",
+        report_line(effort, repo_path, f"t{ticket['number']}" if ticket is not None else (state_key or column)),
     ]
     if ticket is not None:
         lines.append(f'Ticket: #{ticket["number"]} "{ticket["title"]}"')
@@ -310,8 +324,6 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
 
 
 CONDUCTOR_AGENT = "kipo-conductor"
-# KiPo's command line, beside the backend that's running it (the installed app's copy).
-KIPO_CLI = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "kipo_cli.py")
 
 
 def render_conductor_seed(effort, repo_path):
@@ -325,15 +337,19 @@ def render_conductor_seed(effort, repo_path):
         f"State file: {col_state.session_state_path(repo_path, n, 'conductor')}",
         f"Frontier: python3 {KIPO_CLI} frontier {repo} {n}",
         f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage shape|plan|review|done)",
+        f"Reports: python3 {KIPO_CLI} reports {repo} {n}"
+        + (f" --checkout {shlex.quote(repo_path)}" if repo_path else "")
+        + " (only when the frontier fails: the frontier carries them)",
         f"Load the skill `kipo-conductor` and follow it. Destination: {effort['destination']}",
         "Start with a wake: run the frontier, then report where the effort stands.",
     ])
 
 
-def render_plan_handoff(effort, skill=None):
+def render_plan_handoff(effort, skill=None, repo_path=None):
     """What goes into the grilling conversation when the human chooses to write the spec."""
     text = ("The hand-over: write the spec, then the tickets, from what this conversation decided. "
-            "Load the skill `kipo-plan` and follow it.")
+            "Load the skill `kipo-plan` and follow it. From now on report as the hand-over:\n"
+            + report_line(effort, repo_path, "plan"))
     if skill:
         text += "\n" + run_line(skill)
     return text
@@ -430,6 +446,11 @@ class Initiatives:
 
     def _repo_path(self, repo, meta):
         return meta.get("repoPath") or self.storage.repo_path(repo)
+
+    def repo_path(self, repo, number):
+        """The effort's checkout: its meta's repoPath, else the repo's configured path."""
+        _, body = self._fetch(repo, number)
+        return self._repo_path(repo, body["meta"])
 
     def _summary(self, repo, issue, body):
         labels = label_names(issue)
@@ -642,6 +663,8 @@ class Initiatives:
             "prs": prs,
             "frontier": front,
             "sessionStates": session_states,
+            # What stage sessions told the conductor (kipo_cli.py report), and how far it has read.
+            "reports": col_reports.read(repo_path, number),
         }
         if tickets_note:
             detail["ticketsNote"] = tickets_note
@@ -971,7 +994,7 @@ class Initiatives:
                 # Grill and Plan share one unbroken context.
                 slot = sessions["grill"]
                 self.storage.record_session(repo, number, "plan", slot)
-                return {"slotName": slot, "seed": render_plan_handoff(summary, skill), "existing": True}
+                return {"slotName": slot, "seed": render_plan_handoff(summary, skill, repo_path), "existing": True}
 
         slot = session_name(repo, number, key)
         self.storage.record_session(repo, number, key, slot)
