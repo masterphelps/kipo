@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>KiPo mockup — Session view, living document, Decide stage (#995 real data)</title>
+<style>
+  :root {
+    --bg:#17151f; --bg-elevated:#1e1c28; --bg-hover:#26232f; --border:#2e2b3a;
+    --text:#c9c6d4; --text-strong:#f2f0f7; --muted:#8f8ba3; --accent:#a78bfa;
+    --done:#3fae6a; --done-t:#7fd39a; --you:#f5b14c; --afk:#2dd4bf; --review:#a78bfa; --blocked:#e08a85;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html,body { height:100%; background:var(--bg); color:var(--text);
+    font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  .app { height:100vh; display:flex; flex-direction:column; }
+  .muted { color:var(--muted); } .strong { color:var(--text-strong); font-weight:600; }
+  .pill { font-size:10px; font-weight:700; padding:1px 7px; border-radius:99px; white-space:nowrap; }
+
+  /* top tab row */
+  .tabs { display:flex; align-items:center; gap:10px; padding:6px 14px 0; border-bottom:1px solid var(--border); }
+  .tab { padding:4px 8px 8px; font-size:13px; color:var(--muted); border-bottom:2px solid transparent; }
+  .tab.on { color:var(--text-strong); font-weight:600; border-color:var(--accent); }
+  .title { font-weight:600; color:var(--text-strong); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .maptag { font-size:10px; border:1px solid var(--accent); color:var(--accent); border-radius:99px; padding:1px 8px; }
+
+  /* journey strip: the five stages, the spec as the baton */
+  .journey { display:flex; align-items:stretch; gap:0; padding:8px 14px; border-bottom:1px solid var(--border); }
+  .conductor { display:flex; flex-direction:column; justify-content:center; gap:2px; padding:4px 10px; margin-right:10px;
+    border:1px solid color-mix(in srgb,var(--accent) 50%,var(--border)); border-radius:8px; background:var(--bg-elevated); }
+  .conductor b { font-size:11px; color:var(--text-strong); }
+  .conductor span { font-size:9.5px; color:var(--accent); display:flex; align-items:center; gap:4px; }
+  .dot { width:6px; height:6px; border-radius:99px; background:var(--accent); }
+  .stage { flex:1; display:flex; flex-direction:column; gap:3px; padding:5px 10px; border:1px solid var(--border);
+    border-radius:8px; background:var(--bg-elevated); position:relative; margin-right:22px; min-width:0; }
+  .stage:last-child { margin-right:0; }
+  .stage::after { content:"→"; position:absolute; right:-17px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:12px; }
+  .stage:last-child::after { content:""; }
+  .stage .name { font-size:11px; font-weight:700; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  .stage .now { font-size:10.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stage.done { opacity:.8 } .stage.done .name { color:var(--done-t); }
+  .stage.here { border-color:var(--you); background:color-mix(in srgb,var(--you) 9%,var(--bg-elevated)); }
+  .stage.here .name { color:var(--you); }
+  .stage.next { border-style:dashed; opacity:.75; }
+  .bar { height:4px; border-radius:4px; background:var(--border); overflow:hidden; margin-top:1px; }
+  .bar i { display:block; height:100%; background:var(--done); }
+
+  /* triptych */
+  .main { flex:1; min-height:0; display:flex; }
+  .chatcol { flex:1 1 0; min-width:0; display:flex; flex-direction:column; border-right:0; }
+  .chathead { display:flex; align-items:center; gap:8px; padding:5px 14px; border-bottom:1px solid var(--border); font-size:12px; }
+  .chat { flex:1; overflow:hidden; display:flex; flex-direction:column; gap:12px; padding:16px 0; }
+  .msgwrap { width:min(760px,92%); margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .msg { padding:10px 14px; border-radius:10px; font-size:13px; line-height:1.5; }
+  .agent { background:var(--bg-elevated); border:1px solid var(--border); }
+  .humanmsg { background:color-mix(in srgb,var(--accent) 14%,var(--bg-elevated)); align-self:flex-end; max-width:85%; }
+  .who { font-size:10px; color:var(--muted); margin-bottom:4px; }
+  .composer { width:min(760px,92%); margin:0 auto 14px; border:1px solid var(--border); border-radius:10px;
+    background:var(--bg-elevated); padding:10px 12px; color:var(--muted); font-size:13px; }
+  .divider { width:7px; cursor:col-resize; display:flex; align-items:center; justify-content:center; }
+  .divider i { width:1px; height:100%; background:var(--border); position:relative; }
+  .divider b { position:absolute; width:5px; height:28px; border-radius:3px; background:var(--border); left:-2px; top:calc(50% - 14px); }
+
+  /* the living document */
+  .doc { flex:0 0 430px; border-left:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+  .docscroll { flex:1; overflow-y:auto; }
+  .docsec { padding:11px 16px; border-bottom:1px solid var(--border); }
+  .docsec h3 { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
+    display:flex; align-items:baseline; gap:8px; margin-bottom:7px; }
+  .docsec h3 .n { font-weight:400; text-transform:none; letter-spacing:0; }
+  .dest { font-size:12.5px; line-height:1.5; }
+  .dec { display:flex; gap:8px; font-size:12px; line-height:1.45; padding:3px 0; }
+  .dec .tick { color:var(--done-t); flex:none; }
+  .dec a { color:var(--text-strong); font-weight:600; text-decoration:none; }
+  .dec .gist { color:var(--muted); }
+  .fog { display:flex; gap:8px; font-size:12px; line-height:1.45; padding:3px 0; color:var(--text); }
+  .fog .c { color:var(--muted); flex:none; }
+  .ghost { border:1px dashed var(--border); border-radius:8px; padding:8px 11px; font-size:12px; color:var(--muted); line-height:1.45; }
+  .ghost b { color:var(--text); font-weight:600; }
+
+  /* decision card under the doc, Spec Builder style: click sends now */
+  .card { border:1px solid var(--you); border-radius:9px; overflow:hidden; margin-top:2px; }
+  .card .q { padding:8px 11px; font-size:12.5px; font-weight:600; color:var(--text-strong); display:flex; gap:8px; }
+  .card .q .pill { border:1px solid var(--you); color:var(--you); align-self:flex-start; }
+  .opt { display:flex; align-items:center; gap:8px; padding:7px 11px; border-top:1px solid var(--border); font-size:12px; cursor:pointer; }
+  .opt:hover { background:var(--bg-hover); }
+  .opt .r { width:11px; height:11px; border-radius:99px; border:1.5px solid var(--muted); flex:none; }
+  .opt .rec { margin-left:auto; font-size:10px; color:var(--accent); }
+  .sendnote { font-size:10.5px; color:var(--muted); padding:6px 11px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="tabs">
+    <span class="tab on">Session</span><span class="tab">Board</span>
+    <span class="title">#995 Map: the Customer Portal's Networks entry is as good as the Networks import, and its Logins are just as solid</span>
+    <span class="maptag">Map #995</span>
+    <span style="flex:1"></span>
+    <span class="muted" style="font-size:11px">interroseclabs/netsight</span>
+  </div>
+
+  <!-- The journey: one road, the spec is the baton between the halves -->
+  <div class="journey">
+    <div class="conductor"><b>Conductor</b><span><i class="dot"></i>watching</span></div>
+    <div class="stage done">
+      <span class="name">✓ Intake</span>
+      <span class="now">huge start → wayfinder map</span>
+    </div>
+    <div class="stage here">
+      <span class="name">● Decide <span class="pill" style="border:1px solid var(--you);color:var(--you)">you are here</span></span>
+      <span class="now"><b class="strong">7 of 8 decided</b> · #1000 prototype in progress · 2 fog</span>
+      <div class="bar"><i style="width:87%"></i></div>
+    </div>
+    <div class="stage next">
+      <span class="name">Spec</span>
+      <span class="now">written at the handover: last decision closed, fog cleared</span>
+    </div>
+    <div class="stage next">
+      <span class="name">Deliver</span>
+      <span class="now">tickets cut from the spec · build → review → merge</span>
+    </div>
+    <div class="stage next">
+      <span class="name">Done</span>
+      <span class="now">retro, close</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <section class="chatcol">
+      <div class="chathead">
+        <span class="muted">← Conductor</span>
+        <span class="strong">#1000 · prototype</span>
+        <span class="muted">Running kipo-shape · prototype</span>
+      </div>
+      <div class="chat">
+        <div class="msgwrap">
+          <div class="msg agent">
+            <div class="who">kipo-shape · #1000</div>
+            The map's seven decisions pin the behaviour; what's left is what the customer's <b>review</b> looks like.
+            I've built the first cut on <b>prototype/customer-review</b>: the Site-grouped review in customer mode, every
+            field kept (VLAN, gateway, description), refused rows shown with their reason and no override, no Site
+            creation, Move to and Don't import kept, overlaps shown as the overlap ticket decided.<br><br>
+            Two things for you to react to when you run it:<br>
+            1. The grouped review reads like the operator's import. Does that feel right, or should customer mode look simpler?<br>
+            2. Watch the Unmatched Site name groups — the Create Site affordance is deliberately absent on the customer side.
+          </div>
+          <div class="msg humanmsg">
+            <div class="who">you</div>
+            Running it now on FRlab.
+          </div>
+        </div>
+      </div>
+      <div class="composer">Message #1000's conversation…</div>
+    </section>
+
+    <div class="divider"><i><b></b></i></div>
+
+    <!-- The living document: the effort itself, growing as decisions land -->
+    <aside class="doc">
+      <div class="docscroll">
+        <div class="docsec">
+          <h3>Destination</h3>
+          <div class="dest">A spec issue, with its build tickets as sub-issues (the shape of <a style="color:var(--accent)">Spec #863</a>).
+          Once built, a customer adding Networks through a Customer Link gets everything the Networks page's import does,
+          within the customer's limits, and the Logins panel is held to the same bar.</div>
+        </div>
+
+        <div class="docsec">
+          <h3>Decisions so far <span class="n">7</span></h3>
+          <div class="dec"><span class="tick">✓</span><span><a>The gap inventory</a> <span class="gist">— VLAN, gateway, description dropped; the real gaps are the silent "Already on the list" and the write cap.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>One Add takes a long list whole</a> <span class="gist">— one batch add shared with the import; every row its own outcome.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>FRlab walk</a> <span class="gist">— 17 breaks logged with steps and screenshots.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>A row already on the map</a> <span class="gist">— kept as a customer Proposal, decided through the import's collision dialog.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>A Site the Assessment doesn't have</a> <span class="gist">— added unfiled, keeps its Unmatched Site name.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>Where the operator works through it</a> <span class="gist">— one "From the customer" section on the Networks page.</span></span></div>
+          <div class="dec"><span class="tick">✓</span><span><a>A perfect Logins panel</a> <span class="gist">— four kinds stay; SSH port; 40-hex Meraki key; Vault badge.</span></span></div>
+        </div>
+
+        <div class="docsec">
+          <h3>Not yet specified <span class="n">2 · shrinks as decisions land</span></h3>
+          <div class="fog"><span class="c">☁</span><span>One component with two modes, or two on a shared core — <b class="strong">#1000's prototype decides</b>.</span></div>
+          <div class="fog"><span class="c">☁</span><span>What changes in Logins once the gap inventory is applied.</span></div>
+        </div>
+
+        <div class="docsec">
+          <h3>Spec</h3>
+          <div class="ghost"><b>Not written yet.</b> When #1000 closes and the fog clears, the way is clear:
+          the handover runs <b>/to-spec</b> in this same conversation and the spec renders here.</div>
+        </div>
+
+        <div class="docsec">
+          <h3>Tickets</h3>
+          <div class="ghost"><b>Cut from the spec</b> by <b>/to-tickets</b>: tracer-bullet slices with blocking edges,
+          worked frontier-first. They land here with their PR states.</div>
+        </div>
+
+        <div class="docsec">
+          <h3>Decision (HITL) <span class="n">answers send immediately</span></h3>
+          <div class="card">
+            <div class="q"><span style="flex:1">After running the prototype: one component with two modes, or two components on a shared core?</span><span class="pill">open</span></div>
+            <div class="opt"><span class="r"></span>One component, two modes<span class="rec">recommended</span></div>
+            <div class="opt"><span class="r"></span>Two components, one shared core</div>
+            <div class="opt"><span class="r"></span><span class="muted">Something else…</span></div>
+          </div>
+          <div class="sendnote">Click an option to answer — it sends to #1000's conversation now. The conductor's cross-ticket batches still send together.</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>
