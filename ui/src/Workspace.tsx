@@ -475,6 +475,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
             {slotKey && running.length > 0 && <Running skills={running} />}
             <span style={{ flex: 1 }} />
             {focusTile && <TextButton onClick={() => setTab('board')} title="This ticket's details, where it sits and its decisions, on the Board">Details →</TextButton>}
+            {slotKey && (
+              <TextButton onClick={() => openInKiroChat(slotKey)}
+                title="Open this session in Kiro's own chat, with its right panel: subagents, browser, background work. Kiro keeps that panel closed when a chat is embedded in an app.">
+                Open in Kiro chat ↗
+              </TextButton>
+            )}
           </div>
           {/* Its decision cards, answered together. */}
           {convState?.decisions.some(d => !d.answer) && (
@@ -484,7 +490,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
-              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} full />
+              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
             ) : (
               <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
                 onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
@@ -727,20 +733,29 @@ function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string 
   )
 }
 
-function PhaseChat({ slotKey, onSkill, sent, full }: {
+// Kiro's own chat page for a session (the route its app-SDK launcher uses), where
+// its right panel works: subagents, browser, background work. Embedded in an app,
+// Kiro keeps that panel closed and offers no way to open it.
+function openInKiroChat(slotKey: string) {
+  const url = `/chat?sid=${encodeURIComponent(slotKey)}`
+  try {
+    window.history.pushState({}, '', url)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  } catch {
+    window.location.assign(url)
+  }
+}
+
+function PhaseChat({ slotKey, onSkill, sent }: {
   slotKey: string
   onSkill: (s: string) => void
   sent: string | null
-  // Kiro's whole chat page: its top bar and its side panel (the agent's
-  // subagents, browser, checks, background work). Without it, the conversation
-  // alone: the host turns its side panel off in conversation-only mode.
-  full?: boolean
 }) {
-  // Kiro's own chat for the session, side panel and all: what the agent is
-  // running in the background (subagents, checks, workflows) shows there, as in
-  // any Kiro chat. No skill menu: KiPo starts each conversation with the right
-  // skill. One reaction is worth a click, because it answers the agent's last
-  // message: /wait-what. Any other skill can be typed.
+  // Kiro's own chat for the session, the conversation alone (no sessions list).
+  // Its right panel only works on Kiro's chat page: "Open in Kiro chat" goes there.
+  // No skill menu: KiPo starts each conversation with the right skill. One
+  // reaction is worth a click, because it answers the agent's last message:
+  // /wait-what. Any other skill can be typed.
   const controls = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 16px', fontSize: T.tiny, borderBottom: '1px solid var(--border)' }}>
       <button type="button" onClick={() => onSkill('wait-what')} title={SKILL_HINTS['wait-what']}
@@ -754,7 +769,7 @@ function PhaseChat({ slotKey, onSkill, sent, full }: {
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {controls}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <ChatPanel key={`${slotKey}:${full ? 'full' : 'chat'}`} slotKey={slotKey} conversationOnly={!full} />
+        <ChatPanel key={slotKey} slotKey={slotKey} conversationOnly />
       </div>
     </div>
   )
