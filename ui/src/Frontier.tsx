@@ -88,9 +88,13 @@ export function whoIsUp(counts: FrontierCounts): string {
 // stopped and the conversation is waiting on you.
 export type SessionStatus = 'running' | 'waiting'
 
-export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
+export function TileButton({ tile, onClick, size = 34, open, status, bare, numberOnly, width }: {
   tile: Tile; onClick?: () => void; size?: number; open?: boolean; status?: SessionStatus
   bare?: boolean // no number in the corner: for small tiles next to their own label
+  // Small tiles: just the number, centered (the type letters and a corner number
+  // don't both fit under ~30px). The type stays in the hover text.
+  numberOnly?: boolean
+  width?: number
 }) {
   const c = STATE_META[tile.state]
   const solid = tile.state !== 'blocked'
@@ -106,17 +110,19 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
       title={`${hint}${sessionHint}\n\n${tileMeaning(tile)}`}
       aria-current={open ? 'true' : undefined}
       style={{
-        position: 'relative', width: size, height: size + 6, flexShrink: 0, borderRadius: 6, padding: 0,
+        position: 'relative', width: width ?? size, height: numberOnly ? size : size + 6, flexShrink: 0, borderRadius: 6, padding: 0,
         outline: open ? '2px solid var(--text-strong, #fff)' : undefined, outlineOffset: 2,
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: onClick ? 'pointer' : 'default',
-        fontWeight: 800, fontSize: 13,
+        fontWeight: numberOnly ? 700 : 800, fontSize: numberOnly ? 11 : 13, fontVariantNumeric: 'tabular-nums',
         background: done ? 'rgba(63,174,106,.22)' : solid ? c.color : 'transparent',
         color: done ? '#7fd39a' : solid ? '#14121c' : 'var(--muted)',
         border: solid ? '1px solid transparent' : `1.5px solid ${c.color}`,
       }}
     >
-      {!bare && <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>}
-      {tile.code}
+      {numberOnly ? tile.number : (<>
+        {!bare && <span style={{ position: 'absolute', top: 2, left: 4, fontSize: 8.5, fontWeight: 600, opacity: 0.85 }}>{tile.number}</span>}
+        {tile.code}
+      </>)}
       {status && (
         // Inside the tile's top-right corner, in the tile's own text color so it
         // reads on every tile color: pulsing while the agent works, steady
@@ -124,7 +130,7 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare }: {
         <span
           className={status === 'running' ? 'kipo-pulse' : undefined}
           style={{
-            position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: 999,
+            position: 'absolute', top: numberOnly ? 2 : 4, right: numberOnly ? 2 : 4, width: numberOnly ? 5 : 6, height: numberOnly ? 5 : 6, borderRadius: 999,
             background: 'currentColor',
           }}
         />

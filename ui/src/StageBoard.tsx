@@ -257,8 +257,9 @@ const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]
 // It never grows with the effort: every column is the same width and at most two
 // rows of tiles tall. Tickets someone can act on come first (HITL, Agent, in
 // progress); whatever doesn't fit is a "+N" that opens the Board. Done is a count.
-const STRIP_TILE = 22
-const STRIP_GAP = 3
+const STRIP_TILE = 24 // height of a header tile
+const STRIP_TILE_W = 38 // width: room for a four-digit number
+const STRIP_GAP = 4
 export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openNumber, statuses, conductor = 'none', conductorOpen, onConductor, onTile, onFog, onMore }: {
   tiles: Tile[]
   prs?: PrInfo[]
@@ -295,7 +296,7 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const perRow = colW ? Math.max(1, Math.floor((colW - 12 + STRIP_GAP) / (STRIP_TILE + STRIP_GAP))) : 4
+  const perRow = colW ? Math.max(1, Math.floor((colW - 12 + STRIP_GAP) / (STRIP_TILE_W + STRIP_GAP))) : 3
   const room = perRow * 2
 
   return (
@@ -329,15 +330,15 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
             <div title={`${col.label} · ${col.skill}\n${col.what}`} style={{ fontSize: 10, fontWeight: 650, color: empty ? 'var(--muted)' : 'var(--text-strong, var(--text))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'help' }}>
               {col.label}{ts.length ? <span style={{ fontWeight: 400, color: 'var(--muted)' }}> {ts.length}</span> : null}
             </div>
-            <div style={{ display: 'flex', gap: STRIP_GAP, flexWrap: 'wrap', alignContent: 'flex-start', marginTop: 3, height: 2 * (STRIP_TILE + 6) + STRIP_GAP, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: STRIP_GAP, flexWrap: 'wrap', alignContent: 'flex-start', marginTop: 4, height: 2 * STRIP_TILE + STRIP_GAP, overflow: 'hidden' }}>
               {col.id === 'done' ? (
                 ts.length > 0 && <DoneCount n={ts.length} of={tiles.length} onClick={onMore} />
               ) : (<>
                 {loose}
-                {shown.map(t => <TileButton key={t.number} tile={t} size={STRIP_TILE} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)}
+                {shown.map(t => <TileButton key={t.number} tile={t} size={STRIP_TILE} width={STRIP_TILE_W} numberOnly onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)}
                 {more > 0 && (
                   <button type="button" onClick={onMore} title={`${more} more in ${col.label}: see them all on the Board`}
-                    style={{ width: STRIP_TILE + 4, height: STRIP_TILE + 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: onMore ? 'pointer' : 'default', padding: 0,
+                    style={{ width: STRIP_TILE_W, height: STRIP_TILE, borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: onMore ? 'pointer' : 'default', padding: 0,
                       background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                     +{more}
                   </button>
@@ -368,7 +369,7 @@ function Mini({ text, title, color, onClick }: { text: string; title: string; co
   return (
     <button type="button" title={title} disabled={!onClick}
       onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onClick?.({ x: r.left, y: r.bottom + 4 }) }}
-      style={{ height: STRIP_TILE + 6, padding: '0 5px', borderRadius: 6, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'help',
+      style={{ height: STRIP_TILE, padding: '0 6px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'help',
         background: 'transparent', color: color ?? 'var(--muted)', border: `1px dashed ${color ?? 'var(--muted)'}` }}>
       {text}
     </button>
