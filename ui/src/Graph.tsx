@@ -75,7 +75,7 @@ function layout(tiles: Tile[], bands: boolean): Layout {
   return { placed, cols, rows: top, split }
 }
 
-export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, bands, highlight, dimOthers = true }: {
+export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, bands, highlight, dimOthers = true, down }: {
   tiles: Tile[]
   focus?: number | null          // the open ticket: outlined, its arrows drawn bold
   fog?: number
@@ -85,6 +85,7 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   bands?: boolean                // Decide band over Deliver band
   highlight?: Set<number> | null // a picked bar segment: these stay lit, the rest dim
   dimOthers?: boolean            // with a focus, dim tickets not linked to it
+  down?: boolean                 // top to bottom: blockers in the top row, arrows pointing down (for narrow panels)
 }) {
   // Fit the panel: labeled nodes shrink to the width available (down to a floor).
   const box = useRef<HTMLDivElement>(null)
@@ -111,23 +112,30 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
   const { placed, cols, rows, split } = layout(inGraph, !!bands)
 
   const size = 30
+  const vertical = !!down && !bands
   const labelW = bands ? 52 : 0
-  const gapX = bands ? 64 : labeled ? 40 : 48
-  const fogN = fog > 0 ? Math.min(fog, 4) : 0
+  const gapX = vertical ? 12 : bands ? 64 : labeled ? 40 : 48
+  const fogN = fog > 0 && !vertical ? Math.min(fog, 4) : 0
   const fogW = fogN ? gapX + size : 0 // the fog column is one narrow tile wide
-  const fit = avail && cols ? Math.floor((avail - 2 - 2 * PAD - labelW - fogW - (cols - 1) * gapX) / cols) : 168
-  const nodeW = labeled ? Math.max(110, Math.min(bands ? 240 : 200, fit)) : size
+  // Across the panel: depth columns, or (top to bottom) the widest row of one depth.
+  const across = vertical ? Math.max(1, rows) : cols
+  const fit = avail && across ? Math.floor((avail - 2 - 2 * PAD - labelW - fogW - (across - 1) * gapX) / across) : 168
+  const nodeW = labeled ? Math.max(vertical ? 120 : 110, Math.min(bands ? 240 : vertical ? 260 : 200, fit)) : size
   const nodeH = size + 6
-  const gapY = labeled ? 10 : 8
+  const gapY = vertical ? 30 : labeled ? 10 : 8 // top to bottom: room for the arrows between rows
   const graphCols = inGraph.length ? cols : 0
-  const width = labelW + (graphCols ? graphCols * (nodeW + gapX) - gapX : 0) + fogW + 2
+  const width = vertical
+    ? (inGraph.length ? across * (nodeW + gapX) - gapX : 0) + 2
+    : labelW + (graphCols ? graphCols * (nodeW + gapX) - gapX : 0) + fogW + 2
   // The fog belongs to Decide: center it in the Decide band (the whole graph
   // when there are no bands).
   const decideRows = split ?? rows
-  const allRows = Math.max(rows, fogN)
+  const allRows = vertical ? graphCols : Math.max(rows, fogN)
   const rowY = (r: number) => 1 + r * (nodeH + gapY)
   const height = inGraph.length || fogN ? rowY(allRows) - gapY + 1 : 0
-  const pos = new Map(placed.map(p => [p.tile.number, { x: labelW + 1 + p.col * (nodeW + gapX), y: rowY(p.row) }]))
+  const pos = new Map(placed.map(p => [p.tile.number, vertical
+    ? { x: 1 + p.row * (nodeW + gapX), y: rowY(p.col) }
+    : { x: labelW + 1 + p.col * (nodeW + gapX), y: rowY(p.row) }]))
 
   const neighbors = new Set<number>()
   if (focus != null) {
@@ -166,18 +174,24 @@ export function TileGraph({ tiles, focus, fog = 0, onOpen, statuses, labeled, ba
             const a = pos.get(from.number)
             const b = pos.get(to.number)
             if (!a || !b) return null
-            const x1 = a.x + nodeW + 2
-            const y1 = a.y + nodeH / 2
-            const x2 = b.x - 2
-            const y2 = b.y + nodeH / 2
-            const mid = (x1 + x2) / 2
             const done = from.state === 'done'
             const bold = hovered ? hovered.has(from.number) && hovered.has(to.number)
               : focus != null && (from.number === focus || to.number === focus)
             const faded = hovered ? !bold : (focus != null && dimOthers && !bold) || !lit(from.number) || !lit(to.number)
+            // Left to right: out of the blocker's right side into the blocked one's left.
+            // Top to bottom: out of the blocker's bottom (under its tile) into the blocked one's top.
+            const d = vertical
+              ? (() => {
+                const x1 = a.x + size / 2, y1 = a.y + nodeH + 2, x2 = b.x + size / 2, y2 = b.y - 2, mid = (y1 + y2) / 2
+                return `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`
+              })()
+              : (() => {
+                const x1 = a.x + nodeW + 2, y1 = a.y + nodeH / 2, x2 = b.x - 2, y2 = b.y + nodeH / 2, mid = (x1 + x2) / 2
+                return `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`
+              })()
             return (
               <path key={`${from.number}-${to.number}`}
-                d={`M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`}
+                d={d}
                 fill="none" stroke={bold ? 'var(--text)' : 'var(--muted)'} strokeWidth={bold ? 1.6 : 1.2}
                 strokeDasharray={done ? '3 3' : undefined}
                 opacity={faded ? 0.15 : done ? 0.45 : 0.8}

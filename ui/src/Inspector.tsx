@@ -110,7 +110,7 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
           </div>
         )}
         {linked.length > 1
-          ? <TileGraph tiles={linked} focus={tile.number} onOpen={onOpenTile} labeled dimOthers={false} statuses={statuses} />
+          ? <TileGraph tiles={linked} focus={tile.number} onOpen={onOpenTile} labeled dimOthers={false} statuses={statuses} down />
           : <span style={{ ...muted, fontSize: T.small }}>Nothing blocks it and it blocks nothing.</span>}
       </Section>
     </div>
