@@ -52,7 +52,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'skip' | 'remove' | null>(null)
   const [wide, setWide] = useState(false)
-  const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
   // On the Board, a ticket's chain over its details.
   const chainSplit = useFitSplit('chain', 100, 0.75)
@@ -86,7 +85,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     lastColumn.current = column
     if (moved) setFocus({ kind: 'column' })
   }, [column])
-  useEffect(() => { if (!sent) return; const id = setTimeout(() => setSent(null), 4000); return () => clearTimeout(id) }, [sent])
 
   const key = detail ? focusKey(focus) : null
   const recorded = detail && key ? detail.sessions[key] ?? null : null
@@ -318,24 +316,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     void closeFinished(api, slots, slotKey).finally(() => { closingRef.current = false })
   }, [api, detail, active, slotKey])
 
-  // A skill button: into the open conversation, or start the conversation with it.
-  const runSkill = async (skill: string) => {
-    if (!detail) return
-    if (skill === 'implement-spec') { await start('implement-spec', { kind: 'spec' }); return }
-    if (skill === 'implement' && detail.tickets.length && focus.kind !== 'ticket') {
-      setActionError('Pick a ticket below and use its Implement button: each ticket gets its own conversation.')
-      return
-    }
-    if (!slotKey) { await start(skill); return }
-    try {
-      const { message } = await backend.skillMessage(repo, number, skill)
-      await api.post('/api/chat?ws=1', { slot: slotKey, message })
-      setSent(skill)
-    } catch (e) {
-      setActionError(`Couldn't start /${skill}: ${errorText(e)}`)
-    }
-  }
-
   // A skill chip on the board: run it in that stage's own conversation (never the
   // conductor's): send it into the stage's conversation, or start the stage with it.
   const runStageSkill = async (stage: Column, skill: string) => {
@@ -346,7 +326,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       const { message } = await backend.skillMessage(repo, number, skill)
       await api.post('/api/chat?ws=1', { slot, message })
       setFocus({ kind: 'stage', column: stage })
-      setSent(skill)
     } catch (e) {
       setActionError(`Couldn't start /${skill}: ${errorText(e)}`)
     }
@@ -405,7 +384,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // A done ticket (or a conversation KiPo closed) is settled: its unanswered
   // decision cards are history, never questions still waiting on you.
   const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
-  const openDecisionCount = convState?.decisions.filter(d => !d.answer).length ?? 0
   const next = nextStep(detail, {
     openTile,
     startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
@@ -459,109 +437,107 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       </div>
       {actionError && <div style={{ padding: '6px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
-      {tab === 'session' ? (
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {detail.frontier && (
-            <FrontierSummary variant="strip" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
-              onTile={t => setFocus(tileFocus(t))} openNumber={focusTile?.number ?? null} statuses={statuses}
-              conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })}
-              onMore={() => setTab('board')} mapUrl={mapUrl} />
-          )}
-          {/* The open conversation's own header. The embedded chat page carries the
-              session's title (and renaming) itself, so with a session open this row
-              holds only what the chat page doesn't: the way back, what's running,
-              /wait-what, open decisions, and the ticket's details. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-            {focus.kind !== 'column' && (
-              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
+      {(() => {
+        const onBoard = tab === 'board'
+        // The right column is the picked thing's card, the same on both tabs (one
+        // home for decisions, the chain, PRs and what it asks): Spec Builder's
+        // shape, with the conversation in the middle and the card on the right.
+        const rightPanel = (
+          <section style={{ flex: onBoard && wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: onBoard && wide ? undefined : rightWidth,
+            minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {onBoard && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 37 }}>
+                {focusTile
+                  ? <TextButton onClick={() => setTab('session')} title="Open this ticket's conversation">Session →</TextButton>
+                  : <TextButton onClick={() => { setFocus({ kind: 'column' }); setTab('session') }} title="Open the conductor's conversation">Conductor session →</TextButton>}
+                <span style={{ flex: 1 }} />
+                <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the board' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
+              </div>
             )}
-            {!slotKey && (
-              <span style={{ ...strong, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {focusTile ? `#${focusTile.number} ${focusTile.title}` : focus.kind === 'column' ? 'Conductor' : detail.title}
-              </span>
-            )}
-            {slotKey && (
-              <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-                {focusTile ? `#${focusTile.number}` : focus.kind === 'column' ? 'Conductor' : null}
-              </span>
-            )}
-            {slotKey && running.length > 0 && <Running skills={running} />}
-            <span style={{ flex: 1 }} />
-            {slotKey && (
-              <button type="button" onClick={() => void runSkill('wait-what')} title={SKILL_HINTS['wait-what']}
-                style={{ background: 'transparent', padding: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: T.tiny, textDecoration: 'underline dotted', whiteSpace: 'nowrap' }}>
-                /wait-what
-              </button>
-            )}
-            {sent && <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>sent /{sent}</span>}
-            {/* Open decision cards have one home: the Board's right panel. */}
-            {!settled && openDecisionCount > 0 && (
-              <TextButton onClick={() => setTab('board')} title="This conversation is waiting on your answers. The cards are on the Board's right panel, answered together.">
-                {openDecisionCount} decision{openDecisionCount === 1 ? '' : 's'} open →
-              </TextButton>
-            )}
-            {focusTile && <TextButton onClick={() => setTab('board')} title="This ticket's details, where it sits and its decisions, on the Board">Details →</TextButton>}
-          </div>
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {slotKey ? (
-              <KiroChatFrame key={slotKey} slotKey={slotKey} />
-            ) : (
-              <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
-                onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
-                alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
-            )}
-          </div>
-        </div>
-      ) : (
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
-      {/* Middle: the board. */}
-      {!wide && (
-        <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, overflowY: 'auto' }}>
-          {detail.frontier && (
-            <FrontierSummary variant="board" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
-              onTile={openTile} onSession={toSession} openNumber={focusTile?.number ?? null} statuses={statuses}
-              conductor={conductorState} onSkill={(s, k) => { void runStageSkill(s, k); setTab('session') }} mapUrl={mapUrl}
-              next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
-          )}
-        </section>
-      )}
+            {focusTile && (<>
+              <div ref={chainSplit.ref} style={chainSplit.style}>
+                <TicketChain detail={detail} tile={focusTile} hasSession={!!slotKey} onOpenTile={openTile}
+                  onOpenSession={onBoard ? () => setTab('session') : null} statuses={statuses} />
+              </div>
+              <Divider direction="horizontal" label="Resize the ticket's chain and its details"
+                onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
+            </>)}
+            <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
+              {focusTile ? (
+                <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
+                  decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />} />
+              ) : (
+                <EffortInspector repo={repo} number={number} detail={detail} stage={stage} autopilot={autopilot} onAutopilot={setAutopilot}
+                  showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
+                  decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />}
+                  onOpenTile={openTile} />
+              )}
+            </div>
+          </section>
+        )
+        const divider = (
+          <Divider direction="vertical" label={onBoard ? 'Resize the board and the ticket panel' : 'Resize the conversation and the ticket panel'}
+            onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
+        )
 
-      {!wide && (
-        <Divider direction="vertical" label="Resize the board and the ticket panel"
-          onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
-      )}
-
-      {/* Right: whatever is picked. A ticket's card for a card, the effort's overview otherwise. */}
-      <section style={{ flex: wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: wide ? undefined : rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 37 }}>
-          {focusTile
-            ? <TextButton onClick={() => setTab('session')} title="Open this ticket's conversation">Session →</TextButton>
-            : <TextButton onClick={() => { setFocus({ kind: 'column' }); setTab('session') }} title="Open the conductor's conversation">Conductor session →</TextButton>}
-          <span style={{ flex: 1 }} />
-          <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the board' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
-        </div>
-
-        {focusTile && (<>
-          <div ref={chainSplit.ref} style={chainSplit.style}>
-            <TicketChain detail={detail} tile={focusTile} hasSession={!!slotKey} onOpenTile={openTile} statuses={statuses} />
+        if (!onBoard) {
+          return (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {detail.frontier && (
+                <FrontierSummary variant="strip" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
+                  onTile={t => setFocus(tileFocus(t))} openNumber={focusTile?.number ?? null} statuses={statuses}
+                  conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })}
+                  onMore={() => setTab('board')} mapUrl={mapUrl} />
+              )}
+              <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+                {/* Middle: the conversation, Kiro's own chat page. Its title, renaming
+                    and the agent side panel live inside it; this slim row holds only
+                    the way back and what the conversation is running. */}
+                <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 30 }}>
+                    {focus.kind !== 'column' && (
+                      <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
+                    )}
+                    <span style={{ ...(slotKey ? muted : strong), fontSize: slotKey ? T.small : T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                      {focusTile ? `#${focusTile.number}${slotKey ? '' : ` ${focusTile.title}`}` : focus.kind === 'column' ? 'Conductor' : detail.title}
+                    </span>
+                    {slotKey && running.length > 0 && <Running skills={running} />}
+                    <span style={{ flex: 1 }} />
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                    {slotKey ? (
+                      <KiroChatFrame key={slotKey} slotKey={slotKey} />
+                    ) : (
+                      <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
+                        onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
+                        alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
+                    )}
+                  </div>
+                </section>
+                {divider}
+                {rightPanel}
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
+            {/* Middle: the board. */}
+            {!wide && (
+              <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, overflowY: 'auto' }}>
+                {detail.frontier && (
+                  <FrontierSummary variant="board" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
+                    onTile={openTile} onSession={toSession} openNumber={focusTile?.number ?? null} statuses={statuses}
+                    conductor={conductorState} onSkill={(s, k) => { void runStageSkill(s, k); setTab('session') }} mapUrl={mapUrl}
+                    next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
+                )}
+              </section>
+            )}
+            {!wide && divider}
+            {rightPanel}
           </div>
-          <Divider direction="horizontal" label="Resize the ticket's chain and its details"
-            onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
-        </>)}
-        <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
-          {focusTile ? (
-            <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />} />
-          ) : (
-            <EffortInspector repo={repo} number={number} detail={detail} stage={stage} autopilot={autopilot} onAutopilot={setAutopilot}
-              showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
-              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />}
-              onOpenTile={openTile} />
-          )}
-        </div>
-      </section>
-      </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
@@ -744,8 +720,8 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     if (tile.state === 'done') {
       title = 'Closed'
       body = tile.sessionKey
-        ? 'Its conversation was closed when the ticket was. How it ended is on the Board (Details →).'
-        : 'How it ended is on the Board (Details →).'
+        ? 'Its conversation was closed when the ticket was. How it ended is on the right.'
+        : 'How it ended is on the right.'
       action = null
     } else if (tile.state === 'blocked') {
       title = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}`

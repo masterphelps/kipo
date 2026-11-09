@@ -57,11 +57,12 @@ const PR_STATE: Record<string, { label: string; color: string }> = {
 // The top of a ticket's card: what it is, and where it sits. Its whole chain is
 // drawn: everything it waits on, and everything waiting on it, with what closing
 // it frees called out. Sits above a drag handle; the card's details scroll below.
-export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: {
+export function TicketChain({ detail, tile, hasSession, onOpenTile, onOpenSession, statuses }: {
   detail: EffortDetail
   tile: Tile
   hasSession: boolean
   onOpenTile: (t: Tile) => void
+  onOpenSession?: (() => void) | null // on the Board: jump to its conversation on the Session tab
   statuses?: Record<number, SessionStatus>
 }) {
   const tiles = detail.frontier?.tiles ?? []
@@ -78,8 +79,16 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
   else if (tile.state === 'review') status = 'Its PR is open. Review merges it once it\'s clean (two-way doors on their own, one-way doors ask you).'
   else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
   else if (tile.state === 'building') status = 'An agent is working on it.'
-  else if (tile.who === 'you') status = <><Abbr term="HITL">HITL</Abbr>: {hasSession ? 'its conversation is open in the middle.' : 'start its conversation in the middle.'}</>
-  else status = hasSession ? 'Its conversation is open in the middle.' : 'An agent can take it on its own: start it in the middle.'
+  else if (tile.who === 'you') status = <><Abbr term="HITL">HITL</Abbr>: it needs your answers, in its conversation.</>
+  else status = hasSession ? 'Its conversation is running.' : 'An agent can take it on its own.'
+  // What it asks is answered in its conversation: say so with a button, not prose.
+  // Without a session yet, the Session tab lands on its start card.
+  const sessionAction = !done && tile.state !== 'blocked' && onOpenSession
+    ? <button type="button" onClick={onOpenSession}
+        style={{ ...btn(STATE_META[tile.who === 'you' ? 'you' : 'afk'].color, '#14121c'), marginTop: 8 }}>
+        {tile.who === 'you' ? 'Answer in its conversation →' : 'Open its conversation →'}
+      </button>
+    : null
 
   const list = (ts: Tile[]) => ts.map(t => `#${t.number}`).join(', ').replace(/, ([^,]*)$/, ' and $1')
   return (
@@ -98,6 +107,7 @@ export function TicketChain({ detail, tile, hasSession, onOpenTile, statuses }: 
           </div>
           <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{tile.title}</div>
           <div style={{ fontSize: T.small, marginTop: 6, lineHeight: 1.45 }}>{status}</div>
+          {sessionAction}
         </div>
       </div>
 
