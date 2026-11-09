@@ -7,6 +7,7 @@ import { cached, remember } from './cache'
 import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit, useStoredSize } from './layout'
+import { Decisions, SessionSidebar } from './SessionPanel'
 import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
@@ -48,6 +49,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
+  // A session's own right panel: its decision cards and its ticket.
+  const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
 
@@ -327,12 +330,16 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
+  // A done ticket (or a conversation KiPo closed) is settled: its unanswered
+  // decision cards are history, never questions still waiting on you.
+  const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* One view. The conductor screen: its conversation, with the effort as
-          seven stations on the right. A ticket's session: its map over its
-          conversation at full width. */}
+      {/* One view. The conductor screen: its conversation, with its question
+          cards and the effort as seven stations on the right. A ticket's
+          session: its map over its conversation, with its question cards and
+          the ticket on the right. */}
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
         <span style={{ ...strong, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={detail.title}>
@@ -385,32 +392,53 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                 </section>
                 <Divider direction="vertical" label="Resize the conversation and the stations"
                   onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
-                <section style={{ flex: `0 0 ${rightWidth}px`, width: rightWidth, minWidth: 340, minHeight: 0 }}>
-                  <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
-                    autopilot={autopilot} onAutopilot={setAutopilot}
-                    onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
+                <section style={{ flex: `0 0 ${rightWidth}px`, width: rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {/* The conductor's own questions (its Ask-you batch), answerable here. */}
+                  {(() => {
+                    const cState = convState ?? detail.state
+                    if (!cState?.decisions.some(d => !d.answer) && !cState?.blocking) return null
+                    return (
+                      <div style={{ flex: 'none', maxHeight: '45%', overflowY: 'auto', scrollbarWidth: 'thin', borderBottom: '1px solid var(--border)' }}>
+                        <Decisions key={slotKey ?? 'none'} state={cState} slotKey={slotKey} settled={false} onError={setActionError} />
+                      </div>
+                    )
+                  })()}
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
+                      autopilot={autopilot} onAutopilot={setAutopilot}
+                      onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
+                  </div>
                 </section>
               </div>
             )
           }
 
-          // A ticket's (or stage's) session, full width: its map over the
-          // conversation; the questions and answers happen in the chat itself.
+          // A ticket's (or stage's) session: its map over the conversation in the
+          // middle, and on the right everything it needs from you — the decision
+          // cards (answered together, sent as one message) and the ticket itself.
           const chainTiles = focusTile && detail.frontier ? chain(detail.frontier.tiles, focusTile.number) : []
           return (
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              {chatHead}
-              {focusTile && chainTiles.length > 1 && (<>
-                <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
-                  <div style={{ padding: '6px 16px 0', fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                    Where it sits
+            <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+              <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                {chatHead}
+                {focusTile && chainTiles.length > 1 && (<>
+                  <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
+                    <div style={{ padding: '6px 16px 0', fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      Where it sits
+                    </div>
+                    <TileGraph tiles={chainTiles} focus={focusTile.number} onOpen={openTile} labeled dimOthers={false} statuses={statuses} down />
                   </div>
-                  <TileGraph tiles={chainTiles} focus={focusTile.number} onOpen={openTile} labeled dimOthers={false} statuses={statuses} down />
-                </div>
-                <Divider direction="horizontal" label="Resize the ticket's map and its conversation"
-                  onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
-              </>)}
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
+                  <Divider direction="horizontal" label="Resize the ticket's map and its conversation"
+                    onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
+                </>)}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
+              </section>
+              <Divider direction="vertical" label="Resize the conversation and the session's panel"
+                onDrag={d => setSessionRight(w => w - d)} onReset={() => setSessionRight(420)} />
+              <section style={{ flex: `0 0 ${sessionRight}px`, width: sessionRight, minWidth: 320, minHeight: 0 }}>
+                <SessionSidebar detail={detail} tile={focusTile} state={convState} slotKey={slotKey}
+                  settled={settled} onError={setActionError} />
+              </section>
             </div>
           )
       })()}

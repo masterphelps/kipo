@@ -123,8 +123,13 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     spec, Review the PRs, Run /retro, Close effort behind a confirm). Stations before the
     entry point read "entered at <station>". Autopilot lives in the panel header.
   - **A ticket's session**: its map ("Where it sits": the whole chain, blockers in a top row
-    with arrows down) over its conversation at full width. Questions, interviews and answers
-    happen **in the chat**; there are no decision-card panels anywhere.
+    with arrows down) over its conversation in the middle, and on the right the **session
+    panel**: the conversation's open decision cards (each question's options as radios plus a
+    free-text answer, answered together and sent as one message, "Take all recommendations"),
+    what it's waiting on, what's been decided, and the ticket itself (state, PRs, what it
+    asks, how it ended). Questions and interviews still happen in the chat in full; the cards
+    are the same questions, answerable without typing. The conductor screen shows the
+    conductor's own open cards the same way, above the stations.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
@@ -190,11 +195,12 @@ The detail returns the effort's own as `state` and each ticket conversation's as
 id starts `t<N>-` in the effort's file are shown under ticket N's conversation (from
 conversations seeded before each had its own file).
 
-The UI shows the open conversation's `skillsUsed` as "Running …". Decisions are asked and
-answered **in the chat** (the agent writes each question in full, numbered, with options and
-its recommendation); the state file's `decisions` entries are the record, feeding the
-stations panel's counters (answered · waiting). A closed ticket's unanswered entries are
-settled history, never open questions.
+The UI shows the open conversation's `skillsUsed` as "Running …". Decisions are asked **in
+the chat** in full (numbered, with options and a recommendation) and recorded in the state
+file's `decisions` as they are asked: those entries render as the session panel's answerable
+decision cards and feed the stations panel's counters (answered · waiting). The human answers
+either way — in the chat in any form, or on the cards, which arrive as one combined chat
+message. A closed ticket's unanswered entries are settled history, never open questions.
 
 Artifact labels the backend reads: "Wayfinder map", "Spec", "Source issue".
 
