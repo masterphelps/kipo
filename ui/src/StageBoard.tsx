@@ -258,7 +258,7 @@ const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]
 // rows of tiles tall. Tickets someone can act on come first (HITL, Agent, in
 // progress); whatever doesn't fit is a "+N" that opens the Board. Done is a count.
 const STRIP_TILE = 24 // height of a header tile
-const STRIP_TILE_W = 38 // width: room for a four-digit number
+const STRIP_TILE_W = 44 // width: a four-digit number plus the status dot, no overlap
 const STRIP_GAP = 4
 export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openNumber, statuses, conductor = 'none', conductorOpen, onConductor, onTile, onFog, onMore }: {
   tiles: Tile[]

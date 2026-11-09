@@ -1,9 +1,9 @@
-import { ChatPanel, useAppApi } from '@kirocrew/app-sdk'
+import { useAppApi } from '@kirocrew/app-sdk'
 import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
 import {
-  ActionButton, ErrorLine, MapTag, T, TextButton, fieldStyle, muted, strong,
+  ActionButton, ErrorLine, MapTag, T, TextButton, muted, strong,
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierSummary, type SessionStatus } from './Frontier'
@@ -402,6 +402,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
+  // A done ticket (or a conversation KiPo closed) is settled: its unanswered
+  // decision cards are history, never questions still waiting on you.
+  const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
+  const openDecisionCount = convState?.decisions.filter(d => !d.answer).length ?? 0
   const next = nextStep(detail, {
     openTile,
     startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
@@ -463,35 +467,44 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })}
               onMore={() => setTab('board')} mapUrl={mapUrl} />
           )}
-          {/* The open conversation's own header. */}
+          {/* The open conversation's own header. The embedded chat page carries the
+              session's title (and renaming) itself, so with a session open this row
+              holds only what the chat page doesn't: the way back, what's running,
+              /wait-what, open decisions, and the ticket's details. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
             {focus.kind !== 'column' && (
               <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
             )}
-            {slotKey
-              ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
-              : <span style={{ ...strong, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {focusTile ? `#${focusTile.number} ${focusTile.title}` : focus.kind === 'column' ? 'Conductor' : detail.title}
-                </span>}
+            {!slotKey && (
+              <span style={{ ...strong, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {focusTile ? `#${focusTile.number} ${focusTile.title}` : focus.kind === 'column' ? 'Conductor' : detail.title}
+              </span>
+            )}
+            {slotKey && (
+              <span style={{ ...muted, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                {focusTile ? `#${focusTile.number}` : focus.kind === 'column' ? 'Conductor' : null}
+              </span>
+            )}
             {slotKey && running.length > 0 && <Running skills={running} />}
             <span style={{ flex: 1 }} />
-            {focusTile && <TextButton onClick={() => setTab('board')} title="This ticket's details, where it sits and its decisions, on the Board">Details →</TextButton>}
             {slotKey && (
-              <TextButton onClick={() => openInKiroChat(slotKey)}
-                title="Open this session in Kiro's own chat, with its right panel: subagents, browser, background work. Kiro keeps that panel closed when a chat is embedded in an app.">
-                Open in Kiro chat ↗
+              <button type="button" onClick={() => void runSkill('wait-what')} title={SKILL_HINTS['wait-what']}
+                style={{ background: 'transparent', padding: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: T.tiny, textDecoration: 'underline dotted', whiteSpace: 'nowrap' }}>
+                /wait-what
+              </button>
+            )}
+            {sent && <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }}>sent /{sent}</span>}
+            {/* Open decision cards have one home: the Board's right panel. */}
+            {!settled && openDecisionCount > 0 && (
+              <TextButton onClick={() => setTab('board')} title="This conversation is waiting on your answers. The cards are on the Board's right panel, answered together.">
+                {openDecisionCount} decision{openDecisionCount === 1 ? '' : 's'} open →
               </TextButton>
             )}
+            {focusTile && <TextButton onClick={() => setTab('board')} title="This ticket's details, where it sits and its decisions, on the Board">Details →</TextButton>}
           </div>
-          {/* Its decision cards, answered together. */}
-          {convState?.decisions.some(d => !d.answer) && (
-            <div style={{ maxHeight: '38%', overflowY: 'auto', padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
-              <Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />
-            </div>
-          )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
-              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
+              <KiroChatFrame key={slotKey} slotKey={slotKey} />
             ) : (
               <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
                 onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
@@ -538,11 +551,11 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
           {focusTile ? (
             <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />} />
+              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />} />
           ) : (
             <EffortInspector repo={repo} number={number} detail={detail} stage={stage} autopilot={autopilot} onAutopilot={setAutopilot}
               showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
-              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />}
+              decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />}
               onOpenTile={openTile} />
           )}
         </div>
@@ -559,15 +572,22 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 // order, change your mind freely), then send them all as one message. One reply
 // lets the agent take every answer in one turn, instead of a queue of single
 // answers it has to work through one at a time.
-function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slotKey: string | null; onError: (m: string) => void }) {
+function Decisions({ state, slotKey, settled, onError }: {
+  state: PhaseState | null
+  slotKey: string | null
+  settled?: boolean // the ticket is done (or its conversation closed): nothing here waits on you
+  onError: (m: string) => void
+}) {
   const api = useAppApi()
   const [picks, setPicks] = useState<Record<string, string>>({})
   const [sent, setSent] = useState<Record<string, string>>({}) // sent, until the agent records them
   const [sending, setSending] = useState(false)
-  const open = state?.decisions.filter(d => !d.answer && !sent[d.id]) ?? []
-  const waiting = state?.decisions.filter(d => !d.answer && sent[d.id]) ?? []
+  const open = settled ? [] : state?.decisions.filter(d => !d.answer && !sent[d.id]) ?? []
+  const waiting = settled ? [] : state?.decisions.filter(d => !d.answer && sent[d.id]) ?? []
   const decided = state?.decisions.filter(d => d.answer) ?? []
-  if (!open.length && !waiting.length && !decided.length && !state?.blocking) return null
+  // Settled work asks nothing: unanswered cards read as history, not questions.
+  const unrecorded = settled ? state?.decisions.filter(d => !d.answer) ?? [] : []
+  if (!open.length && !waiting.length && !decided.length && !unrecorded.length && !(state?.blocking && !settled)) return null
 
   const picked = open.filter(d => (picks[d.id] ?? '').trim())
   const withRecommendation = open.filter(d => d.recommended)
@@ -606,7 +626,8 @@ function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slot
   return (
     <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {open.length > 0 && (
-        <Block title={<>Decisions (<Abbr term="HITL">HITL</Abbr>)</>} aside={`${picked.length} of ${open.length} answered`}>
+        <Block title={<>Decisions (<Abbr term="HITL">HITL</Abbr>)</>}
+          aside={picked.length ? `${picked.length} of ${open.length} picked` : `${open.length} open`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {open.map((d, i) => (
               <DecisionCard key={d.id} n={i + 1} decision={d} pick={picks[d.id] ?? null} disabled={!slotKey || sending}
@@ -640,18 +661,25 @@ function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slot
           </ul>
         </Block>
       )}
-      {state?.blocking && (
+      {state?.blocking && !settled && (
         <Block title="Waiting on">
           <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: T.body }}>{state.blocking}</div>
         </Block>
       )}
-      {decided.length > 0 && (
-        <Block title="Decided" aside={decided.length} collapsible defaultOpen={false}>
+      {(decided.length > 0 || unrecorded.length > 0) && (
+        <Block title="Decided" aside={`${decided.length}${unrecorded.length ? ` · ${unrecorded.length} settled in the conversation` : ''}`}
+          collapsible defaultOpen={false}>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {decided.map(d => (
               <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
                 <div style={muted}>{d.title}</div>
                 <div>{d.answer}</div>
+              </li>
+            ))}
+            {unrecorded.map(d => (
+              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
+                <div style={muted}>{d.title}</div>
+                <div style={{ ...muted, fontStyle: 'italic' }}>Settled in the conversation; no answer was recorded.</div>
               </li>
             ))}
           </ul>
@@ -663,116 +691,26 @@ function Decisions({ state, slotKey, onError }: { state: PhaseState | null; slot
 
 // ---------------------------------------------------------------- middle column
 
-// The open session's name. Click it to rename: the new name is saved as a manual
-// title, which the dashboard keeps instead of the automatic one.
-function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string }) {
-  const api = useAppApi()
-  const [name, setName] = useState<string | null>(null)
-  const [draft, setDraft] = useState<string | null>(null)
-  const [error, setError] = useState('')
-  const cancelled = useRef(false)
-
-  useEffect(() => {
-    let live = true
-    api.get<{ title?: string }>(`/api/chat/slots/${encodeURIComponent(slotKey)}?limit=1`)
-      .then(r => { if (live && r?.title) setName(r.title) })
-      .catch(() => undefined)
-    return () => { live = false }
-  }, [api, slotKey])
-
-  const shown = name ?? fallback
-  const save = async () => {
-    const next = (draft ?? '').trim()
-    setDraft(null)
-    if (cancelled.current) { cancelled.current = false; return }
-    if (!next || next === shown) return
-    const before = name
-    setName(next)
-    setError('')
+// Kiro's full chat page for the session, right panel and all: subagents, browser,
+// terminal, background work. The popout route is the one surface where Kiro keeps
+// that panel working in an embedded chat (its /chat page suppresses it whenever
+// the chat is embedded and not a popout), and it centers the conversation at
+// Kiro's own reading width. Same origin, so it shares the dashboard's login.
+function KiroChatFrame({ slotKey }: { slotKey: string }) {
+  const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
+  const ref = useRef<HTMLIFrameElement>(null)
+  // A control inside the page ("return to main") would navigate the frame to the
+  // whole dashboard; put it back on the popout chat instead.
+  const onLoad = () => {
+    const frame = ref.current
     try {
-      await api.patch(`/api/chat/slots/${encodeURIComponent(slotKey)}/title`, { title: next })
-    } catch (e) {
-      setName(before)
-      setError(`Couldn't rename: ${errorText(e)}`)
-    }
-  }
-
-  if (draft !== null) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        maxLength={200}
-        aria-label="Session name"
-        onChange={e => setDraft(e.target.value)}
-        onFocus={e => e.target.select()}
-        onBlur={save}
-        onKeyDown={e => {
-          if (e.key === 'Enter') e.currentTarget.blur()
-          if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur() }
-        }}
-        style={{ ...fieldStyle, ...strong, fontSize: T.title, padding: '2px 6px', flex: '1 1 auto', maxWidth: 520 }}
-      />
-    )
+      const path = frame?.contentWindow?.location.pathname
+      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
+    } catch { /* same origin, so never unreadable; just in case */ }
   }
   return (
-    <button
-      type="button"
-      onClick={() => setDraft(shown)}
-      title={error || 'Click to rename this session'}
-      style={{
-        ...strong, fontSize: T.title, minWidth: 0, maxWidth: 520, padding: '2px 6px', margin: '0 -6px',
-        borderRadius: 4, background: 'transparent', cursor: 'text', textAlign: 'left',
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        color: error ? 'var(--danger-text)' : 'var(--text-strong, var(--text))',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-elevated)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-    >
-      {shown}
-    </button>
-  )
-}
-
-// Kiro's own chat page for a session (the route its app-SDK launcher uses), where
-// its right panel works: subagents, browser, background work. Embedded in an app,
-// Kiro keeps that panel closed and offers no way to open it.
-function openInKiroChat(slotKey: string) {
-  const url = `/chat?sid=${encodeURIComponent(slotKey)}`
-  try {
-    window.history.pushState({}, '', url)
-    window.dispatchEvent(new PopStateEvent('popstate'))
-  } catch {
-    window.location.assign(url)
-  }
-}
-
-function PhaseChat({ slotKey, onSkill, sent }: {
-  slotKey: string
-  onSkill: (s: string) => void
-  sent: string | null
-}) {
-  // Kiro's own chat for the session, the conversation alone (no sessions list).
-  // Its right panel only works on Kiro's chat page: "Open in Kiro chat" goes there.
-  // No skill menu: KiPo starts each conversation with the right skill. One
-  // reaction is worth a click, because it answers the agent's last message:
-  // /wait-what. Any other skill can be typed.
-  const controls = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 16px', fontSize: T.tiny, borderBottom: '1px solid var(--border)' }}>
-      <button type="button" onClick={() => onSkill('wait-what')} title={SKILL_HINTS['wait-what']}
-        style={{ background: 'transparent', padding: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: T.tiny, textDecoration: 'underline dotted' }}>
-        /wait-what: say that again in plain words
-      </button>
-      {sent && <span style={muted}>· sent /{sent}</span>}
-    </div>
-  )
-  return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {controls}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <ChatPanel key={slotKey} slotKey={slotKey} conversationOnly />
-      </div>
-    </div>
+    <iframe ref={ref} src={src} title="The session in Kiro's chat" onLoad={onLoad}
+      style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />
   )
 }
 
@@ -806,8 +744,8 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     if (tile.state === 'done') {
       title = 'Closed'
       body = tile.sessionKey
-        ? 'Its conversation was closed when the ticket was. How it ended is on the right.'
-        : 'How it ended is on the right.'
+        ? 'Its conversation was closed when the ticket was. How it ended is on the Board (Details →).'
+        : 'How it ended is on the Board (Details →).'
       action = null
     } else if (tile.state === 'blocked') {
       title = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}`

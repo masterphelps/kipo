@@ -38,6 +38,7 @@ The effort is too big or too foggy for one session. This conversation either cha
 
 - **Charting** (no `Ticket:`, on a `huge` start): run `wayfinder` to name the destination (as the effort's `## Destination`), chart the map with what you can ticket now, and sketch the rest into Not yet specified. Record the map as artifact "Wayfinder map" (exactly that label: KiPo reads the map from it). Then stop: charting resolves nothing.
 - **A ticket** (the seed has `Ticket:`): claim that one ticket first (assign it), resolve it as its `wayfinder:<type>` label says, post the answer as a comment, close it, and add its line to the map's Decisions so far. Graduate any fog the answer made specifiable into new tickets. Then stop: one ticket per conversation.
+- **Record answers before you close.** Write every decision card's final `answer` into the state file *before* closing the ticket on GitHub: the moment the ticket closes, KiPo shows it as done, and a done ticket with unanswered cards reads as the board asking the human questions about finished work.
 - **The way is clear** when the map has no open tickets and nothing in scope left in Not yet specified. KiPo then shows "The map is clear" with a "Write the spec" action. Say so in one line. If the effort turned out small, say that instead: the human can build it directly.
 
 ## Documents
