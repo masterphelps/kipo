@@ -54,11 +54,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   const [wide, setWide] = useState(false)
   const [sent, setSent] = useState<string | null>(null)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
-  // Horizontal splits: the bars and tiles over the chat, and a ticket's chain over its details.
-  const summarySplit = useFitSplit('summary', 56, 0.6)
+  // On the Board, a ticket's chain over its details.
   const chainSplit = useFitSplit('chain', 100, 0.75)
-  // The middle shows one thing at a time: the conversation, or the map of the
-  // effort's tickets (where you pick one to open).
+  // Two views, one at a time: the session (the default) or the board. Remembered per effort.
+  const tabKey = `kipo.tab:${repo}#${number}`
+  const [tab, setTabState] = useState<'session' | 'board'>(() => (localStorage.getItem(tabKey) === 'board' ? 'board' : 'session'))
+  const setTab = (v: 'session' | 'board') => { setTabState(v); try { localStorage.setItem(tabKey, v) } catch { /* private mode */ } }
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -414,61 +415,105 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     hasMain: !!detail.sessions[detail.column],
   })
 
+  const conductorState = !conductorSlot ? 'none' as const : conductorRunning ? 'running' as const : 'idle' as const
+  const mapUrl = detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null
+  const toSession = (t: Tile) => { setFocus(tileFocus(t)); setTab('session') }
+
   return (
-    <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
-      {/* Middle: the conversation. */}
-      {!wide && (
-        <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* The conversation's own header: the one place to go back to the effort's
-              conversation; tickets are opened from the board above it. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+    <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Two views of the effort. Session (the default): a thin row of the seven
+          stages with their tickets as tiles, then the open conversation in Kiro's
+          own chat, side panel and all. Board: the conductor and the seven KiPo
+          skills, every ticket as a card; a click shows it on the right, a
+          double-click opens its session. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 0', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+        {(['session', 'board'] as const).map(v => {
+          const on = tab === v
+          return (
+            <button key={v} type="button" role="tab" aria-selected={on} onClick={() => setTab(v)}
+              style={{ background: 'transparent', padding: '6px 10px 8px', marginBottom: -1, cursor: 'pointer', fontSize: T.small,
+                color: on ? 'var(--text)' : 'var(--muted)', fontWeight: on ? 600 : 400, borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}>
+              {v === 'session' ? 'Session' : 'Board'}
+            </button>
+          )
+        })}
+        <span style={{ ...strong, fontSize: T.small, marginLeft: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={detail.title}>
+          #{detail.number} {detail.title}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
+        <div style={{ paddingBottom: 4 }}>
+          <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
+            onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
+        </div>
+      </div>
+      {actionError && <div style={{ padding: '6px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
+
+      {tab === 'session' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {detail.frontier && (
+            <FrontierSummary variant="strip" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
+              onTile={t => setFocus(tileFocus(t))} openNumber={focusTile?.number ?? null} statuses={statuses}
+              conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })} mapUrl={mapUrl} />
+          )}
+          {/* The open conversation's own header. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
             {focus.kind !== 'column' && (
-              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the effort's own conversation">← Effort</TextButton>
+              <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
             )}
             {slotKey
               ? <SessionName key={slotKey} slotKey={slotKey} fallback={detail.title} />
-              : <span style={{ ...strong, fontSize: T.title, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{focusTile ? `#${focusTile.number}` : detail.title}</span>}
+              : <span style={{ ...strong, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {focusTile ? `#${focusTile.number} ${focusTile.title}` : focus.kind === 'column' ? 'Conductor' : detail.title}
+                </span>}
             {slotKey && running.length > 0 && <Running skills={running} />}
             <span style={{ flex: 1 }} />
-            <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
+            {focusTile && <TextButton onClick={() => setTab('board')} title="This ticket's details, where it sits and its decisions, on the Board">Details →</TextButton>}
           </div>
-          {detail.frontier?.lanes && (<>
-            <div ref={summarySplit.ref} style={summarySplit.style}>
-              <FrontierSummary frontier={detail.frontier} prs={detail.prs} effort={detail.number} onTile={openTile} openNumber={focusTile?.number ?? null} statuses={statuses}
-                conductor={!conductorSlot ? 'none' : conductorRunning ? 'running' : 'idle'} onSkill={(s, k) => { void runStageSkill(s, k) }}
-                mapUrl={detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null}
-                next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
+          {/* Its decision cards, answered together. */}
+          {convState?.decisions.some(d => !d.answer) && (
+            <div style={{ maxHeight: '38%', overflowY: 'auto', padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
+              <Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} onError={setActionError} />
             </div>
-            <Divider direction="horizontal" label="Resize the bars and the conversation"
-              onDrag={summarySplit.onDrag} onReset={summarySplit.reset} />
-          </>)}
+          )}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {slotKey ? (
-              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} />
+              <PhaseChat key={slotKey} slotKey={slotKey} onSkill={runSkill} sent={sent} full />
             ) : (
               <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
                 onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
                 alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
             )}
           </div>
+        </div>
+      ) : (
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
+      {/* Middle: the board. */}
+      {!wide && (
+        <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, overflowY: 'auto' }}>
+          {detail.frontier && (
+            <FrontierSummary variant="board" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
+              onTile={openTile} onSession={toSession} openNumber={focusTile?.number ?? null} statuses={statuses}
+              conductor={conductorState} onSkill={(s, k) => { void runStageSkill(s, k); setTab('session') }} mapUrl={mapUrl}
+              next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
+          )}
         </section>
       )}
 
       {!wide && (
-        <Divider direction="vertical" label="Resize the conversation and the column panel"
+        <Divider direction="vertical" label="Resize the board and the ticket panel"
           onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
       )}
 
-      {/* Right: whatever is open. A ticket's card for a tile, the effort's overview otherwise. */}
+      {/* Right: whatever is picked. A ticket's card for a card, the effort's overview otherwise. */}
       <section style={{ flex: wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: wide ? undefined : rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 41 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 37 }}>
+          {focusTile
+            ? <TextButton onClick={() => setTab('session')} title="Open this ticket's conversation">Session →</TextButton>
+            : <TextButton onClick={() => { setFocus({ kind: 'column' }); setTab('session') }} title="Open the conductor's conversation">Conductor session →</TextButton>}
           <span style={{ flex: 1 }} />
-          <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the conversation' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
-          <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
-            onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
+          <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the board' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
         </div>
-
-        {actionError && <div style={{ padding: '8px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
         {focusTile && (<>
           <div ref={chainSplit.ref} style={chainSplit.style}>
@@ -489,6 +534,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           )}
         </div>
       </section>
+      </div>
+      )}
     </div>
   )
 }
@@ -674,10 +721,14 @@ function SessionName({ slotKey, fallback }: { slotKey: string; fallback: string 
   )
 }
 
-function PhaseChat({ slotKey, onSkill, sent }: {
+function PhaseChat({ slotKey, onSkill, sent, full }: {
   slotKey: string
   onSkill: (s: string) => void
   sent: string | null
+  // Kiro's whole chat page: its top bar and its side panel (the agent's
+  // subagents, browser, checks, background work). Without it, the conversation
+  // alone: the host turns its side panel off in conversation-only mode.
+  full?: boolean
 }) {
   // Kiro's own chat for the session, side panel and all: what the agent is
   // running in the background (subagents, checks, workflows) shows there, as in
@@ -697,7 +748,7 @@ function PhaseChat({ slotKey, onSkill, sent }: {
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {controls}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <ChatPanel key={slotKey} slotKey={slotKey} conversationOnly />
+        <ChatPanel key={`${slotKey}:${full ? 'full' : 'chat'}`} slotKey={slotKey} conversationOnly={!full} />
       </div>
     </div>
   )

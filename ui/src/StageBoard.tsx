@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { STATE_META, type SessionStatus } from './Frontier'
+import { STATE_META, TileButton, type SessionStatus } from './Frontier'
 import { STATE_MEANING, TERM } from './glossary'
 import type { PrInfo, Tile } from './types'
 
@@ -43,7 +43,7 @@ const columnOf = (t: Tile): ColId =>
           : t.type === 'grilling' ? 'grill'
             : 'shape'
 
-export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effort, openNumber, statuses, conductor = 'none', onTile, onFog, onSkill }: {
+export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effort, openNumber, statuses, conductor = 'none', onTile, onSession, onFog, onSkill }: {
   tiles: Tile[]
   prs?: PrInfo[]
   fogItems?: string[]
@@ -52,7 +52,8 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
   openNumber: number | null
   statuses: Record<number, SessionStatus>
   conductor?: 'none' | 'idle' | 'running' // the effort's conductor session: none yet, waiting, or mid-turn
-  onTile: (t: Tile) => void
+  onTile: (t: Tile) => void // a click: the ticket's details on the right
+  onSession?: (t: Tile) => void // a double-click: the ticket's session
   onFog?: (at: { x: number; y: number }) => void
   onSkill?: (stage: ColId, skill: string) => void // run one of Matt's skills in that stage's own conversation
 }) {
@@ -155,7 +156,8 @@ export function StageBoard({ tiles, prs = [], fogItems = [], fogLeft = [], effor
                     </div>
                     {(ts.length > 0 || extras[id]) && <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />}
                     {ts.map(t => <Card key={t.number} t={t} compact={id === 'done'} open={t.number === openNumber}
-                      running={statuses[t.number] === 'running'} prs={prs.filter(p => p.tickets.includes(t.number))} onClick={() => onTile(t)} />)}
+                      running={statuses[t.number] === 'running'} prs={prs.filter(p => p.tickets.includes(t.number))}
+                      onClick={() => onTile(t)} onDoubleClick={onSession && (() => onSession(t))} />)}
                     {extras[id]}
                   </div>
                 )
@@ -195,13 +197,15 @@ function Pill({ state }: { state: Tile['state'] }) {
   )
 }
 
-function Card({ t, compact, open, running, prs, onClick }: { t: Tile; compact: boolean; open: boolean; running: boolean; prs: PrInfo[]; onClick: () => void }) {
+function Card({ t, compact, open, running, prs, onClick, onDoubleClick }: {
+  t: Tile; compact: boolean; open: boolean; running: boolean; prs: PrInfo[]; onClick: () => void; onDoubleClick?: () => void
+}) {
   const m = STATE_META[t.state]
   const act = t.state === 'you' || t.state === 'afk'
   const waits = t.state === 'blocked' && t.blockedBy.length ? `waits on ${t.blockedBy.map(b => `#${b}`).join(', ')}` : ''
   return (
-    <button type="button" onClick={onClick}
-      title={`#${t.number} ${t.title}\n\n${TYPE_LABEL[t.type]} · ${STATE_MEANING[t.state]}${waits ? `\nIt ${waits}` : ''}${running ? '\nAn agent is working on it now' : ''}${prs.length ? `\n${prs.map(p => `PR #${p.number} (${p.state.toLowerCase()})`).join(', ')}` : ''}`}
+    <button type="button" onClick={onClick} onDoubleClick={onDoubleClick}
+      title={`#${t.number} ${t.title}\n\n${TYPE_LABEL[t.type]} · ${STATE_MEANING[t.state]}${waits ? `\nIt ${waits}` : ''}${running ? '\nAn agent is working on it now' : ''}${prs.length ? `\n${prs.map(p => `PR #${p.number} (${p.state.toLowerCase()})`).join(', ')}` : ''}${onDoubleClick ? '\n\nClick: its details on the right · double-click: its session' : ''}`}
       style={{ display: 'flex', width: '100%', minWidth: 0, textAlign: 'left', padding: 0, cursor: 'pointer', borderRadius: 7, overflow: 'hidden', background: 'var(--bg)', color: 'var(--text)',
         border: `1px solid ${open ? 'var(--accent)' : act ? m.color : 'var(--border)'}`, boxShadow: act ? `0 0 10px ${m.color}33` : undefined, flex: 'none' }}>
       <span style={{ width: 3, flex: 'none', background: m.color, opacity: t.state === 'done' ? 0.55 : 1 }} />
@@ -245,3 +249,76 @@ function Loose({ kind, text, sub, title, onClick }: {
 }
 
 const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+
+// The session view's header: the conductor, then the seven stages as a thin row
+// of columns, each with its tickets as small tiles. A tile opens that ticket's
+// session; the conductor chip opens the conductor's.
+export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openNumber, statuses, conductor = 'none', conductorOpen, onConductor, onTile, onFog }: {
+  tiles: Tile[]
+  prs?: PrInfo[]
+  fogItems?: string[]
+  fogLeft?: string[]
+  openNumber: number | null
+  statuses: Record<number, SessionStatus>
+  conductor?: 'none' | 'idle' | 'running'
+  conductorOpen: boolean // the conductor's session is the one on screen
+  onConductor: () => void
+  onTile: (t: Tile) => void
+  onFog?: (at: { x: number; y: number }) => void
+}) {
+  const byCol = new Map<ColId, Tile[]>(COLUMNS.map(c => [c.id, []]))
+  for (const t of tiles) byCol.get(columnOf(t))!.push(t)
+  for (const ts of byCol.values()) ts.sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.number - b.number)
+  const known = new Set(tiles.map(t => t.number))
+  const strayPrs = prs.filter(p => p.state === 'OPEN' && !p.tickets.some(n => known.has(n)))
+  const status = conductor === 'running' ? 'running' : conductor === 'idle' ? 'watching' : 'not started'
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'stretch', minWidth: 'min-content' }}>
+      <button type="button" onClick={onConductor} title={`The conductor (${status}). Click to open its conversation.`}
+        style={{ flex: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', textAlign: 'left',
+          background: conductorOpen ? 'color-mix(in srgb, var(--accent) 22%, var(--bg-elevated))' : 'var(--bg-elevated)', color: 'var(--text)',
+          border: `1px ${conductor === 'none' ? 'dashed' : 'solid'} ${conductorOpen ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 50%, var(--border))'}` }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-strong, var(--text))' }}>Conductor</span>
+        <span style={{ fontSize: 9.5, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+          {conductor !== 'none' && <span className={conductor === 'running' ? 'kipo-pulse' : undefined} style={{ width: 6, height: 6, borderRadius: 9, background: 'var(--accent)' }} />}
+          {status}
+        </span>
+      </button>
+      {COLUMNS.map(col => {
+        const ts = byCol.get(col.id)!
+        const loose: ReactNode[] = []
+        if (col.id === 'shape' && fogItems.length) loose.push(<Mini key="fog" text={`☁ ${fogItems.length}`} title={`${STATE_MEANING.fog}\n\n${fogItems.map(f => `• ${plain(f)}`).join('\n')}`} onClick={onFog} />)
+        if (col.id === 'shape' && fogLeft.length) loose.push(<Mini key="left" text={`${fogLeft.length} left`} color={STATE_META.you.color} title={`Left unspecified when the map closed. HITL: file each as an issue, or drop it.\n\n${fogLeft.map(f => `• ${plain(f)}`).join('\n')}`} onClick={onFog} />)
+        if (col.id === 'review') for (const p of strayPrs) loose.push(<Mini key={p.number} text={`PR #${p.number}`} color={STATE_META.review.color} title={`PR #${p.number} · ${p.title}\nOpen, and it closes no ticket of this effort. Click to open it on GitHub.`} onClick={() => window.open(p.url, '_blank', 'noreferrer')} />)
+        const empty = !ts.length && !loose.length
+        const live = ts.some(t => t.state === 'you' || t.state === 'afk' || t.state === 'building' || statuses[t.number] === 'running')
+        return (
+          <div key={col.id} title={empty ? `${col.label} · ${col.skill}: nothing here now` : undefined}
+            style={{ flex: empty ? '0 0 auto' : '1 1 auto', padding: '3px 6px 4px', borderRadius: 7, background: 'var(--bg-elevated)', minWidth: 0,
+              border: `1px solid ${live ? 'color-mix(in srgb, var(--accent) 55%, var(--border))' : 'var(--border)'}`, opacity: empty ? 0.55 : 1 }}>
+            <div title={`${col.label} · ${col.skill}\n${col.what}`} style={{ fontSize: 10, fontWeight: 650, color: empty ? 'var(--muted)' : 'var(--text-strong, var(--text))', whiteSpace: 'nowrap', cursor: 'help' }}>
+              {col.label}{ts.length ? <span style={{ fontWeight: 400, color: 'var(--muted)' }}> {ts.length}</span> : null}
+            </div>
+            {!empty && (
+              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3, maxWidth: col.id === 'done' ? 200 : 260 }}>
+                {ts.map(t => <TileButton key={t.number} tile={t} size={24} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)}
+                {loose}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function Mini({ text, title, color, onClick }: { text: string; title: string; color?: string; onClick?: ((at: { x: number; y: number }) => void) | (() => void) }) {
+  return (
+    <button type="button" title={title} disabled={!onClick}
+      onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onClick?.({ x: r.left, y: r.bottom + 4 }) }}
+      style={{ height: 30, padding: '0 6px', borderRadius: 6, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'help',
+        background: 'transparent', color: color ?? 'var(--muted)', border: `1px dashed ${color ?? 'var(--muted)'}` }}>
+      {text}
+    </button>
+  )
+}

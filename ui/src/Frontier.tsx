@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { Popover } from './Menu'
 import { T } from './common'
 import { tileMeaning } from './glossary'
-import { StageBoard, type ColId } from './StageBoard'
+import { StageBoard, StageStrip, type ColId } from './StageBoard'
 import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type PrInfo, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
@@ -144,16 +144,20 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // every ticket of the effort on the board, one column per KiPo skill, each
 // with its state. A ticket opens its conversation.
 
-export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, statuses, conductor, onSkill, next, mapUrl }: {
+export function FrontierSummary({ variant, frontier, prs, effort, onTile, onSession, openNumber, statuses, conductor, conductorOpen = false, onConductor, onSkill, next, mapUrl }: {
+  variant: 'board' | 'strip' // the Board tab, or the session view's thin header
   mapUrl?: string | null // the wayfinder map, for the fog popover
   frontier: Frontier
   prs: PrInfo[]
   effort: number
-  onTile: (t: Tile) => void
+  onTile: (t: Tile) => void // board: a click shows its details; strip: opens its session
+  onSession?: (t: Tile) => void // board: a double-click opens its session
   openNumber: number | null
   statuses: Record<number, SessionStatus>
   conductor: 'none' | 'idle' | 'running'
-  onSkill: (stage: ColId, skill: string) => void
+  conductorOpen?: boolean
+  onConductor?: () => void
+  onSkill?: (stage: ColId, skill: string) => void
   next?: ReactNode
 }) {
   // Always shown, even before the effort has tickets: the conductor and the
@@ -162,13 +166,20 @@ export function FrontierSummary({ frontier, prs, effort, onTile, openNumber, sta
   const [fogAt, setFogAt] = useState<{ x: number; y: number } | null>(null)
   const fogList = frontier.fogItems?.length ? frontier.fogItems : frontier.fogLeft ?? []
   const left = !frontier.fogItems?.length && !!frontier.fogLeft?.length
+  const strip = variant === 'strip'
   return (
-    <div style={{ padding: '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: '1px solid var(--border)' }}>
+    <div style={{ padding: strip ? '6px 12px' : '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: strip ? '1px solid var(--border)' : undefined }}>
       <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
       {next}
       <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
-        <StageBoard tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []} effort={effort}
-          openNumber={openNumber} statuses={statuses} conductor={conductor} onTile={onTile} onFog={setFogAt} onSkill={onSkill} />
+        {strip ? (
+          <StageStrip tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []}
+            openNumber={openNumber} statuses={statuses} conductor={conductor} conductorOpen={conductorOpen}
+            onConductor={onConductor ?? (() => {})} onTile={onTile} onFog={setFogAt} />
+        ) : (
+          <StageBoard tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []} effort={effort}
+            openNumber={openNumber} statuses={statuses} conductor={conductor} onTile={onTile} onSession={onSession} onFog={setFogAt} onSkill={onSkill} />
+        )}
       </div>
       {fogAt && (
         <Popover x={fogAt.x} y={fogAt.y} label="Not yet specified" onClose={() => setFogAt(null)}>
