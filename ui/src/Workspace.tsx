@@ -460,7 +460,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           {detail.frontier && (
             <FrontierSummary variant="strip" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
               onTile={t => setFocus(tileFocus(t))} openNumber={focusTile?.number ?? null} statuses={statuses}
-              conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })} mapUrl={mapUrl} />
+              conductor={conductorState} conductorOpen={focus.kind === 'column'} onConductor={() => setFocus({ kind: 'column' })}
+              onMore={() => setTab('board')} mapUrl={mapUrl} />
           )}
           {/* The open conversation's own header. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>

@@ -144,7 +144,8 @@ export const laneTotal = (f: Frontier, l: Lane) =>
 // every ticket of the effort on the board, one column per KiPo skill, each
 // with its state. A ticket opens its conversation.
 
-export function FrontierSummary({ variant, frontier, prs, effort, onTile, onSession, openNumber, statuses, conductor, conductorOpen = false, onConductor, onSkill, next, mapUrl }: {
+export function FrontierSummary({ variant, frontier, prs, effort, onTile, onSession, openNumber, statuses, conductor, conductorOpen = false, onConductor, onMore, onSkill, next, mapUrl }: {
+  onMore?: () => void // strip: "+N" and Done open the Board
   variant: 'board' | 'strip' // the Board tab, or the session view's thin header
   mapUrl?: string | null // the wayfinder map, for the fog popover
   frontier: Frontier
@@ -175,7 +176,7 @@ export function FrontierSummary({ variant, frontier, prs, effort, onTile, onSess
         {strip ? (
           <StageStrip tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []}
             openNumber={openNumber} statuses={statuses} conductor={conductor} conductorOpen={conductorOpen}
-            onConductor={onConductor ?? (() => {})} onTile={onTile} onFog={setFogAt} />
+            onConductor={onConductor ?? (() => {})} onTile={onTile} onFog={setFogAt} onMore={onMore} />
         ) : (
           <StageBoard tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []} effort={effort}
             openNumber={openNumber} statuses={statuses} conductor={conductor} onTile={onTile} onSession={onSession} onFog={setFogAt} onSkill={onSkill} />

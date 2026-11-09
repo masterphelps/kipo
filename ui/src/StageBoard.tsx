@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { STATE_META, TileButton, type SessionStatus } from './Frontier'
 import { STATE_MEANING, TERM } from './glossary'
 import type { PrInfo, Tile } from './types'
@@ -251,9 +251,15 @@ function Loose({ kind, text, sub, title, onClick }: {
 const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 
 // The session view's header: the conductor, then the seven stages as a thin row
-// of columns, each with its tickets as small tiles. A tile opens that ticket's
-// session; the conductor chip opens the conductor's.
-export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openNumber, statuses, conductor = 'none', conductorOpen, onConductor, onTile, onFog }: {
+// of equal columns, each with its tickets as small tiles. A tile opens that
+// ticket's session; the conductor chip opens the conductor's.
+//
+// It never grows with the effort: every column is the same width and at most two
+// rows of tiles tall. Tickets someone can act on come first (HITL, Agent, in
+// progress); whatever doesn't fit is a "+N" that opens the Board. Done is a count.
+const STRIP_TILE = 22
+const STRIP_GAP = 3
+export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openNumber, statuses, conductor = 'none', conductorOpen, onConductor, onTile, onFog, onMore }: {
   tiles: Tile[]
   prs?: PrInfo[]
   fogItems?: string[]
@@ -265,6 +271,7 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
   onConductor: () => void
   onTile: (t: Tile) => void
   onFog?: (at: { x: number; y: number }) => void
+  onMore?: () => void // "+N": the rest are on the Board
 }) {
   const byCol = new Map<ColId, Tile[]>(COLUMNS.map(c => [c.id, []]))
   for (const t of tiles) byCol.get(columnOf(t))!.push(t)
@@ -272,8 +279,27 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
   const known = new Set(tiles.map(t => t.number))
   const strayPrs = prs.filter(p => p.state === 'OPEN' && !p.tickets.some(n => known.has(n)))
   const status = conductor === 'running' ? 'running' : conductor === 'idle' ? 'watching' : 'not started'
+
+  // How many tiles two rows of one column hold, from the strip's measured width.
+  const box = useRef<HTMLDivElement>(null)
+  const [colW, setColW] = useState(0)
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const measure = () => {
+      const first = el.querySelector<HTMLElement>('[data-stage-col]')
+      if (first) setColW(first.clientWidth)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const perRow = colW ? Math.max(1, Math.floor((colW - 12 + STRIP_GAP) / (STRIP_TILE + STRIP_GAP))) : 4
+  const room = perRow * 2
+
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'stretch', minWidth: 'min-content' }}>
+    <div ref={box} style={{ display: 'grid', gridTemplateColumns: `auto repeat(${COLUMNS.length}, minmax(64px, 1fr))`, gap: 4, alignItems: 'stretch' }}>
       <button type="button" onClick={onConductor} title={`The conductor (${status}). Click to open its conversation.`}
         style={{ flex: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', textAlign: 'left',
           background: conductorOpen ? 'color-mix(in srgb, var(--accent) 22%, var(--bg-elevated))' : 'var(--bg-elevated)', color: 'var(--text)',
@@ -292,19 +318,32 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
         if (col.id === 'review') for (const p of strayPrs) loose.push(<Mini key={p.number} text={`PR #${p.number}`} color={STATE_META.review.color} title={`PR #${p.number} · ${p.title}\nOpen, and it closes no ticket of this effort. Click to open it on GitHub.`} onClick={() => window.open(p.url, '_blank', 'noreferrer')} />)
         const empty = !ts.length && !loose.length
         const live = ts.some(t => t.state === 'you' || t.state === 'afk' || t.state === 'building' || statuses[t.number] === 'running')
+        // Two rows at most: loose ends first (they need someone), then tickets; the rest is "+N".
+        const slots = Math.max(0, room - loose.length)
+        const shown = ts.length > slots ? ts.slice(0, Math.max(0, slots - 1)) : ts
+        const more = ts.length - shown.length
         return (
-          <div key={col.id} title={empty ? `${col.label} · ${col.skill}: nothing here now` : undefined}
-            style={{ flex: empty ? '0 0 auto' : '1 1 auto', padding: '3px 6px 4px', borderRadius: 7, background: 'var(--bg-elevated)', minWidth: 0,
+          <div key={col.id} data-stage-col title={empty ? `${col.label} · ${col.skill}: nothing here now` : undefined}
+            style={{ padding: '3px 6px 4px', borderRadius: 7, background: 'var(--bg-elevated)', minWidth: 0, overflow: 'hidden',
               border: `1px solid ${live ? 'color-mix(in srgb, var(--accent) 55%, var(--border))' : 'var(--border)'}`, opacity: empty ? 0.55 : 1 }}>
-            <div title={`${col.label} · ${col.skill}\n${col.what}`} style={{ fontSize: 10, fontWeight: 650, color: empty ? 'var(--muted)' : 'var(--text-strong, var(--text))', whiteSpace: 'nowrap', cursor: 'help' }}>
+            <div title={`${col.label} · ${col.skill}\n${col.what}`} style={{ fontSize: 10, fontWeight: 650, color: empty ? 'var(--muted)' : 'var(--text-strong, var(--text))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'help' }}>
               {col.label}{ts.length ? <span style={{ fontWeight: 400, color: 'var(--muted)' }}> {ts.length}</span> : null}
             </div>
-            {!empty && (
-              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3, maxWidth: col.id === 'done' ? 200 : 260 }}>
-                {ts.map(t => <TileButton key={t.number} tile={t} size={24} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)}
+            <div style={{ display: 'flex', gap: STRIP_GAP, flexWrap: 'wrap', alignContent: 'flex-start', marginTop: 3, height: 2 * (STRIP_TILE + 6) + STRIP_GAP, overflow: 'hidden' }}>
+              {col.id === 'done' ? (
+                ts.length > 0 && <DoneCount n={ts.length} of={tiles.length} onClick={onMore} />
+              ) : (<>
                 {loose}
-              </div>
-            )}
+                {shown.map(t => <TileButton key={t.number} tile={t} size={STRIP_TILE} onClick={() => onTile(t)} open={t.number === openNumber} status={statuses[t.number]} />)}
+                {more > 0 && (
+                  <button type="button" onClick={onMore} title={`${more} more in ${col.label}: see them all on the Board`}
+                    style={{ width: STRIP_TILE + 4, height: STRIP_TILE + 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: onMore ? 'pointer' : 'default', padding: 0,
+                      background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                    +{more}
+                  </button>
+                )}
+              </>)}
+            </div>
           </div>
         )
       })}
@@ -312,11 +351,24 @@ export function StageStrip({ tiles, prs = [], fogItems = [], fogLeft = [], openN
   )
 }
 
+// Done, as a count and how much of the effort it is.
+function DoneCount({ n, of, onClick }: { n: number; of: number; onClick?: () => void }) {
+  return (
+    <button type="button" onClick={onClick} title={`${n} of ${of} tickets done${onClick ? '. Click to see them on the Board.' : ''}`}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%', padding: '3px 2px', background: 'transparent', border: 0, cursor: onClick ? 'pointer' : 'default', textAlign: 'left' }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: STATE_META.done.text }}>✓ {n}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--muted)' }}> / {of}</span></span>
+      <span style={{ height: 4, width: '100%', borderRadius: 4, background: 'var(--border)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', width: `${of ? (n / of) * 100 : 0}%`, background: STATE_META.done.color }} />
+      </span>
+    </button>
+  )
+}
+
 function Mini({ text, title, color, onClick }: { text: string; title: string; color?: string; onClick?: ((at: { x: number; y: number }) => void) | (() => void) }) {
   return (
     <button type="button" title={title} disabled={!onClick}
       onClick={e => { const r = e.currentTarget.getBoundingClientRect(); onClick?.({ x: r.left, y: r.bottom + 4 }) }}
-      style={{ height: 30, padding: '0 6px', borderRadius: 6, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'help',
+      style={{ height: STRIP_TILE + 6, padding: '0 5px', borderRadius: 6, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'help',
         background: 'transparent', color: color ?? 'var(--muted)', border: `1px dashed ${color ?? 'var(--muted)'}` }}>
       {text}
     </button>
