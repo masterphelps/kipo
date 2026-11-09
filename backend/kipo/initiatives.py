@@ -447,6 +447,9 @@ class Initiatives:
             "updatedAt": issue.get("updatedAt") or "",
             "ticketCounts": None,
             "kind": "map" if is_map(issue) else "effort",
+            # The wayfinder map it runs on: itself for a map, the effort's map otherwise.
+            "mapIssue": issue["number"] if is_map(issue)
+            else derive_meta(body["meta"], body.get("artifacts") or []).get("mapIssue"),
         }
 
     def _fetch(self, repo, number):

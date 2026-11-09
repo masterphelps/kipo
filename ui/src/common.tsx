@@ -230,3 +230,17 @@ export function timeAgo(iso: string): string {
 }
 
 export const isUrl = (href: string) => /^https?:\/\//i.test(href)
+
+// Which wayfinder map a row is: "Map #20" for a map itself, "map #20" for an
+// effort that runs on one, nothing for an effort without a map.
+export function MapTag({ kind, map }: { kind?: 'effort' | 'map'; map?: number | null }) {
+  if (kind !== 'map' && !map) return null
+  const own = kind === 'map'
+  return (
+    <span title={own ? `Wayfinder map #${map ?? ''}, shown as it stands` : `Runs on wayfinder map #${map}`}
+      style={{ flexShrink: 0, fontSize: 10, lineHeight: '15px', padding: '0 5px', borderRadius: 4, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
+        border: `1px solid ${own ? 'var(--accent)' : 'var(--border)'}`, color: own ? 'var(--accent)' : 'var(--muted)' }}>
+      {own ? 'Map' : 'map'}{map ? ` #${map}` : ''}
+    </span>
+  )
+}

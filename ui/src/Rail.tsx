@@ -2,7 +2,7 @@ import { Btn } from '@kirocrew/app-sdk/ui'
 import { ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
-import { T, fieldStyle, muted, strong, timeAgo } from './common'
+import { MapTag, T, fieldStyle, muted, strong, timeAgo } from './common'
 import { LaneBars, frontierTotal, whoIsUp } from './Frontier'
 import { TERM } from './glossary'
 import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
@@ -132,15 +132,13 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
                     }}
                   >
                     <div style={{ ...(on ? strong : {}), fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {i.title}
+                      <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
                     </div>
                     {hasFrontier(i) && (
                       <div style={{ marginTop: 5 }}><LaneBars frontier={i.frontier!} /></div>
                     )}
                     <div style={{ ...muted, fontSize: T.tiny, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {i.kind === 'map' && (
-                        <span title="A wayfinder map, shown as it stands" style={{ flexShrink: 0, padding: '0 5px', borderRadius: 4, border: '1px solid var(--border)', color: 'var(--muted)' }}>Map</span>
-                      )}
+                      <MapTag kind={i.kind} map={i.mapIssue} />
                       {!hasFrontier(i) && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
                       <span title={`${progress(i)}\n\n${TERM.HITL}\n${TERM.Agent}`} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
                       <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>

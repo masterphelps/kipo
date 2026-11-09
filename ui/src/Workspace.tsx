@@ -3,7 +3,7 @@ import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackendError, backend, errorText } from './api'
 import {
-  ActionButton, ErrorLine, T, TextButton, fieldStyle, muted, strong,
+  ActionButton, ErrorLine, MapTag, T, TextButton, fieldStyle, muted, strong,
 } from './common'
 import { cached, remember } from './cache'
 import { FrontierSummary, type SessionStatus } from './Frontier'
@@ -440,6 +440,12 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         <span style={{ ...strong, fontSize: T.small, marginLeft: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={detail.title}>
           #{detail.number} {detail.title}
         </span>
+        {(detail.kind === 'map' || detail.mapIssue) && (
+          <a href={`https://github.com/${detail.repo}/issues/${detail.kind === 'map' ? detail.number : detail.mapIssue}`} target="_blank" rel="noreferrer"
+            title="Open the wayfinder map on GitHub" style={{ textDecoration: 'none', display: 'inline-flex' }}>
+            <MapTag kind={detail.kind} map={detail.kind === 'map' ? detail.number : detail.mapIssue} />
+          </a>
+        )}
         <span style={{ flex: 1 }} />
         <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
         <div style={{ paddingBottom: 4 }}>

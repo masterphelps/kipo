@@ -184,6 +184,8 @@ export type Effort = {
   ticketCounts?: { open: number; closed: number } | null
   // 'map': a wayfinder map KiPo didn't make, shown as it stands (KiPo never writes to it).
   kind?: 'effort' | 'map'
+  // The wayfinder map it runs on: its own number for a map, the effort's map otherwise.
+  mapIssue?: number | null
   // The last frontier seen in this effort's detail (no tiles), for the list's bar.
   frontier?: { counts: FrontierCounts; fog: number; lanes?: Record<'decide' | 'deliver', FrontierCounts>; stage?: Stage } | null
   stage?: Stage

@@ -2,7 +2,7 @@ import { Btn } from '@kirocrew/app-sdk/ui'
 import { ChevronRight, ExternalLink, FolderGit2, FolderOpen, FolderPlus, Map as MapIcon, MoreHorizontal, Search, Target, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
-import { ErrorLine, timeAgo } from './common'
+import { ErrorLine, MapTag, timeAgo } from './common'
 import { LaneBars } from './Frontier'
 import { Confirm, Menu, type MenuItem } from './Menu'
 import { FolderPicker } from './FolderPicker'
@@ -195,7 +195,8 @@ export function ReposPage({ onOpen, onChanged }: {
                               {item.closed ? 'Closed' : 'All done'}
                             </span>
                           )}
-                          {item.title}
+                          <span style={{ color: 'var(--muted)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{item.number}</span> {item.title}
+                          {' '}<MapTag kind={item.kind} map={item.kind === 'map' ? item.number : item.map} />
                         </span>}
                         progress={<Progress p={item.progress} />}
                         meta={`${item.kind === 'map' ? 'Map' : item.map ? `Effort · map #${item.map}` : 'Effort'} · #${item.number} · ${timeAgo(item.updatedAt)}`}
