@@ -1,8 +1,9 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, MessageSquare } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { ActionButton, T, muted, strong } from './common'
 import { STATE_META, type SessionStatus } from './Frontier'
 import { STATE_MEANING } from './glossary'
+import { isClosed } from './sessions'
 import { COLUMN_DEFS, columnOf, type ColId } from './StageBoard'
 import type { EffortDetail, Start, StationsSummary, Tile } from './types'
 
@@ -93,7 +94,12 @@ const LABELS: Record<ColId, string> = {
   intake: 'Intake', shape: 'Shape', grill: 'Grill', plan: 'Plan', build: 'Build', review: 'Review', done: 'Done',
 }
 
-type Row = { key: string; number?: number; title: string; tile?: Tile; chip: { label: string; color: string; solid?: boolean }; url?: string; pulse?: boolean }
+type Row = {
+  key: string; number?: number; title: string; tile?: Tile
+  chip: { label: string; color: string; solid?: boolean }
+  url?: string; pulse?: boolean
+  onOpen?: () => void // a stage conversation's row: opens that conversation
+}
 type Station = {
   id: ColId
   state: 'skipped' | 'queued' | 'live' | 'full'
@@ -106,13 +112,14 @@ type Station = {
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
-export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, onOpenTile, onHandover, onReview, onRetro, onClose }: {
+export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, onOpenTile, onOpenConversation, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
   busy: boolean
   autopilot: boolean
   onAutopilot: (on: boolean) => void
   onOpenTile: (t: Tile) => void
+  onOpenConversation: (key: string) => void // back into a stage conversation (plan, review, done, …, build-spec)
   onHandover: () => void
   onReview: () => void
   onRetro: () => void
@@ -157,34 +164,53 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
     return [...ts].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || a.number - b.number)
   }
 
+  // A station's own conversation, as a row you can always get back into. The
+  // ticket rows open ticket sessions; this row opens the stage's conversation.
+  const CONV_LABEL: Record<string, string> = {
+    intake: 'The intake conversation', shape: 'Charting the map', grill: 'The grill interview',
+    plan: 'Writing the spec', 'build-spec': 'Building every ready ticket',
+    review: 'Reviewing the PRs', done: 'The retro',
+  }
+  const convRow = (key: string): Row[] => {
+    const slot = detail.sessions[key]
+    if (!slot || isClosed(slot)) return []
+    return [{
+      key: `conv-${key}`, title: CONV_LABEL[key] ?? 'Its conversation',
+      chip: { label: 'conversation', color: 'var(--accent)' },
+      onOpen: () => onOpenConversation(key),
+    }]
+  }
+
   const stations: Station[] = ORDER.map(id => {
     const own = byHome.get(id)!
+    const conv = convRow(id === 'build' ? 'build-spec' : id)
     if (id === 'plan') {
       if (buildTiles.length || specArtifact) {
-        return { id, state: 'full', count: <><b style={strong}>1 spec</b> → {buildTiles.length || '?'} tickets</>, segments: [{ n: 1, color: STATE_META.done.color }], rows: [] }
+        return { id, state: 'full', count: <><b style={strong}>1 spec</b> → {buildTiles.length || '?'} tickets</>, segments: [{ n: 1, color: STATE_META.done.color }], rows: conv }
       }
       if (f?.handover) {
         return {
           id, state: 'live', count: <b style={{ color: STATE_META.you.color }}>at the handover</b>,
-          segments: [{ n: 1, color: STATE_META.you.color }], rows: [],
-          action: { label: 'Write the spec', onClick: onHandover },
+          segments: [{ n: 1, color: STATE_META.you.color }], rows: conv,
+          // Once the conversation exists, its row above is the way back in.
+          action: conv.length ? undefined : { label: 'Write the spec', onClick: onHandover },
         }
       }
       const waits = tiles.filter(t => t.lane === 'decide' && t.state !== 'done').length
-      return { id, state: 'queued', count: '', ghost: `/to-spec then /to-tickets, in the grill's conversation · waits on ${waits || 'the'} decision${waits === 1 ? '' : 's'}${fogItems.length ? ` and ${fogItems.length} fog` : ''}`, segments: [], rows: [] }
+      return { id, state: 'queued', count: '', ghost: `/to-spec then /to-tickets, in the grill's conversation · waits on ${waits || 'the'} decision${waits === 1 ? '' : 's'}${fogItems.length ? ` and ${fogItems.length} fog` : ''}`, segments: [], rows: conv }
     }
     if (id === 'review') {
-      if (!openPrs.length && !mergedPrs.length) return { id, state: 'queued', count: '', ghost: 'each PR reviewed, clean ones merged by Merge Danger', segments: [], rows: [] }
+      if (!openPrs.length && !mergedPrs.length && !conv.length) return { id, state: 'queued', count: '', ghost: 'each PR reviewed, clean ones merged by Merge Danger', segments: [], rows: [] }
       return {
         id,
         state: openPrs.length ? 'live' : 'full',
         count: <><b style={strong}>{mergedPrs.length} merged</b>{openPrs.length ? <> · {openPrs.length} waiting</> : null}</>,
         segments: [{ n: mergedPrs.length, color: STATE_META.done.color }, { n: openPrs.length, color: STATE_META.review.color }],
-        rows: openPrs.map(p => ({
+        rows: [...conv, ...openPrs.map(p => ({
           key: `pr${p.number}`, number: p.number, title: p.title, url: p.url,
           chip: { label: 'open', color: STATE_META.review.color },
-        })),
-        action: openPrs.length ? { label: 'Review the PRs', onClick: onReview } : undefined,
+        }))],
+        action: openPrs.length && !conv.length ? { label: 'Review the PRs', onClick: onReview } : undefined,
       }
     }
     if (id === 'done') {
@@ -197,7 +223,8 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
         count: doneCount ? <><b style={strong}>{doneCount} of {tiles.length}</b> · {retroRan ? 'retro ran' : 'retro not yet'}</> : '',
         ghost: doneCount ? undefined : 'closes when the retro runs',
         segments: [{ n: doneCount, color: STATE_META.done.color }, { n: Math.max(0, tiles.length - doneCount), color: 'transparent' }],
-        rows: [],
+        // Every done ticket is listed here (its home station only counts it).
+        rows: [...conv, ...tiles.filter(t => t.state === 'done').sort((a, b) => a.number - b.number).map(tileRow)],
         action: landed && !retroRan
           ? { label: 'Run /retro', onClick: onRetro }
           : canClose
@@ -208,13 +235,13 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
       }
     }
     // Tile stations: intake, shape, grill, build.
-    if (!own.length && !(id === 'shape' && fogItems.length)) {
+    if (!own.length && !(id === 'shape' && fogItems.length) && !conv.length) {
       if (ORDER.indexOf(id) < entryAt) return { id, state: 'skipped', count: `entered at ${LABELS[entry]}`, segments: [], rows: [] }
       if (id === 'build') return { id, state: 'queued', count: '', ghost: 'cut from the spec · done, in agents, ready, blocked', segments: [], rows: [] }
       return { id, state: 'skipped', count: 'nothing here', segments: [], rows: [] }
     }
     const c = counts(own)
-    const live = c.you + c.afk + c.building + c.review + c.blocked > 0
+    const live = c.you + c.afk + c.building + c.review + c.blocked > 0 || (!own.length && conv.length > 0)
     const bits: string[] = []
     if (id === 'grill') { if (c.done) bits.push(`${c.done} answered`); if (c.you) bits.push(`${c.you} waiting`) }
     else { if (c.done) bits.push(`${c.done} done`) ; if (c.you) bits.push(`${c.you} HITL`) }
@@ -224,7 +251,9 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
     if (c.blocked) bits.push(`${c.blocked} blocked`)
     const segments = [seg(c.done, 'done'), seg(c.building, 'building'), seg(c.review, 'review'), seg(c.you, 'you'), seg(c.afk, 'afk'), seg(c.blocked, 'blocked')]
     if (id === 'shape' && fogItems.length) segments.push({ n: fogItems.length, color: 'transparent', dashed: true })
-    const rows = sortRows(own).map(tileRow)
+    // Done tickets are counted here (the segments and the "N done" bit) but
+    // listed only in the Done station; the queue is what's still open.
+    const rows = [...conv, ...sortRows(own.filter(t => t.state !== 'done')).map(tileRow)]
     if (id === 'shape') {
       fogItems.forEach((t, i) => rows.push({
         key: `fog${i}`, title: plain(t),
@@ -344,18 +373,19 @@ function StationRow({ s, open, busy, onToggle, onOpenTile }: {
             </div>
           )}
           {s.rows.map(r => {
-            const open_ = () => { if (r.tile) onOpenTile(r.tile); else if (r.url) window.open(r.url, '_blank', 'noreferrer') }
-            const clickable = !!r.tile || !!r.url
+            const open_ = () => { if (r.onOpen) r.onOpen(); else if (r.tile) onOpenTile(r.tile); else if (r.url) window.open(r.url, '_blank', 'noreferrer') }
+            const clickable = !!r.onOpen || !!r.tile || !!r.url
             return (
               <button key={r.key} type="button" onClick={clickable ? open_ : undefined} disabled={!clickable}
-                title={r.tile ? `#${r.number} ${r.title}\n${STATE_MEANING[r.tile.state]}\nClick to open its session` : r.title}
+                title={r.tile ? `#${r.number} ${r.title}\n${STATE_MEANING[r.tile.state]}\nClick to open its session`
+                  : r.onOpen ? `${r.title}\nClick to open this conversation` : r.title}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '6px 10px',
                   borderTop: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', fontSize: T.small,
                   cursor: clickable ? 'pointer' : 'default' }}
                 onMouseEnter={e => { if (clickable) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                <span style={{ ...muted, fontSize: T.tiny, width: 42, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                  {r.number != null ? `#${r.number}` : '☁'}
+                <span style={{ ...muted, fontSize: T.tiny, width: 42, flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center' }}>
+                  {r.number != null ? `#${r.number}` : r.onOpen ? <MessageSquare size={11} aria-hidden /> : '☁'}
                 </span>
                 <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</span>
                 {r.pulse && <span className="kipo-pulse" style={{ width: 6, height: 6, borderRadius: 9, background: STATE_META.building.color, flexShrink: 0 }} />}

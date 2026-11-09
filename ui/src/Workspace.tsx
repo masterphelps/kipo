@@ -406,7 +406,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                   <div style={{ flex: 1, minHeight: 0 }}>
                     <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
                       autopilot={autopilot} onAutopilot={setAutopilot}
-                      onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
+                      onOpenTile={openTile}
+                      onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' } : { kind: 'stage', column: k as Column })}
+                      onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
                   </div>
                 </section>
               </div>
