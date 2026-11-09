@@ -1,10 +1,6 @@
 
-import { useState, type ReactNode } from 'react'
-import { Popover } from './Menu'
-import { T } from './common'
 import { tileMeaning } from './glossary'
-import { StageBoard, StageStrip, type ColId } from './StageBoard'
-import { TILE_STATES, type Frontier, type FrontierCounts, type Lane, type PrInfo, type Tile, type TileState } from './types'
+import { TILE_STATES, type FrontierCounts, type Lane, type Tile, type TileState } from './types'
 
 // The frontier bar: an effort's tickets as one bar of colored segments, like a
 // storage meter. Done fills from the left; amber is HITL, teal is agent (AFK);
@@ -72,18 +68,6 @@ export function LaneBars({ frontier, height = 4 }: { frontier: Saved; height?: n
   )
 }
 
-// "2 HITL · 4 agent", or what the effort is doing when neither is ready.
-export function whoIsUp(counts: FrontierCounts): string {
-  const bits: string[] = []
-  if (counts.you) bits.push(`${counts.you} HITL`)
-  if (counts.afk) bits.push(`${counts.afk} agent`)
-  if (bits.length) return bits.join(' · ')
-  if (counts.building) return 'agent building'
-  if (counts.review) return 'in review'
-  if (counts.blocked) return 'blocked'
-  return counts.done ? 'all done' : ''
-}
-
 // A session's status dot: pulsing blue while the agent works, amber when it has
 // stopped and the conversation is waiting on you.
 export type SessionStatus = 'running' | 'waiting'
@@ -138,79 +122,3 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare, numbe
     </button>
   )
 }
-
-// The effort's frontier, under its header: who's up, then Matt's two halves as
-// two bars (Decide: the front half, ending in a spec and tickets; Deliver: the
-// back half, ending in merged PRs), a legend that picks a segment, and that
-// segment's tiles.
-export const laneTotal = (f: Frontier, l: Lane) =>
-  TILE_STATES.reduce((n, s) => n + (f.lanes[l][s] || 0), 0) + (l === 'decide' ? f.fog : 0)
-
-// The summary over the conversation: the one thing to do now (`next`), then
-// every ticket of the effort on the board, one column per KiPo skill, each
-// with its state. A ticket opens its conversation.
-
-export function FrontierSummary({ variant, frontier, prs, effort, onTile, onSession, openNumber, statuses, conductor, conductorOpen = false, onConductor, onMore, onSkill, next, mapUrl }: {
-  onMore?: () => void // strip: "+N" and Done open the Board
-  variant: 'board' | 'strip' // the Board tab, or the session view's thin header
-  mapUrl?: string | null // the wayfinder map, for the fog popover
-  frontier: Frontier
-  prs: PrInfo[]
-  effort: number
-  onTile: (t: Tile) => void // board: a click shows its details; strip: opens its session
-  onSession?: (t: Tile) => void // board: a double-click opens its session
-  openNumber: number | null
-  statuses: Record<number, SessionStatus>
-  conductor: 'none' | 'idle' | 'running'
-  conductorOpen?: boolean
-  onConductor?: () => void
-  onSkill?: (stage: ColId, skill: string) => void
-  next?: ReactNode
-}) {
-  // Always shown, even before the effort has tickets: the conductor and the
-  // seven skills are where an effort starts.
-  const { fog, tiles } = frontier
-  const [fogAt, setFogAt] = useState<{ x: number; y: number } | null>(null)
-  const fogList = frontier.fogItems?.length ? frontier.fogItems : frontier.fogLeft ?? []
-  const left = !frontier.fogItems?.length && !!frontier.fogLeft?.length
-  const strip = variant === 'strip'
-  return (
-    <div style={{ padding: strip ? '6px 12px' : '8px 16px 10px', display: 'flex', flexDirection: 'column', gap: 8, borderBottom: strip ? '1px solid var(--border)' : undefined }}>
-      <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
-      {next}
-      <div style={{ overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
-        {strip ? (
-          <StageStrip tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []}
-            openNumber={openNumber} statuses={statuses} conductor={conductor} conductorOpen={conductorOpen}
-            onConductor={onConductor ?? (() => {})} onTile={onTile} onFog={setFogAt} onMore={onMore} />
-        ) : (
-          <StageBoard tiles={tiles} prs={prs} fogItems={frontier.fogItems ?? []} fogLeft={frontier.fogLeft ?? []} effort={effort}
-            openNumber={openNumber} statuses={statuses} conductor={conductor} onTile={onTile} onSession={onSession} onFog={setFogAt} onSkill={onSkill} />
-        )}
-      </div>
-      {fogAt && (
-        <Popover x={fogAt.x} y={fogAt.y} label="Not yet specified" onClose={() => setFogAt(null)}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-strong, var(--text))' }}>{left ? 'Left unspecified' : 'Not yet specified'} · {fogList.length || fog}</div>
-          <div style={{ fontSize: T.tiny, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
-            {left
-              ? 'The map closed with these never specified. HITL: file each as an issue, or drop it.'
-              : 'Fog: in scope, but not sharp enough to ticket yet. Each becomes a ticket once the decisions ahead of it are made.'}
-          </div>
-          <ol style={{ margin: '10px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {(fogList.length ? fogList : ['(The map describes it in prose.)']).map((t, i) => (
-              <li key={i} style={{ fontSize: T.small, lineHeight: 1.45, color: 'var(--text)' }}>{plain(t)}</li>
-            ))}
-          </ol>
-          {mapUrl && (
-            <a href={mapUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 10, fontSize: T.small, color: 'var(--accent)' }}>
-              Open the map on GitHub
-            </a>
-          )}
-        </Popover>
-      )}
-    </div>
-  )
-}
-
-// Markdown emphasis and links read as plain text in a small popover or tooltip.
-const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')

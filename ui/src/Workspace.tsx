@@ -1,22 +1,17 @@
 import { useAppApi } from '@kirocrew/app-sdk'
-import { Badge, Btn } from '@kirocrew/app-sdk/ui'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Btn } from '@kirocrew/app-sdk/ui'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BackendError, backend, errorText } from './api'
-import {
-  ActionButton, ErrorLine, MapTag, T, TextButton, muted, strong,
-} from './common'
+import { ErrorLine, MapTag, T, TextButton, muted, strong } from './common'
 import { cached, remember } from './cache'
-import { FrontierSummary, type SessionStatus } from './Frontier'
-import { Abbr } from './glossary'
+import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
-import { EffortInspector, NextStrip, TicketChain, TicketInspector, nextStep } from './Inspector'
 import { Divider, useFitSplit, useStoredSize } from './layout'
 import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
-  STAGES, stageOfColumn,
-  type Column, type Decision, type DispatchEntry, type EffortDetail, type PhaseState, type Stage, type TicketInfo, type Tile,
+  type Column, type DispatchEntry, type EffortDetail, type PhaseState, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -52,15 +47,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   useEffect(() => { remember(`${cacheKey}:focus`, focus) }, [cacheKey, focus])
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState<'skip' | 'remove' | null>(null)
-  const [wide, setWide] = useState(false)
   const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
-  // On the Board, a ticket's chain over its details.
+  // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
-  // Two views, one at a time: the session (the default) or the board. Remembered per effort.
-  const tabKey = `kipo.tab:${repo}#${number}`
-  const [tab, setTabState] = useState<'session' | 'board'>(() => (localStorage.getItem(tabKey) === 'board' ? 'board' : 'session'))
-  const setTab = (v: 'session' | 'board') => { setTabState(v); try { localStorage.setItem(tabKey, v) } catch { /* private mode */ } }
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -77,7 +66,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
 
   const column = detail?.column
   // Opening a conversation (from the map, Next, or ← Effort) shows it.
-  useEffect(() => { setConfirm(null); setActionError('') }, [column, focus])
+  useEffect(() => { setActionError('') }, [column, focus])
   // Back to the column view when the effort moves on, but not on first load, so
   // the remembered ticket or decision stays open when you come back to KiPo.
   const lastColumn = useRef(column)
@@ -318,37 +307,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     void closeFinished(api, slots, slotKey).finally(() => { closingRef.current = false })
   }, [api, detail, active, slotKey])
 
-  // A skill chip on the board: run it in that stage's own conversation (never the
-  // conductor's): send it into the stage's conversation, or start the stage with it.
-  const runStageSkill = async (stage: Column, skill: string) => {
-    if (!detail) return
-    const slot = detail.sessions[stage]
-    if (!slot || isClosed(slot)) { await start(skill, { kind: 'stage', column: stage }); return }
-    try {
-      const { message } = await backend.skillMessage(repo, number, skill)
-      await api.post('/api/chat?ws=1', { slot, message })
-      setFocus({ kind: 'stage', column: stage })
-    } catch (e) {
-      setActionError(`Couldn't start /${skill}: ${errorText(e)}`)
-    }
-  }
-
-  // The conductor's status for the board: not started, waiting, or mid-turn.
-  const [conductorRunning, setConductorRunning] = useState(false)
-  useEffect(() => {
-    if (!conductorSlot) { setConductorRunning(false); return }
-    let live = true
-    const poll = () => {
-      api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(conductorSlot)}?limit=1`)
-        .then(r => { if (live) setConductorRunning(!!r?.running) })
-        .catch(() => { /* keep the last status */ })
-    }
-    poll()
-    if (!active) return () => { live = false }
-    const id = setInterval(poll, 5000)
-    return () => { live = false; clearInterval(id) }
-  }, [api, conductorSlot, active])
-
   const autoStarted = useRef(false)
   useEffect(() => {
     if (!autoStart || autoStarted.current || !detail) return
@@ -356,18 +314,6 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     if (!detail.sessions[detail.column]) void start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart, detail])
-
-  const remove = async () => {
-    setBusy(true)
-    try {
-      await backend.removeInitiative(repo, number)
-      onRemoved()
-    } catch (e) {
-      setActionError(`Couldn't remove it: ${errorText(e)}`)
-      setBusy(false)
-      setConfirm(null)
-    }
-  }
 
   if (!detail) {
     return (
@@ -377,51 +323,19 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     )
   }
 
-  // The effort's stage, read from its tickets (CONTRACT.md, "The two halves").
-  const stage: Stage = (detail.frontier?.stage && STAGES.includes(detail.frontier.stage) ? detail.frontier.stage : null) ?? stageOfColumn(detail.column)
   // The open conversation's own state (CONTRACT.md: one state file per
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
-  // A done ticket (or a conversation KiPo closed) is settled: its unanswered
-  // decision cards are history, never questions still waiting on you.
-  const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
-  const next = nextStep(detail, {
-    openTile,
-    startTile: t => { if (t.sessionKey) setFocus(tileFocus(t)); else void start(tileSkill(t), tileFocus(t)) },
-    startAgents: t => { void startAgents(t) },
-    handover,
-    review: openReview,
-    retro: runRetro,
-    close: () => setConfirm('skip'),
-    startMain: () => { setFocus({ kind: 'column' }); void start() },
-    implementSpec: () => { void start('implement-spec', { kind: 'spec' }) },
-    hasMain: !!detail.sessions[detail.column],
-  })
-
-  const conductorState = !conductorSlot ? 'none' as const : conductorRunning ? 'running' as const : 'idle' as const
-  const mapUrl = detail.mapIssue ? `https://github.com/${detail.repo}/issues/${detail.mapIssue}` : null
-  const toSession = (t: Tile) => { setFocus(tileFocus(t)); setTab('session') }
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* Two views of the effort. Session (the default): a thin row of the seven
-          stages with their tickets as tiles, then the open conversation in Kiro's
-          own chat, side panel and all. Board: the conductor and the seven KiPo
-          skills, every ticket as a card; a click shows it on the right, a
-          double-click opens its session. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 0', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-        {(['session', 'board'] as const).map(v => {
-          const on = tab === v
-          return (
-            <button key={v} type="button" role="tab" aria-selected={on} onClick={() => setTab(v)}
-              style={{ background: 'transparent', padding: '6px 10px 8px', marginBottom: -1, cursor: 'pointer', fontSize: T.small,
-                color: on ? 'var(--text)' : 'var(--muted)', fontWeight: on ? 600 : 400, borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}>
-              {v === 'session' ? 'Session' : 'Board'}
-            </button>
-          )
-        })}
-        <span style={{ ...strong, fontSize: T.small, marginLeft: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={detail.title}>
+      {/* One view. The conductor screen: its conversation, with the effort as
+          seven stations on the right. A ticket's session: its map over its
+          conversation at full width. */}
+      <style>{'@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}'}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+        <span style={{ ...strong, fontSize: T.small, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={detail.title}>
           #{detail.number} {detail.title}
         </span>
         {(detail.kind === 'map' || detail.mapIssue) && (
@@ -432,57 +346,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
         )}
         <span style={{ flex: 1 }} />
         <span style={{ ...muted, fontSize: T.tiny, whiteSpace: 'nowrap' }} title={detail.repoPath}>{detail.repo}</span>
-        <div style={{ paddingBottom: 4 }}>
-          <StageAction detail={detail} stage={stage} busy={busy} confirm={confirm} setConfirm={setConfirm}
-            onRetro={runRetro} onClose={closeEffort} onRemove={remove} />
-        </div>
       </div>
       {actionError && <div style={{ padding: '6px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
       {(() => {
-        const onBoard = tab === 'board'
-        // The right column is the picked thing's card, the same on both tabs (one
-        // home for decisions, the chain, PRs and what it asks): Spec Builder's
-        // shape, with the conversation in the middle and the card on the right.
-        const rightPanel = (
-          <section style={{ flex: onBoard && wide ? '1 1 0' : `0 0 ${rightWidth}px`, width: onBoard && wide ? undefined : rightWidth,
-            minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {onBoard && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 12px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 37 }}>
-                {focusTile
-                  ? <TextButton onClick={() => setTab('session')} title="Open this ticket's conversation">Session →</TextButton>
-                  : <TextButton onClick={() => { setFocus({ kind: 'column' }); setTab('session') }} title="Open the conductor's conversation">Conductor session →</TextButton>}
-                <span style={{ flex: 1 }} />
-                <TextButton onClick={() => setWide(w => !w)} title={wide ? 'Show the board' : 'Widen this panel'}>{wide ? '⤡' : '⤢'}</TextButton>
-              </div>
-            )}
-            {focusTile && (<>
-              <div ref={chainSplit.ref} style={chainSplit.style}>
-                <TicketChain detail={detail} tile={focusTile} hasSession={!!slotKey} onOpenTile={openTile}
-                  onOpenSession={onBoard ? () => setTab('session') : null} statuses={statuses} />
-              </div>
-              <Divider direction="horizontal" label="Resize the ticket's chain and its details"
-                onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
-            </>)}
-            <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
-              {focusTile ? (
-                <TicketInspector key={focusTile.number} repo={repo} number={number} detail={detail} tile={focusTile}
-                  decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />} />
-              ) : (
-                <EffortInspector repo={repo} number={number} detail={detail} stage={stage} autopilot={autopilot} onAutopilot={setAutopilot}
-                  showAutopilot={autopilot || (detail.frontier?.tiles ?? []).some(t => t.lane === 'deliver' && t.state === 'afk')}
-                  decisions={<Decisions key={slotKey ?? 'none'} state={convState} slotKey={slotKey} settled={settled} onError={setActionError} />}
-                  onOpenTile={openTile} />
-              )}
-            </div>
-          </section>
-        )
-        const divider = (
-          <Divider direction="vertical" label={onBoard ? 'Resize the board and the ticket panel' : 'Resize the conversation and the ticket panel'}
-            onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
-        )
-
-        if (!onBoard) {
           // The slim header: the way back and what's running. The embedded chat
           // page carries the session's title, renaming and Kiro's side panel
           // (subagents, browser, terminal, changes) itself.
@@ -520,7 +387,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                   onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
                 <section style={{ flex: `0 0 ${rightWidth}px`, width: rightWidth, minWidth: 340, minHeight: 0 }}>
                   <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
-                    onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} />
+                    autopilot={autopilot} onAutopilot={setAutopilot}
+                    onOpenTile={openTile} onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
                 </section>
               </div>
             )
@@ -545,148 +413,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
             </div>
           )
-        }
-        return (
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
-            {/* Middle: the board. */}
-            {!wide && (
-              <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, overflowY: 'auto' }}>
-                {detail.frontier && (
-                  <FrontierSummary variant="board" frontier={detail.frontier} prs={detail.prs} effort={detail.number}
-                    onTile={openTile} onSession={toSession} openNumber={focusTile?.number ?? null} statuses={statuses}
-                    conductor={conductorState} onSkill={(s, k) => { void runStageSkill(s, k); setTab('session') }} mapUrl={mapUrl}
-                    next={<NextStrip next={next} busy={busy || starting || !!startingAgents} />} />
-                )}
-              </section>
-            )}
-            {!wide && divider}
-            {rightPanel}
-          </div>
-        )
       })()}
-    </div>
-  )
-}
-
-// The open conversation's decision cards (the agent writes them to its state file),
-// what it's waiting on, and what's been decided.
-// The open questions are answered together: pick an answer on each card (in any
-// order, change your mind freely), then send them all as one message. One reply
-// lets the agent take every answer in one turn, instead of a queue of single
-// answers it has to work through one at a time.
-function Decisions({ state, slotKey, settled, onError }: {
-  state: PhaseState | null
-  slotKey: string | null
-  settled?: boolean // the ticket is done (or its conversation closed): nothing here waits on you
-  onError: (m: string) => void
-}) {
-  const api = useAppApi()
-  const [picks, setPicks] = useState<Record<string, string>>({})
-  const [sent, setSent] = useState<Record<string, string>>({}) // sent, until the agent records them
-  const [sending, setSending] = useState(false)
-  const open = settled ? [] : state?.decisions.filter(d => !d.answer && !sent[d.id]) ?? []
-  const waiting = settled ? [] : state?.decisions.filter(d => !d.answer && sent[d.id]) ?? []
-  const decided = state?.decisions.filter(d => d.answer) ?? []
-  // Settled work asks nothing: unanswered cards read as history, not questions.
-  const unrecorded = settled ? state?.decisions.filter(d => !d.answer) ?? [] : []
-  if (!open.length && !waiting.length && !decided.length && !unrecorded.length && !(state?.blocking && !settled)) return null
-
-  const picked = open.filter(d => (picks[d.id] ?? '').trim())
-  const withRecommendation = open.filter(d => d.recommended)
-  const pick = (id: string, answer: string) => setPicks(p => ({ ...p, [id]: answer }))
-  const takeRecommended = () => setPicks(p => {
-    const next = { ...p }
-    for (const d of withRecommendation) if (!(next[d.id] ?? '').trim()) next[d.id] = d.recommended!
-    return next
-  })
-
-  const send = async () => {
-    if (!slotKey || !picked.length) return
-    const left = open.filter(d => !(picks[d.id] ?? '').trim())
-    const lines = picked.map((d, i) => `${i + 1}. ${d.title} (${d.id}): ${picks[d.id].trim()}`)
-    const message = [
-      `My answers to your ${picked.length === 1 ? 'question' : `${picked.length} questions`}:`,
-      '',
-      ...lines,
-      '',
-      left.length
-        ? `Still open, I'll answer later: ${left.map(d => d.title).join('; ')}.`
-        : "That's all of them. Record each answer, then carry on.",
-    ].join('\n')
-    setSending(true)
-    try {
-      await api.post('/api/chat?ws=1', { slot: slotKey, message })
-      setSent(s => ({ ...s, ...Object.fromEntries(picked.map(d => [d.id, picks[d.id].trim()])) }))
-      setPicks({})
-    } catch (e) {
-      onError(`Couldn't send your answers: ${errorText(e)}`)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  return (
-    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {open.length > 0 && (
-        <Block title={<>Decisions (<Abbr term="HITL">HITL</Abbr>)</>}
-          aside={picked.length ? `${picked.length} of ${open.length} picked` : `${open.length} open`}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {open.map((d, i) => (
-              <DecisionCard key={d.id} n={i + 1} decision={d} pick={picks[d.id] ?? null} disabled={!slotKey || sending}
-                onPick={a => pick(d.id, a)} />
-            ))}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-            <Btn primary disabled={!slotKey || !picked.length || sending} onClick={() => void send()}>
-              {sending ? 'Sending…' : picked.length === open.length ? `Send all ${open.length} answers` : picked.length ? `Send ${picked.length} answer${picked.length === 1 ? '' : 's'}` : 'Send answers'}
-            </Btn>
-            {withRecommendation.some(d => !(picks[d.id] ?? '').trim()) && (
-              <Btn disabled={!slotKey || sending} onClick={takeRecommended}>Take all recommendations</Btn>
-            )}
-            <span style={{ ...muted, fontSize: T.tiny }}>
-              {!slotKey ? 'Start the conversation to answer.'
-                : picked.length && picked.length < open.length ? 'Unanswered ones stay here for later.'
-                : 'Sent together, as one message.'}
-            </span>
-          </div>
-        </Block>
-      )}
-      {waiting.length > 0 && (
-        <Block title="Sent, waiting for the agent" aside={waiting.length}>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {waiting.map(d => (
-              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
-                <div style={muted}>{d.title}</div>
-                <div>{sent[d.id]}</div>
-              </li>
-            ))}
-          </ul>
-        </Block>
-      )}
-      {state?.blocking && !settled && (
-        <Block title="Waiting on">
-          <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', fontSize: T.body }}>{state.blocking}</div>
-        </Block>
-      )}
-      {(decided.length > 0 || unrecorded.length > 0) && (
-        <Block title="Decided" aside={`${decided.length}${unrecorded.length ? ` · ${unrecorded.length} settled in the conversation` : ''}`}
-          collapsible defaultOpen={false}>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {decided.map(d => (
-              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
-                <div style={muted}>{d.title}</div>
-                <div>{d.answer}</div>
-              </li>
-            ))}
-            {unrecorded.map(d => (
-              <li key={d.id} style={{ fontSize: T.small, lineHeight: 1.4 }}>
-                <div style={muted}>{d.title}</div>
-                <div style={{ ...muted, fontStyle: 'italic' }}>Settled in the conversation; no answer was recorded.</div>
-              </li>
-            ))}
-          </ul>
-        </Block>
-      )}
     </div>
   )
 }
@@ -701,32 +428,20 @@ function Decisions({ state, slotKey, settled, onError }: {
 function KiroChatFrame({ slotKey }: { slotKey: string }) {
   const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
   const ref = useRef<HTMLIFrameElement>(null)
-  const nudged = useRef(false)
   // A control inside the page ("return to main") would navigate the frame to the
   // whole dashboard; put it back on the popout chat instead.
+  //
+  // The right panel: Kiro's chat page hides its panel-open button on every
+  // embedded surface (the condition is !embedMode && !popout), so KiPo cannot
+  // open the panel for the user. The one switch that does it is Kiro's
+  // Settings → Chat → Side panel → "Keep Side Panel Open", which this popout
+  // surface honors (its sidePanelAlwaysOpen dispatch runs whenever popout).
   const onLoad = () => {
     const frame = ref.current
     try {
       const path = frame?.contentWindow?.location.pathname
-      if (frame && path && !path.startsWith('/popout/chat')) { frame.src = src; return }
-    } catch { return /* same origin, so never unreadable; just in case */ }
-    // Kiro opens a fresh chat window with its side panel closed unless the
-    // "Keep Side Panel Open" setting is on. The panel is the point of embedding
-    // the full page, so open it once per mount by clicking the page's own
-    // toggle (its stable guide id). If the panel is already open, or the build
-    // changes the id, this quietly does nothing — and never closes anything.
-    if (nudged.current) return
-    let tries = 0
-    const tick = () => {
-      if (nudged.current || ref.current?.src === undefined) return
-      tries += 1
-      try {
-        const btn = ref.current?.contentDocument?.querySelector<HTMLElement>('[data-ui-location="chat.side-panel-open"]')
-        if (btn) { nudged.current = true; btn.click(); return }
-      } catch { nudged.current = true; return }
-      if (tries < 20) setTimeout(tick, 400)
-    }
-    setTimeout(tick, 400)
+      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
+    } catch { /* same origin, so never unreadable; just in case */ }
   }
   return (
     <iframe ref={ref} src={src} title="The session in Kiro's chat" onLoad={onLoad}
@@ -838,67 +553,6 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
   )
 }
 
-// ---------------------------------------------------------------- right column: header
-
-// Remove, and once everything has landed, Close (which runs through Done).
-function StageAction({ detail, stage, busy, confirm, setConfirm, onRetro, onClose, onRemove }: {
-  detail: EffortDetail
-  stage: Stage
-  busy: boolean
-  confirm: 'skip' | 'remove' | null
-  setConfirm: (c: 'skip' | 'remove' | null) => void
-  onRetro: () => void
-  onClose: () => void
-  onRemove: () => void
-}) {
-  const group = { display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 } as const
-  // A wayfinder map isn't KiPo's: it only leaves the board here, and closes on
-  // GitHub when its last ticket does.
-  const isMap = detail.kind === 'map'
-  if (confirm && isMap) {
-    return (
-      <span style={{ ...group, fontSize: T.small }}>
-        <span style={{ ...muted, whiteSpace: 'nowrap' }}>Hide this map in KiPo? It stays open on GitHub.</span>
-        <ActionButton danger disabled={busy} onClick={onRemove}>Hide</ActionButton>
-        <ActionButton disabled={busy} onClick={() => setConfirm(null)}>Cancel</ActionButton>
-      </span>
-    )
-  }
-  if (isMap) {
-    return (
-      <span style={group}>
-        <TextButton disabled={busy} onClick={() => setConfirm('remove')} title="Take this map off KiPo's board. The map stays open on GitHub.">Hide map</TextButton>
-        {stage === 'done' && !detail.sessions.done && (
-          <ActionButton disabled={busy} onClick={onRetro}>Run /retro</ActionButton>
-        )}
-      </span>
-    )
-  }
-  if (confirm) {
-    const closing = confirm === 'skip'
-    return (
-      <span style={{ ...group, fontSize: T.small }}>
-        <span style={{ ...muted, whiteSpace: 'nowrap' }}>{closing ? 'Close the effort and its issue?' : 'Close its issue as not planned?'}</span>
-        <ActionButton danger={!closing} primary={closing} disabled={busy} onClick={() => (closing ? onClose() : onRemove())}>
-          {closing ? 'Close' : 'Remove'}
-        </ActionButton>
-        <ActionButton disabled={busy} onClick={() => setConfirm(null)}>Cancel</ActionButton>
-      </span>
-    )
-  }
-  return (
-    <span style={group}>
-      <TextButton disabled={busy} onClick={() => setConfirm('remove')} title="Close this effort's issue as not planned and take it off the board">Remove effort</TextButton>
-      {stage === 'done' && !detail.sessions.done && (
-        <ActionButton disabled={busy} onClick={onRetro}>Run /retro</ActionButton>
-      )}
-      {stage === 'done' && (
-        <ActionButton primary disabled={busy} onClick={() => setConfirm('skip')}>{busy ? 'Closing…' : 'Close effort'}</ActionButton>
-      )}
-    </span>
-  )
-}
-
 const isColumn = (key: string) => (COLUMNS as readonly string[]).includes(key)
 
 // The one real choice when starting: how to start it. Only where Matt's skills
@@ -922,78 +576,6 @@ function Running({ skills }: { skills: string[] }) {
         </span>
       ))}
     </span>
-  )
-}
-
-function Block({ title, aside, children, collapsible, defaultOpen = true }: {
-  title: ReactNode
-  aside?: ReactNode
-  children: ReactNode
-  collapsible?: boolean
-  defaultOpen?: boolean
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  const head = (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: T.tiny, marginBottom: open ? 6 : 0 }}>
-      {collapsible && <span aria-hidden style={{ ...muted, fontSize: 9, width: 8 }}>{open ? '▾' : '▸'}</span>}
-      <span style={{ ...strong, fontSize: T.small }}>{title}</span>
-      <span style={{ flex: 1 }} />
-      {aside != null && <span style={muted}>{aside}</span>}
-    </div>
-  )
-  return (
-    <div>
-      {collapsible ? (
-        <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
-          style={{ width: '100%', textAlign: 'left', background: 'transparent', color: 'var(--text)', cursor: 'pointer', padding: 0 }}>
-          {head}
-        </button>
-      ) : head}
-      {open && children}
-    </div>
-  )
-}
-
-// One question: its options as a radio list with the recommended one marked, and
-// a box for any other answer. Picking only marks it; the answers go together.
-function DecisionCard({ n, decision: d, pick, disabled, onPick }: {
-  n: number; decision: Decision; pick: string | null; disabled: boolean; onPick: (answer: string) => void
-}) {
-  const custom = pick !== null && !d.options.includes(pick)
-  const done = !!(pick ?? '').trim()
-  return (
-    <div style={{ border: `1px solid ${done ? 'var(--border)' : 'var(--accent)'}`, borderRadius: 8, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '8px 10px', fontSize: T.body }}>
-        <span style={{ ...muted, fontSize: T.small, flexShrink: 0 }}>{n}.</span>
-        <span style={{ ...strong, flex: 1 }}>{d.title}</span>
-        <Badge variant={done ? 'muted' : 'aim'}>{done ? 'answered' : 'open'}</Badge>
-      </div>
-      {d.options.map(o => {
-        const chosen = pick === o
-        return (
-          <button key={o} type="button" role="radio" aria-checked={chosen} disabled={disabled} onClick={() => onPick(o)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px',
-              borderTop: '1px solid var(--border)', background: chosen ? 'var(--bg-elevated)' : 'transparent', color: 'var(--text)',
-              fontSize: T.small, cursor: disabled ? 'default' : 'pointer',
-            }}>
-            <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, border: `1.5px solid ${chosen ? 'var(--accent)' : 'var(--muted)'}`,
-              flexShrink: 0, background: chosen ? 'var(--accent)' : 'transparent', boxShadow: chosen ? 'inset 0 0 0 2px var(--bg)' : undefined }} />
-            <span style={{ flex: 1 }}>{o}</span>
-            {o === d.recommended && <span style={{ fontSize: T.tiny, color: 'var(--accent)' }}>recommended</span>}
-          </button>
-        )
-      })}
-      <div style={{ borderTop: '1px solid var(--border)', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 8,
-        background: custom ? 'var(--bg-elevated)' : 'transparent' }}>
-        <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, border: `1.5px solid ${custom ? 'var(--accent)' : 'var(--muted)'}`,
-          flexShrink: 0, background: custom ? 'var(--accent)' : 'transparent', boxShadow: custom ? 'inset 0 0 0 2px var(--bg)' : undefined }} />
-        <input value={custom ? pick! : ''} onChange={e => onPick(e.target.value)} disabled={disabled}
-          aria-label={`Another answer to: ${d.title}`}
-          placeholder="Something else…"
-          style={{ flex: 1, background: 'transparent', color: 'var(--text)', fontSize: T.small, border: 0, outline: 'none', padding: '2px 0' }} />
-      </div>
-    </div>
   )
 }
 

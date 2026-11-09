@@ -3,7 +3,77 @@ import { ActionButton, T, muted, strong } from './common'
 import { STATE_META, type SessionStatus } from './Frontier'
 import { STATE_MEANING } from './glossary'
 import { COLUMN_DEFS, columnOf, type ColId } from './StageBoard'
-import type { EffortDetail, Start, Tile } from './types'
+import type { EffortDetail, Start, StationsSummary, Tile } from './types'
+
+// ------------------------------------------------- the sidebar's view of it
+
+// One effort in the rail: the same seven stations as a tiny segment row, each
+// colored by what's loudest in it (HITL first), dim when empty, plus the
+// "Front: X · what's open" line. The list and the conductor panel rhyme.
+type Glance = { segs: { id: ColId; color: string | null; active: boolean }[]; front: string; bits: string }
+
+export function stationGlance(s: StationsSummary): Glance {
+  const loudest = (c: { you: number; afk: number; building: number; review: number; blocked: number; done: number }, fog = 0) => {
+    if (c.you) return { color: STATE_META.you.color, active: true }
+    if (c.blocked) return { color: STATE_META.blocked.color, active: true }
+    if (c.building) return { color: STATE_META.building.color, active: true }
+    if (c.afk) return { color: STATE_META.afk.color, active: true }
+    if (c.review) return { color: STATE_META.review.color, active: true }
+    if (fog) return { color: 'var(--muted)', active: true }
+    if (c.done) return { color: STATE_META.done.color, active: false }
+    return { color: null, active: false }
+  }
+  const segs: Glance['segs'] = [
+    { id: 'intake', ...loudest(s.intake) },
+    { id: 'shape', ...loudest(s.shape, s.fog) },
+    { id: 'grill', ...loudest(s.grill) },
+    {
+      id: 'plan',
+      ...(s.specCut ? { color: STATE_META.done.color, active: false }
+        : s.handover ? { color: STATE_META.you.color, active: true } : { color: null, active: false }),
+    },
+    { id: 'build', ...loudest(s.build) },
+    {
+      id: 'review',
+      ...(s.prs.open ? { color: STATE_META.review.color, active: true }
+        : s.prs.merged ? { color: STATE_META.done.color, active: false } : { color: null, active: false }),
+    },
+    {
+      id: 'done',
+      ...(s.landed ? (s.retro ? { color: STATE_META.done.color, active: false } : { color: STATE_META.you.color, active: true })
+        : { color: null, active: false }),
+    },
+  ]
+  const names: Record<ColId, string> = { intake: 'Intake', shape: 'Shape', grill: 'Grill', plan: 'Plan', build: 'Build', review: 'Review', done: 'Done' }
+  const frontSeg = [...segs].reverse().find(x => x.active)
+  const front = frontSeg ? names[frontSeg.id] : s.total || s.prs.merged ? 'Done' : '—'
+  const you = s.intake.you + s.shape.you + s.grill.you + s.build.you + (s.handover ? 1 : 0) + (s.landed && !s.retro ? 1 : 0)
+  const agents = s.shape.building + s.grill.building + s.build.building + s.intake.building
+  const ready = s.shape.afk + s.grill.afk + s.build.afk + s.intake.afk
+  const pieces = [
+    you ? `${you} HITL` : '',
+    agents ? `${agents} in agents` : '',
+    ready ? `${ready} ready` : '',
+    s.prs.open ? `${s.prs.open} PR${s.prs.open === 1 ? '' : 's'}` : '',
+    s.fog ? `${s.fog} fog` : '',
+  ].filter(Boolean)
+  return { segs, front, bits: pieces.slice(0, 3).join(' · ') }
+}
+
+export function StationGlanceBar({ glance }: { glance: Glance }) {
+  return (
+    <span style={{ display: 'flex', gap: 2, height: 5 }} aria-hidden>
+      {glance.segs.map(x => (
+        <span key={x.id} title={x.id} style={{
+          flex: 1, borderRadius: 3,
+          background: x.color ?? 'transparent',
+          border: x.color ? '1px solid transparent' : '1px solid var(--border)',
+          opacity: x.color && !x.active ? 0.75 : 1,
+        }} />
+      ))}
+    </span>
+  )
+}
 
 // The conductor's right panel: the effort as seven stations, each a counter in
 // its own units (Grill counts questions, Build counts tickets), never a wall of
@@ -30,20 +100,24 @@ type Station = {
   ghost?: string            // queued stations: what will show here
   segments: { n: number; color: string; dashed?: boolean }[]
   rows: Row[]
-  action?: { label: string; onClick: () => void }
+  action?: { label: string; onClick: () => void; confirm?: () => void } // confirm: a cancel step is showing
 }
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
-export function StationsPanel({ detail, statuses, busy, onOpenTile, onHandover, onReview, onRetro }: {
+export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, onOpenTile, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
   busy: boolean
+  autopilot: boolean
+  onAutopilot: (on: boolean) => void
   onOpenTile: (t: Tile) => void
   onHandover: () => void
   onReview: () => void
   onRetro: () => void
+  onClose: () => void // close the effort and its issue (confirmed inline, Done station)
 }) {
+  const [confirmClose, setConfirmClose] = useState(false)
   const f = detail.frontier
   const tiles = f?.tiles ?? []
   const fogItems = f?.fogItems?.length ? f.fogItems : f?.fogLeft ?? []
@@ -114,6 +188,8 @@ export function StationsPanel({ detail, statuses, busy, onOpenTile, onHandover, 
     }
     if (id === 'done') {
       const landed = !!f?.landed
+      // The map closes on GitHub with its last ticket; only a KiPo effort closes here.
+      const canClose = landed && retroRan && detail.kind !== 'map'
       return {
         id,
         state: doneCount ? (landed ? 'live' : 'full') : 'queued',
@@ -121,7 +197,13 @@ export function StationsPanel({ detail, statuses, busy, onOpenTile, onHandover, 
         ghost: doneCount ? undefined : 'closes when the retro runs',
         segments: [{ n: doneCount, color: STATE_META.done.color }, { n: Math.max(0, tiles.length - doneCount), color: 'transparent' }],
         rows: [],
-        action: landed && !retroRan ? { label: 'Run /retro', onClick: onRetro } : undefined,
+        action: landed && !retroRan
+          ? { label: 'Run /retro', onClick: onRetro }
+          : canClose
+            ? (confirmClose
+              ? { label: 'Close the effort and its issue?', onClick: () => { setConfirmClose(false); onClose() }, confirm: () => setConfirmClose(false) }
+              : { label: 'Close effort', onClick: () => setConfirmClose(true) })
+            : undefined,
       }
     }
     // Tile stations: intake, shape, grill, build.
@@ -182,6 +264,14 @@ export function StationsPanel({ detail, statuses, busy, onOpenTile, onHandover, 
             ? <>behind it: <b style={strong}>{waitingInTail} waiting in {LABELS[tail.id]}</b></>
             : <span style={muted}>behind it: nothing earlier open</span>}
         </div>
+        <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
+          title="When a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', padding: 0, marginTop: 5, cursor: 'pointer',
+            fontSize: T.tiny, color: autopilot ? STATE_META.afk.text : 'var(--muted)' }}>
+          <span aria-hidden className={autopilot ? 'kipo-pulse' : undefined}
+            style={{ width: 7, height: 7, borderRadius: 999, background: autopilot ? STATE_META.afk.color : 'var(--muted)' }} />
+          Autopilot {autopilot ? 'on' : 'off'}: freed agent tickets {autopilot ? 'start on their own' : 'wait for you'}
+        </button>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -235,8 +325,9 @@ function StationRow({ s, open, busy, onToggle, onOpenTile }: {
         <div style={{ margin: '0 16px 10px 14px', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
           {s.action && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: s.rows.length ? '1px solid var(--border)' : undefined }}>
-              <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>{LABELS[s.id]}'s next step</span>
+              <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>{s.action.confirm ? '' : `${LABELS[s.id]}'s next step`}</span>
               <ActionButton primary disabled={busy} onClick={s.action.onClick}>{s.action.label}</ActionButton>
+              {s.action.confirm && <ActionButton disabled={busy} onClick={s.action.confirm}>Cancel</ActionButton>}
             </div>
           )}
           {s.rows.map(r => {

@@ -214,3 +214,40 @@ def stage_of(front, legacy_column, effort_prs=()):
     else:
         stage = "decide"  # decisions all made, tickets not cut yet: the hand-over
     return {"stage": stage, "active": active, "handover": handover, "landed": landed}
+
+
+def stations_summary(front, prs, retro_ran):
+    """Per-station counts for the sidebar's seven-station row, each in its own
+    units: Grill counts questions, Build counts tickets, Plan is whether the
+    spec is cut, Review counts PRs, Done is merged-of-total plus the retro."""
+    tiles = front.get("tiles") or []
+
+    def home(t):
+        if t.get("source"):
+            return "intake"
+        if t.get("type") == "build":
+            return "build"
+        if t.get("type") == "grilling":
+            return "grill"
+        return "shape"
+
+    stations = {k: {s: 0 for s in STATES} for k in ("intake", "shape", "grill", "build")}
+    for t in tiles:
+        counts = stations[home(t)]
+        if t.get("state") in counts:
+            counts[t["state"]] += 1
+    state = lambda p: (p.get("state") or "").upper()  # noqa: E731
+    return {
+        **stations,
+        "fog": front.get("fog") or 0,
+        "specCut": any(t.get("type") == "build" for t in tiles),
+        "handover": bool(front.get("handover")),
+        "landed": bool(front.get("landed")),
+        "prs": {
+            "open": sum(1 for p in prs if state(p) == "OPEN"),
+            "merged": sum(1 for p in prs if state(p) == "MERGED"),
+        },
+        "doneTiles": sum(1 for t in tiles if t.get("state") == "done"),
+        "total": len(tiles),
+        "retro": bool(retro_ran),
+    }

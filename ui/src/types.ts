@@ -109,6 +109,22 @@ export type BrowseResult = {
   here: { path: string; name: string; slug: string | null } | null;
 }
 
+// The sidebar's view of an effort's stations (backend stations_summary).
+export type StationsSummary = {
+  intake: FrontierCounts
+  shape: FrontierCounts
+  grill: FrontierCounts
+  build: FrontierCounts
+  fog: number
+  specCut: boolean
+  handover: boolean
+  landed: boolean
+  prs: { open: number; merged: number }
+  doneTiles: number
+  total: number
+  retro: boolean
+}
+
 // The frontier (CONTRACT.md): every ticket of an effort in its real state.
 export const TILE_STATES = ['done', 'review', 'building', 'you', 'afk', 'blocked'] as const
 export type TileState = typeof TILE_STATES[number]
@@ -186,8 +202,15 @@ export type Effort = {
   kind?: 'effort' | 'map'
   // The wayfinder map it runs on: its own number for a map, the effort's map otherwise.
   mapIssue?: number | null
-  // The last frontier seen in this effort's detail (no tiles), for the list's bar.
-  frontier?: { counts: FrontierCounts; fog: number; lanes?: Record<'decide' | 'deliver', FrontierCounts>; stage?: Stage } | null
+  // The last frontier seen in this effort's detail (no tiles), for the list's
+  // seven-station row: per-station counts in each station's own units.
+  frontier?: {
+    counts: FrontierCounts
+    fog: number
+    lanes?: Record<'decide' | 'deliver', FrontierCounts>
+    stage?: Stage
+    stations?: StationsSummary
+  } | null
   stage?: Stage
 }
 

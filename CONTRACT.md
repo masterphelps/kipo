@@ -103,35 +103,28 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
 
 ## What the page shows
 
-- **Left**: the efforts on the sidebar, each with a Decide and a Deliver bar. A row's ⋯ menu
-  (or right-click) opens it on GitHub or removes it from the sidebar (nothing changes on
-  GitHub). **Repos** shows each watched repo as a tree of its efforts and open maps; a green dot
-  means it's on the sidebar, and clicking the dot adds or removes it. Repos are added there.
-- **Session** (the default tab) has two layouts, by what's open:
+- **Left**: the efforts on the sidebar, each row an effort's header line: its name, its seven
+  stations as a tiny segment row (from the saved `stations` summary), and its **front** (the
+  furthest station with open work) with what's open (HITL, in agents, fog). A row's ⋯ menu
+  (or right-click) opens it on GitHub, removes it from the sidebar (nothing changes on
+  GitHub), or — efforts only, behind a confirm — closes its issue as not planned. **Repos**
+  shows each watched repo as a tree of its efforts and open maps; a green dot means it's on
+  the sidebar, and clicking the dot adds or removes it. Repos are added there.
+- **One main view**, by what's open (there are no tabs):
   - **The conductor screen** (the effort's own conversation): the conductor's chat in the
     middle (Kiro's own chat page, embedded through `/popout/chat?sid=`, so its side panel —
     subagents, browser, terminal, changes — works), and on the right the **stations panel**:
     the effort as the seven KiPo skills, each a counter **in its own units** (Grill counts
     questions, Plan is the `1 spec → N tickets` fan-out, Build counts tickets, Review counts
     PRs, Done is merged-of-total plus whether /retro ran), each with a bar normalized to its
-    own station. The header names the **front** (the furthest station with open work) and the
-    **tail** (the earliest station still waiting on a human): an effort has both, never one
-    stage. A station expands to its queue; a queue row opens that ticket's session. Stations
-    before the entry point read "entered at <station>".
+    own station. The header names the **front** and the **tail** (the earliest station still
+    waiting on a human): an effort has both, never one stage. A station expands to its queue;
+    a queue row opens that ticket's session; stations carry their own next step (Write the
+    spec, Review the PRs, Run /retro, Close effort behind a confirm). Stations before the
+    entry point read "entered at <station>". Autopilot lives in the panel header.
   - **A ticket's session**: its map ("Where it sits": the whole chain, blockers in a top row
     with arrows down) over its conversation at full width. Questions, interviews and answers
-    happen **in the chat**; there are no decision-card panels here.
-- **Board**: the Next line, the conductor strip (Watch, Dispatch, Ask you, Merge, Close),
-  then the seven **KiPo skill columns** under Decide and Deliver with Matt's skills as chips
-  and every ticket where it stands (HITL, Agent, In progress, In review, Blocked, Done).
-  Loose ends sit where they're dealt with: fog and a closed map's leftovers in Shape, the
-  hand-over in Plan, a PR closing no ticket in Review. A click shows a ticket's card on the
-  Board's right panel (its chain, decisions, PRs, how it ended, what it asks — with an
-  "Answer in its conversation →" action); a double-click opens its session.
-- **Next** comes from the frontier, first match wins (`nextStep` in `ui/src/Inspector.tsx`):
-  `landed` offers "Run /retro" and "Close effort"; `handover` offers "Write the spec"; then
-  your-move tickets (the one that frees the most first); then "Start N agents" for
-  agent's-move tickets (or `/implement-spec`); then "Review the PRs" while agents work.
+    happen **in the chat**; there are no decision-card panels anywhere.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
@@ -197,12 +190,11 @@ The detail returns the effort's own as `state` and each ticket conversation's as
 id starts `t<N>-` in the effort's file are shown under ticket N's conversation (from
 conversations seeded before each had its own file).
 
-The UI shows the open conversation's `skillsUsed` as "Running …". Decisions feed the
-stations panel's counters (answered · waiting) and render as cards only on the Board's
-right panel; in a session, the agent asks and the human answers in the chat itself. Card
-answers still arrive together as one message, one numbered line each:
-`<n>. <title> (<id>): <answer>`. A closed ticket's unanswered cards are settled history,
-never open questions.
+The UI shows the open conversation's `skillsUsed` as "Running …". Decisions are asked and
+answered **in the chat** (the agent writes each question in full, numbered, with options and
+its recommendation); the state file's `decisions` entries are the record, feeding the
+stations panel's counters (answered · waiting). A closed ticket's unanswered entries are
+settled history, never open questions.
 
 Artifact labels the backend reads: "Wayfinder map", "Spec", "Source issue".
 

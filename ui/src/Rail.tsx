@@ -1,32 +1,19 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
-import { ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus } from 'lucide-react'
+import { ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
 import { MapTag, T, fieldStyle, muted, strong, timeAgo } from './common'
-import { LaneBars, frontierTotal, whoIsUp } from './Frontier'
 import { TERM } from './glossary'
+import { stationGlance, StationGlanceBar } from './Stations'
 import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
 
-// The left rail, after Spec Builder's spec list: one place to start something new,
-// filter, and jump between efforts. One flat list, most recently touched first;
-// each row shows its Decide and Deliver bars, or its stage before it has tickets.
+// The left rail: one place to start something new, filter, and jump between
+// efforts. Each row is an effort's header line — its name, its seven stations as
+// a tiny segment row (the same stations as the conductor's panel), and its front:
+// the furthest station with open work, with what's open. Before an effort has
+// tickets, its stage tag stands in.
 
 export type RailView = 'maps'
-
-// Once an effort has tickets (or a mapped fog), its bars say where it is; before
-// that, its stage does.
-const hasFrontier = (e: Effort) => !!e.frontier && frontierTotal(e.frontier.counts, e.frontier.fog) > 0
-
-function progress(e: Effort): string {
-  const repo = e.repo.split('/').pop() || e.repo
-  if (hasFrontier(e)) {
-    const up = whoIsUp(e.frontier!.counts)
-    return up ? `${repo} · ${up}` : repo
-  }
-  const c = e.ticketCounts
-  if (!c || !(c.open + c.closed)) return repo
-  return `${repo}, ${c.closed} of ${c.open + c.closed} tickets done`
-}
 
 function StageTag({ stage }: { stage: Stage }) {
   return (
@@ -39,7 +26,7 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, onHide, onCollapse }: {
+export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, onHide, onRemove, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
@@ -50,11 +37,12 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
   onMaps: () => void
   onSelect: (i: Effort) => void
   onHide: (i: Effort) => void
+  onRemove: (i: Effort) => void // closes a KiPo effort's issue as not planned
 }) {
   const [filter, setFilter] = useState('')
   const [hover, setHover] = useState<string | null>(null)
   // The open row menu, or its confirmation step.
-  const [menu, setMenu] = useState<{ key: string; item: Effort; x: number; y: number; confirm: boolean } | null>(null)
+  const [menu, setMenu] = useState<{ key: string; item: Effort; x: number; y: number; confirm: false | 'hide' | 'remove' } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -134,15 +122,21 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
                     <div style={{ ...(on ? strong : {}), fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
                     </div>
-                    {hasFrontier(i) && (
-                      <div style={{ marginTop: 5 }}><LaneBars frontier={i.frontier!} /></div>
-                    )}
-                    <div style={{ ...muted, fontSize: T.tiny, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <MapTag kind={i.kind} map={i.mapIssue} />
-                      {!hasFrontier(i) && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
-                      <span title={`${progress(i)}\n\n${TERM.HITL}\n${TERM.Agent}`} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progress(i)}</span>
-                      <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
-                    </div>
+                    {(() => {
+                      const g = i.frontier?.stations ? stationGlance(i.frontier.stations) : null
+                      return (<>
+                        {g && <div style={{ marginTop: 6 }}><StationGlanceBar glance={g} /></div>}
+                        <div style={{ ...muted, fontSize: T.tiny, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <MapTag kind={i.kind} map={i.mapIssue} />
+                          {!g && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
+                          <span title={g ? `Front: ${g.front}${g.bits ? ` · ${g.bits}` : ''}\n\n${TERM.HITL}\n${TERM.Agent}` : undefined}
+                            style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {g ? <><b style={{ color: 'var(--text)', fontWeight: 600 }}>{g.front}</b>{g.bits ? ` · ${g.bits}` : ''}</> : i.repo.split('/').pop()}
+                          </span>
+                          <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
+                        </div>
+                      </>)
+                    })()}
                   </button>
                   {(hover === key || on || menu?.key === key) && (
                     <button type="button" aria-label={`More for ${i.title}`} aria-haspopup="menu" title="More"
@@ -165,16 +159,26 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
         <Menu x={menu.x} y={menu.y} onClose={closeMenu} items={[
           { label: 'Open on GitHub', icon: ExternalLink, onSelect: () => window.open(menu.item.url, '_blank', 'noreferrer') },
           { separator: true },
-          { label: 'Remove from sidebar…', icon: EyeOff, danger: true, onSelect: () => setMenu({ ...menu, confirm: true }) },
+          { label: 'Remove from sidebar…', icon: EyeOff, danger: true, onSelect: () => setMenu({ ...menu, confirm: 'hide' }) },
+          ...(menu.item.kind === 'map' ? [] : [
+            { label: 'Close effort as not planned…', icon: Trash2, danger: true, onSelect: () => setMenu({ ...menu, confirm: 'remove' as const }) },
+          ]),
         ]} />
       )}
-      {menu?.confirm && (
+      {menu?.confirm === 'hide' && (
         <Confirm x={menu.x} y={menu.y} onClose={closeMenu} action="Remove"
           title={`Remove "${menu.item.title}" from the sidebar?`}
           onConfirm={() => onHide(menu.item)}>
           {menu.item.kind === 'map'
             ? 'The map stays open on GitHub. Put it back from Repos.'
             : 'Its issue stays open on GitHub. Put it back from Repos.'}
+        </Confirm>
+      )}
+      {menu?.confirm === 'remove' && (
+        <Confirm x={menu.x} y={menu.y} onClose={closeMenu} action="Close it"
+          title={`Close "${menu.item.title}" as not planned?`}
+          onConfirm={() => onRemove(menu.item)}>
+          Its issue closes on GitHub as not planned and it leaves the sidebar.
         </Confirm>
       )}
     </nav>

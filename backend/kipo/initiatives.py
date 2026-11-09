@@ -617,6 +617,7 @@ class Initiatives:
         self.storage.save_frontier(repo, number, {
             "counts": front["counts"], "lanes": front["lanes"], "fog": front["fog"],
             "stage": front["stage"], "active": front["active"],
+            "stations": frontier_mod.stations_summary(front, prs, bool(sessions.get("done"))),
         })
         summary["ticketCounts"] = {
             "open": sum(1 for t in tickets if t["state"] == "OPEN"),

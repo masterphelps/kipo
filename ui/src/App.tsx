@@ -70,6 +70,11 @@ export default function KiPo() {
     setItems(list => (list ?? []).filter(x => !(x.repo === i.repo && x.number === i.number)))
     backend.hide(i.repo, i.number).then(load).catch(e => { setError(errorText(e)); load() })
   }
+  // Close a KiPo effort's issue as not planned (confirmed in the row's menu).
+  const remove = (i: Effort) => {
+    setItems(list => (list ?? []).filter(x => !(x.repo === i.repo && x.number === i.number)))
+    backend.removeInitiative(i.repo, i.number).then(load).catch(e => { setError(errorText(e)); load() })
+  }
 
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null
 
@@ -87,6 +92,7 @@ export default function KiPo() {
         onMaps={() => setMain({ kind: 'maps' })}
         onSelect={i => open(i)}
         onHide={hide}
+        onRemove={remove}
       />
       <Divider direction="vertical" label="Resize the effort list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
       </>) : (
