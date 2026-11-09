@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { ActionButton, T, muted, strong } from './common'
 import { STATE_META, type SessionStatus } from './Frontier'
@@ -245,7 +246,14 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
   const tail = stations.find((s, i) => i < frontIdx && s.rows.some(r => r.tile?.state === 'you'))
   const waitingInTail = tail ? tail.rows.filter(r => r.tile?.state === 'you').length : 0
 
-  const [open, setOpen] = useState<ColId | null>(() => (front ? front.id : null))
+  // Any number of stations open at once; the front one starts open.
+  const [open, setOpen] = useState<Set<ColId>>(() => new Set(front ? [front.id] : []))
+  const toggle = (id: ColId) => setOpen(o => {
+    const next = new Set(o)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
@@ -275,8 +283,8 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open === s.id}
-          onToggle={() => setOpen(o => (o === s.id ? null : s.id))} onOpenTile={onOpenTile} />)}
+        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)}
+          onToggle={() => toggle(s.id)} onOpenTile={onOpenTile} />)}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '9px 16px', fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <Sw color={STATE_META.done.color} label="done" />
           <Sw color={STATE_META.building.color} label="in agents" />
@@ -305,9 +313,14 @@ function StationRow({ s, open, busy, onToggle, onOpenTile }: {
       borderLeft: open ? `2px solid ${STATE_META.you.color}` : '2px solid transparent' }}>
       <button type="button" onClick={expandable ? onToggle : undefined} aria-expanded={expandable ? open : undefined}
         title={col ? `${LABELS[s.id]} · ${col.skill}\n${col.what}` : undefined}
-        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px 9px 14px', background: 'transparent',
+        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px 9px 10px', background: 'transparent',
           color: 'var(--text)', cursor: expandable ? 'pointer' : 'default', opacity: dim ? 0.55 : 1 }}>
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <ChevronRight size={12} aria-hidden style={{
+            flexShrink: 0, alignSelf: 'center', color: 'var(--muted)',
+            transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .12s',
+            visibility: expandable ? 'visible' : 'hidden',
+          }} />
           <span style={{ width: 56, flexShrink: 0, fontSize: T.small, fontWeight: 700, color: dim ? 'var(--muted)' : 'var(--text-strong, var(--text))' }}>{LABELS[s.id]}</span>
           <span style={{ width: 92, flexShrink: 0, fontSize: 10, color: 'var(--muted)' }}>{UNITS[s.id]}</span>
           <span style={{ flex: 1, textAlign: 'right', fontSize: T.small, minWidth: 0 }}>{s.count}</span>
