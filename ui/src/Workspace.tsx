@@ -2,7 +2,7 @@ import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { PanelRight } from 'lucide-react'
+import { Map as MapIcon, PanelRight } from 'lucide-react'
 import { BackendError, backend, errorText } from './api'
 import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
@@ -10,6 +10,7 @@ import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
+import { QuestionWizard } from './SessionPanel'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import {
@@ -394,6 +395,14 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   const toggleKiroPanel = () => {
     try { chatFrameRef.current?.contentWindow?.dispatchEvent(new Event('toggle-activity-panel')) } catch { /* same origin */ }
   }
+  // A ticket's "Where it sits" map is shown on demand, not stacked over the chat.
+  const [mapOpen, setMapOpen] = useState(false)
+  // A done ticket (or a closed conversation) is settled: its unanswered
+  // decisions are history, so the question wizard stays closed on it.
+  const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
+  // The open conversation's own state drives the question wizard. A ticket uses
+  // its own file; the conductor its own, falling back to the effort's.
+  const wizardState = focus.kind === 'column' ? (convState ?? detail.state) : convState
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -428,6 +437,17 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               </span>
               {slotKey && running.length > 0 && <Running skills={running} />}
               <span style={{ flex: 1 }} />
+              {focusTile && (detail.frontier ? chain(detail.frontier.tiles, focusTile.number).length > 1 : false) && (
+                <button type="button" onClick={() => setMapOpen(o => !o)} aria-pressed={mapOpen}
+                  title="Show or hide this ticket's map — what it waits on and what it unblocks"
+                  aria-label="Show or hide the map"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 8px',
+                    borderRadius: 6, background: mapOpen ? 'var(--bg-elevated)' : 'transparent',
+                    color: mapOpen ? 'var(--text)' : 'var(--muted)', cursor: 'pointer', flexShrink: 0, fontSize: T.small,
+                    border: `1px solid ${mapOpen ? 'var(--border)' : 'transparent'}` }}>
+                  <MapIcon size={14} /> Map
+                </button>
+              )}
               {slotKey && (
                 <button type="button" onClick={toggleKiroPanel}
                   title="Show or hide the side panel — browser, Changes, Terminal, Subagents"
@@ -474,7 +494,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               {spine}
               <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
-                {focusTile && chainTiles.length > 1 && (<>
+                {/* The ticket's map, only when toggled on (the Map button). */}
+                {focusTile && chainTiles.length > 1 && mapOpen && (<>
                   <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
                     <div style={{ padding: '6px 16px 0', fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
                       Where it sits
@@ -485,6 +506,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                     onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
                 </>)}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
+                {/* The question wizard: open decisions one at a time, Submit sends them as one message. */}
+                <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
               </section>
             </div>
           )

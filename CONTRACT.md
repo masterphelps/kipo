@@ -141,11 +141,16 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     reload. The popout's dead "Return to the main window" control is hidden. A ticket's
     conversation carries its map over the chat ("Where it sits": the whole chain, blockers in
     a top row with arrows down).
-  - **Questions are answered in the chat.** The agent asks each in full, numbered, with
-    options and a recommendation (the skills mandate this), and records them in its state
-    file so the spine can **count and point to them**: a ticket row badges its open count, a
-    station rolls them up, and the spine header's amber "N questions waiting on you" jumps to
-    the next conversation with open questions. There is no separate question panel.
+  - **The question wizard** (docked at the bottom of the conversation): the open decisions
+    the agent recorded, shown **one at a time** — the question, its options as pills plus a
+    free-text answer, Back / Next, and dots for the batch. **Submit sends every answer as one
+    message** (the agent takes them all in one turn; unanswered ones stay for later). It
+    appears only when the conversation has open questions, and never on a settled ticket. The
+    agent still asks each in full in the chat too; the spine counts and points to them (row
+    badges, station roll-ups, the header's amber "N questions waiting on you" jump).
+  - **The map is on demand**: a **Map** toggle in the conversation header shows/hides this
+    ticket's "Where it sits" chain (blockers in a top row, arrows down) over the chat, instead
+    of it being permanently stacked. Off by default.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
