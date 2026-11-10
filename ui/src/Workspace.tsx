@@ -383,6 +383,17 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     setFocus(questionStops[(idx + 1) % questionStops.length])
   }
 
+  // Kiro hides its side-panel toggle on every embedded surface (the button is
+  // guarded by `!embedMode`, and the popout sets embedMode:'chat'). But the chat
+  // page toggles that panel from a window event — `window.dispatchEvent(new
+  // Event('toggle-activity-panel'))` is exactly what its own toggle fires — and
+  // the popout is same-origin, so KiPo's own button can fire it into the frame
+  // to show AND hide Kiro's real native panel (browser, +, Changes, Terminal…).
+  const chatFrameRef = useRef<HTMLIFrameElement>(null)
+  const toggleKiroPanel = () => {
+    try { chatFrameRef.current?.contentWindow?.dispatchEvent(new Event('toggle-activity-panel')) } catch { /* same origin */ }
+  }
+
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {/* One view. The conductor screen: its conversation, with its question
@@ -416,10 +427,21 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               </span>
               {slotKey && running.length > 0 && <Running skills={running} />}
               <span style={{ flex: 1 }} />
+              {slotKey && (
+                <button type="button" onClick={toggleKiroPanel}
+                  title="Show or hide the side panel — browser, Changes, Terminal, Subagents"
+                  aria-label="Show or hide the side panel"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
+                    borderRadius: 6, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', flexShrink: 0 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))'; e.currentTarget.style.color = 'var(--text)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted)' }}>
+                  <PanelRight size={15} />
+                </button>
+              )}
             </div>
           )
           const chatBody = slotKey ? (
-            <KiroChatFrame key={slotKey} slotKey={slotKey} />
+            <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef} />
           ) : (
             <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
               onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
@@ -565,7 +587,7 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     body = "kipo-review reviews this ticket's PR, fixes what it finds, and merges it if it's a two-way door."
     action = 'Review this ticket'
   } else if (focus.kind === 'decision') {
-    title = `Decision #${focus.t}`
+    title = `Decision #${ffocus.t}`
     body = 'Work through this decision ticket from the map in its own conversation.'
     action = 'Start this decision'
   } else if (focus.kind === 'column') {

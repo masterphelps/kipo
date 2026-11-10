@@ -131,13 +131,16 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     entry point read "entered at <station>". Autopilot lives in the spine header. A narrow
     sidebar drops the units column; hover a station's name for them.
   - **The conversation fills the rest**, and **its right panel is Kiro's own native side
-    panel** — browser, +, Changes, Terminal, Subagents and the rest — with Kiro's own
-    show/hide toggle. KiPo adds **no** right panel of its own: there is exactly one, and it is
-    Kiro's, exactly as a normal Kiro chat. The conversation is embedded through
-    `/popout/chat?sid=` (the one embedded surface that binds to a single session, renders only
-    its conversation, and keeps Kiro's native panel and toggle working; `/embed/chat` shows
-    the session list and suppresses the panel). A ticket's conversation carries its map over
-    the chat ("Where it sits": the whole chain, blockers in a top row with arrows down).
+    panel** — browser, +, Changes, Terminal, Subagents and the rest. KiPo adds **no** right
+    panel of its own: there is exactly one, and it is Kiro's. The conversation is embedded
+    through `/popout/chat?sid=` (the one embedded surface that binds to a single session,
+    renders only its conversation, and keeps Kiro's native panel alive; `/embed/chat` shows
+    the session list). Kiro hides its own panel toggle on embedded surfaces, so KiPo's chat
+    header carries a **panel button** that fires the chat page's own `toggle-activity-panel`
+    window event into the (same-origin) frame — it shows and hides Kiro's real panel, no
+    reload. The popout's dead "Return to the main window" control is hidden. A ticket's
+    conversation carries its map over the chat ("Where it sits": the whole chain, blockers in
+    a top row with arrows down).
   - **Questions are answered in the chat.** The agent asks each in full, numbered, with
     options and a recommendation (the skills mandate this), and records them in its state
     file so the spine can **count and point to them**: a ticket row badges its open count, a
