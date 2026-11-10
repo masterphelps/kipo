@@ -111,16 +111,13 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   GitHub), or — efforts only, behind a confirm — closes its issue as not planned. **Repos**
   shows each watched repo as a tree of its efforts and open maps; a green dot means it's on
   the sidebar, and clicking the dot adds or removes it. Repos are added there.
-- **The conductor screen** (the effort's own conversation): the **overview** is a band across
-  the top (draggable, fits its content) and the conductor's chat is below it — the one place
-  you type. Kiro's native side panel (Subagents, Changes, browser, Terminal) opens on the
-  chat's right via the header toggle: the conductor spawns the sessions, so its Subagents and
-  Changes belong here. The overview reads the effort as a **chain** (map · decisions · spec ·
-  tickets · PRs, with a `N unlinked` watch-number), a **Needs you** inbox (open questions, PRs
-  to review, gate sign-offs — each with an Answer / Review / Sign off action that opens that
-  ticket), **Moving on its own** (building, ready, waiting on a named ticket), the stage
-  **Gates**, and **Nothing missed** (the integrity checks code enforces; the coverage and
-  silent-stall checks are marked "soon" until pass 2).
+- **The conductor screen** (the effort's own conversation): just the conductor's chat — the
+  one place you type. The **sidebar spine is the overview**: counts, question badges, the
+  amber roll-up, the station queues. There is no separate overview panel.
+- **Watching a session**: ticket sessions are separate Kiro sessions, not subagents of the
+  conductor, so the conductor's panel can never show their work. To watch one, click its row
+  in the spine: its chat streams in the middle, and the header's panel toggle opens **that
+  session's** native side panel — its Subagents, Changes, browser and Terminal.
 
 - **One screen, no modes** (ticket sessions):
   - **The spine, inside the sidebar**: the open effort's row unfolds in place into its spine

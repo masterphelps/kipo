@@ -11,7 +11,6 @@ import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
 import { QuestionWizard, TicketPanel } from './SessionPanel'
-import { Overview } from './Overview'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
@@ -63,8 +62,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // right panel is Kiro's own native side panel inside the chat.
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
-  // The conductor's overview band over its chat.
-  const overviewSplit = useFitSplit('overview', 180, 0.6)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -595,26 +592,11 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // native side panel (browser, +, Changes, Terminal), which lives
           // inside the popout chat with its own show/hide toggle — KiPo adds no
           // right panel of its own. A ticket's map sits over the chat.
-          const isConductor = focus.kind === 'column'
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
               <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
-                {/* The conductor screen: the effort overview as a band across the
-                    top (chain, Needs you, Moving on its own, gates, checks), then
-                    the conductor's chat below — Kiro's native panel (subagents,
-                    Changes, browser, Terminal) opens on its right via the toggle. */}
-                {isConductor && slotKey && (<>
-                  <div ref={overviewSplit.ref} style={{ ...overviewSplit.style, minHeight: 120 }}>
-                    <Overview detail={detail}
-                      onOpenTicket={t => { const tile = t != null ? detail.frontier?.tiles.find(x => x.number === t) : null; if (tile) openTile(tile) }}
-                      onReview={(t) => { if (t != null) setFocus({ kind: 'review', t }) }}
-                      onSignoff={stage => stage === 'plan' ? handover() : runRetro()} />
-                  </div>
-                  <Divider direction="horizontal" label="Resize the overview and the conductor's chat"
-                    onDrag={overviewSplit.onDrag} onReset={overviewSplit.reset} />
-                </>)}
                 {/* The ticket's map, only when toggled on (the Map button). */}
                 {focusTile && chainTiles.length > 1 && mapOpen && (<>
                   <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
@@ -627,9 +609,9 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                     onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
                 </>)}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
-                {/* The question wizard (ticket sessions only; the conductor answers
-                    via the overview's Needs you). */}
-                {!isConductor && <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />}
+                {/* The question wizard: open decisions one at a time, Submit sends
+                    them as one message. On every conversation, the conductor's too. */}
+                <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
               </section>
             </div>
           )
