@@ -1,6 +1,6 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
-import { ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { ChevronRight, ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
 import { MapTag, T, fieldStyle, muted, strong, timeAgo } from './common'
 import { TERM } from './glossary'
@@ -44,6 +44,10 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
 }) {
   const [filter, setFilter] = useState('')
   const [hover, setHover] = useState<string | null>(null)
+  // One effort open at a time (its card glows); clicking its header folds the
+  // spine away and back. Picking another effort opens that one instead.
+  const [expanded, setExpanded] = useState(true)
+  useEffect(() => { setExpanded(true) }, [selected])
   // The open row menu, or its confirmation step.
   const [menu, setMenu] = useState<{ key: string; item: Effort; x: number; y: number; confirm: false | 'hide' | 'remove' } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
@@ -98,37 +102,50 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
           <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Nothing matches.</div>
         )}
         {shown.length > 0 && (
-            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {shown.map(i => {
                 const key = `${i.repo}#${i.number}`
                 const on = key === selected
+                const unfolded = on && !!spineSlot && expanded
                 return (
-                  <div key={key} style={{ position: 'relative' }}
+                  <div key={key}
+                    style={{
+                      position: 'relative', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)',
+                      // The open map glows; the rest sit as quiet cards.
+                      border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                      boxShadow: on ? '0 0 12px color-mix(in srgb, var(--accent) 35%, transparent)' : undefined,
+                    }}
                     onContextMenu={e => { e.preventDefault(); setMenu({ key, item: i, x: e.clientX, y: e.clientY, confirm: false }) }}
                     onPointerEnter={() => setHover(key)} onPointerLeave={() => setHover(h => (h === key ? null : h))}>
                   <button
                     type="button"
-                    onClick={() => onSelect(i)}
+                    onClick={() => { if (on) setExpanded(e => !e); else onSelect(i) }}
                     aria-current={on ? 'page' : undefined}
+                    aria-expanded={on && spineSlot ? expanded : undefined}
+                    title={on ? (expanded ? 'Fold this effort\'s stations away' : 'Show this effort\'s stations') : undefined}
                     style={{
                       display: 'block',
                       width: '100%',
                       textAlign: 'left',
                       padding: '6px 8px',
-                      borderRadius: 6,
                       cursor: 'pointer',
                       background: on ? 'var(--bg-elevated)' : 'transparent',
                       color: 'var(--text)',
-                      border: on ? '1px solid var(--border)' : '1px solid transparent',
                     }}
                   >
-                    <div style={{ ...(on ? strong : {}), fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ChevronRight size={11} aria-hidden style={{
+                        flexShrink: 0, color: 'var(--muted)', transition: 'transform .12s',
+                        transform: unfolded ? 'rotate(90deg)' : undefined,
+                      }} />
+                      <span style={{ ...(on ? strong : {}), flex: 1, minWidth: 0, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
+                      </span>
                     </div>
                     {(() => {
                       // The open effort's spine unfolds right below: its glance
                       // bar and front line would say the same thing twice.
-                      if (on && spineSlot) {
+                      if (unfolded) {
                         return (
                           <div style={{ ...muted, fontSize: T.tiny, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <MapTag kind={i.kind} map={i.mapIssue} />
@@ -164,9 +181,7 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
                   )}
                   {/* The open effort unfolds in place: its spine (conductor +
                       seven stations) portals in here from the Workspace. */}
-                  {on && spineSlot && (
-                    <div ref={spineSlot} style={{ margin: '2px 0 6px', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }} />
-                  )}
+                  {unfolded && <div ref={spineSlot} style={{ borderTop: '1px solid var(--border)' }} />}
                   </div>
                 )
               })}
