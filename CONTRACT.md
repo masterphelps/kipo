@@ -151,6 +151,10 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   - **The map is on demand**: a **Map** toggle in the conversation header shows/hides this
     ticket's "Where it sits" chain (blockers in a top row, arrows down) over the chat, instead
     of it being permanently stacked. Off by default.
+  - **A ticket with no live conversation** (closed, blocked, in review, or not yet started)
+    has no chat and no panel, so **its own details fill the centre** instead: state, PRs, How
+    it ended (last comment), What it asks/asked (body), with a Start button over them when it
+    can still be started.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
