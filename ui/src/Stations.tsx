@@ -5,7 +5,7 @@ import { STATE_META, type SessionStatus } from './Frontier'
 import { STATE_MEANING } from './glossary'
 import { isClosed } from './sessions'
 import { COLUMN_DEFS, columnOf, type ColId } from './StageBoard'
-import type { EffortDetail, Start, StationsSummary, Tile } from './types'
+import type { EffortDetail, SessionActivity, Start, StationsSummary, Tile } from './types'
 
 // ------------------------------------------------- the sidebar's view of it
 
@@ -102,6 +102,7 @@ type Row = {
   onOpen?: () => void // a stage conversation's row: opens that conversation
   questions?: number  // unanswered decisions waiting on the human in its conversation
   selKeys?: string[]  // focus keys that mean this row is the open conversation
+  live?: SessionActivity // a running session's last output: elapsed + first line
 }
 type Station = {
   id: ColId
@@ -115,9 +116,12 @@ type Station = {
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
-export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, embedded, compact, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
+export function StationsPanel({ detail, statuses, activity, busy, autopilot, selectedKey, embedded, compact, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
+  // A running session's last output (time + first line), for the live line
+  // under its row: what each agent is doing, without opening the session.
+  activity?: Record<number, SessionActivity>
   busy: boolean
   autopilot: boolean
   selectedKey: string | null // the open conversation's focus key; its row reads as selected
@@ -173,6 +177,8 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
       chip: q ? qChip(q)
         : { label: STATE_META[t.state].label, color: t.state === 'done' ? STATE_META.done.text : STATE_META[t.state].color, solid: t.state === 'you' || t.state === 'afk' },
       pulse: statuses[t.number] === 'running',
+      // Only a running row carries its live line; idle ones stay one line tall.
+      live: statuses[t.number] === 'running' ? activity?.[t.number] : undefined,
       questions: q,
       selKeys: [`build-t${t.number}`, `shape-t${t.number}`, `review-t${t.number}`],
     }
@@ -380,22 +386,28 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
       </div>
 
       <div style={embedded ? undefined : { flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {/* The conductor, pinned above the stations: the effort's own conversation. */}
-        <button type="button" onClick={onSelectConductor}
-          title="The conductor runs this effort: it watches the frontier, dispatches conversations and asks you in one batch."
-          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: `9px ${pad}px 9px ${compact ? 8 : 12}px`,
-            borderBottom: '1px solid var(--border)', background: conductorSelected ? 'var(--bg-elevated)' : 'transparent',
-            borderLeft: conductorSelected ? '2px solid var(--accent)' : '2px solid transparent',
-            color: 'var(--text)', cursor: 'pointer', fontSize: T.small }}>
-          <MessageSquare size={13} aria-hidden style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <span style={{ ...strong, flex: 1 }}>Conductor</span>
-          {conductorQ > 0
-            ? <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
-                borderRadius: 99, border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.color, whiteSpace: 'nowrap' }}>
-                {conductorQ === 1 ? '1 question' : `${conductorQ} questions`}
-              </span>
-            : <span style={{ ...muted, fontSize: T.tiny }}>{conductorOpen ? 'conversation' : 'not started'}</span>}
-        </button>
+        {/* The conductor: the one conversation you drive the effort from, so it
+            reads as a button, not another row. Selected = filled accent. */}
+        <div style={{ padding: `9px ${pad}px`, borderBottom: '1px solid var(--border)' }}>
+          <button type="button" onClick={onSelectConductor}
+            title="The conductor runs this effort: it watches the frontier, dispatches conversations and asks you in one batch. This is where you talk."
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 12px',
+              borderRadius: 8, cursor: 'pointer', fontSize: T.small, fontWeight: 700,
+              border: '1px solid var(--accent)',
+              background: conductorSelected ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 12%, transparent)',
+              color: conductorSelected ? 'var(--accent-fg, #fff)' : 'var(--accent)' }}>
+            <MessageSquare size={14} aria-hidden style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1 }}>Conductor</span>
+            {conductorQ > 0
+              ? <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+                  borderRadius: 99, whiteSpace: 'nowrap',
+                  border: `1px solid ${conductorSelected ? 'var(--accent-fg, #fff)' : STATE_META.you.color}`,
+                  color: conductorSelected ? 'var(--accent-fg, #fff)' : STATE_META.you.color }}>
+                  {conductorQ === 1 ? '1 question' : `${conductorQ} questions`}
+                </span>
+              : <span style={{ fontSize: T.tiny, fontWeight: 400, opacity: 0.75 }}>{conductorOpen ? 'conversation' : 'not started'}</span>}
+          </button>
+        </div>
         {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)} selectedKey={selectedKey} compact={compact}
           onToggle={() => toggle(s.id)} onOpenTile={onOpenTile} />)}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: `9px ${pad}px`, fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap' }}>
@@ -474,7 +486,7 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
               <button key={r.key} type="button" onClick={clickable ? open_ : undefined} disabled={!clickable}
                 title={r.tile ? `#${r.number} ${r.title}\n${STATE_MEANING[r.tile.state]}\nClick to open its session`
                   : r.onOpen ? `${r.title}\nClick to open this conversation` : r.title}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '6px 10px',
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px',
                   borderTop: '1px solid var(--border)', color: 'var(--text)', fontSize: T.small,
                   background: selected ? 'var(--bg-elevated)' : 'transparent',
                   boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
@@ -482,17 +494,28 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
                   cursor: clickable ? 'pointer' : 'default' }}
                 onMouseEnter={e => { if (clickable && !selected) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
                 onMouseLeave={e => { e.currentTarget.style.background = selected ? 'var(--bg-elevated)' : 'transparent' }}>
-                <span style={{ ...muted, fontSize: T.tiny, width: 42, flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center' }}>
-                  {r.number != null ? `#${r.number}` : r.onOpen ? <MessageSquare size={11} aria-hidden /> : '☁'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ ...muted, fontSize: T.tiny, width: 42, flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center' }}>
+                    {r.number != null ? `#${r.number}` : r.onOpen ? <MessageSquare size={11} aria-hidden /> : '☁'}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</span>
+                  {r.pulse && <span className="kipo-pulse" style={{ width: 6, height: 6, borderRadius: 9, background: STATE_META.building.color, flexShrink: 0 }} />}
+                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+                    borderRadius: 99, flexShrink: 0, whiteSpace: 'nowrap',
+                    color: r.chip.solid ? '#14121c' : r.chip.color, background: r.chip.solid ? r.chip.color : 'transparent',
+                    border: r.chip.solid ? '1px solid transparent' : `1px solid ${r.chip.color}` }}>
+                    {r.chip.label}
+                  </span>
                 </span>
-                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</span>
-                {r.pulse && <span className="kipo-pulse" style={{ width: 6, height: 6, borderRadius: 9, background: STATE_META.building.color, flexShrink: 0 }} />}
-                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
-                  borderRadius: 99, flexShrink: 0, whiteSpace: 'nowrap',
-                  color: r.chip.solid ? '#14121c' : r.chip.color, background: r.chip.solid ? r.chip.color : 'transparent',
-                  border: r.chip.solid ? '1px solid transparent' : `1px solid ${r.chip.color}` }}>
-                  {r.chip.label}
-                </span>
+                {/* The live line: what this running agent last said, and when. */}
+                {r.live && (
+                  <span title={r.live.line ?? undefined}
+                    style={{ display: 'block', marginTop: 3, paddingLeft: 50, fontSize: T.tiny, color: 'var(--muted)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ color: STATE_META.building.color }}>{elapsed(r.live.at)}</span>
+                    {r.live.line ? <> · {r.live.line}</> : null}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -503,3 +526,13 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
 }
 
 const plain = (md: string) => md.replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+
+// How long since a running session's last output: "2m", "1h", "just now".
+function elapsed(at: string | null): string {
+  const t = at ? Date.parse(at) : NaN
+  if (Number.isNaN(t)) return 'running'
+  const mins = Math.round((Date.now() - t) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m`
+  return `${Math.round(mins / 60)}h`
+}

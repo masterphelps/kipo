@@ -16,7 +16,7 @@ import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
-  type Column, type EffortDetail, type PhaseState, type TicketInfo, type Tile,
+  type Column, type EffortDetail, type PhaseState, type SessionActivity, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -151,25 +151,51 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     : null
 
   // Each tile's session status, for the dots: is its agent working right now?
+  // And, for the running ones, what it's doing: the last message's time and
+  // first line, so the spine can say "running 12m · tests green, wiring the
+  // endpoint" without opening the session.
   const [statuses, setStatuses] = useState<Record<number, SessionStatus>>({})
+  const [activity, setActivity] = useState<Record<number, SessionActivity>>({})
   const sessionTiles = useMemo(
     () => (detail?.frontier?.tiles ?? []).filter(t => t.sessionKey && detail?.sessions[t.sessionKey]),
     [detail],
   )
   useEffect(() => {
-    if (!sessionTiles.length) { setStatuses({}); return }
+    if (!sessionTiles.length) { setStatuses({}); setActivity({}); return }
     let live = true
+    type SlotInfo = { running?: boolean; messages?: { ts?: string; role?: string; content?: unknown; text?: unknown }[] }
+    // The last message's first line, whatever shape its content takes; null when
+    // the field isn't there (then the row shows only the elapsed time).
+    const lineOf = (m: { content?: unknown; text?: unknown } | undefined): string | null => {
+      const c = m?.content ?? m?.text
+      const s = typeof c === 'string' ? c
+        : Array.isArray(c) ? c.map(x => (typeof x === 'string' ? x : (x as { text?: string })?.text ?? '')).join(' ')
+        : null
+      const t = s?.replace(/\s+/g, ' ').trim()
+      return t ? t.slice(0, 140) : null
+    }
     const poll = () => {
       void Promise.all(sessionTiles.map(t =>
-        api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
-          // A finished ticket's idle session isn't waiting on anyone: no dot.
-          .then(r => (r?.running ? [t.number, 'running'] as const : t.state === 'done' ? null : [t.number, 'waiting'] as const))
+        api.get<SlotInfo>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
+          .then(r => {
+            const last = r?.messages?.[r.messages.length - 1]
+            const act: SessionActivity = { at: last?.ts ?? null, line: last && last.role !== 'user' ? lineOf(last) : null }
+            // A finished ticket's idle session isn't waiting on anyone: no dot.
+            const status = r?.running ? 'running' as const : t.state === 'done' ? null : 'waiting' as const
+            return [t.number, status, act] as const
+          })
           .catch(() => null),
       )).then(rows => {
         if (!live) return
         const next: Record<number, SessionStatus> = {}
-        for (const row of rows) if (row) next[row[0]] = row[1]
+        const acts: Record<number, SessionActivity> = {}
+        for (const row of rows) {
+          if (!row) continue
+          if (row[1]) next[row[0]] = row[1]
+          acts[row[0]] = row[2]
+        }
         setStatuses(next)
+        setActivity(acts)
       })
     }
     poll()
@@ -577,7 +603,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // in the sidebar under this effort's row; clicking any of its rows
           // swaps only the conversation here and its questions on the right.
           const spine = spineHost ? createPortal(
-            <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
+            <StationsPanel detail={detail} statuses={statuses} activity={activity} busy={busy || starting || !!startingAgents}
               autopilot={autopilot} selectedKey={key} embedded compact={spineCompact} onAutopilot={setAutopilot}
               onOpenTile={openTile}
               onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }

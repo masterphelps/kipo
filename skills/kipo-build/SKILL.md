@@ -60,6 +60,7 @@ The report doesn't replace asking in the chat and recording the cards (above), a
 - **`tdd`**: always, for the code: one red-green slice at a time at the seams the spec agreed.
 - **`diagnosing-bugs`**: something broken that resists a first look. No theory before a command that goes red on this bug.
 - **`wizard`**: a step only the human can take (credentials, CI secrets, a third-party dashboard, a cutover). Never for a step you can do yourself.
+- **`pr`**: when you open a PR, for its body. Keep the "Closes #<t>" and "Part of #<n>" lines intact.
 
 ## Conversations
 

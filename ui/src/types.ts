@@ -248,6 +248,8 @@ export type SessionClose = {
 }
 // What the page read of one session from Kiro Crew (GET /api/chat/slots/<slot>?limit=1).
 export type SessionObservation = { at: string | null; running: boolean | null; agent: boolean | null }
+// A running session's visible activity: the last message's time and first line.
+export type SessionActivity = { at: string | null; line: string | null }
 
 export type TicketInfo = {
   number: number
