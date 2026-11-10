@@ -1,0 +1,140 @@
+<!doctype html>
+<!-- Variant B: Nick's literal sketch. The stations ARE the main window; every
+     open question is answered inline on its ticket's card, right on the board;
+     the agent's conversation is a docked column on the right. Real data:
+     netsight effort #995 on 2026-11-09. -->
+<html><head><meta charset="utf-8"><style>
+  :root{
+    --bg:#14121c; --bg2:#1b1826; --bg3:#221e30; --border:#2b2740; --text:#e8e6f0; --muted:#8a86a3;
+    --accent:#8b7ff0; --you:#e3b341; --afk:#4ec9a8; --agents:#58a6ff; --review:#b48bf2; --done:#3fb950; --blocked:#f06060;
+  }
+  *{box-sizing:border-box;margin:0;font-family:-apple-system,'Segoe UI',sans-serif}
+  body{width:1800px;height:1050px;background:var(--bg);color:var(--text);overflow:hidden;font-size:13px}
+  .top{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--border)}
+  .cols{display:flex;height:1012px}
+  .chip{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:1px 6px;border-radius:99px;white-space:nowrap}
+  .q{background:var(--you);color:#14121c;border:1px solid transparent}
+  .qq{color:var(--you);border:1px solid var(--you)}
+  .muted{color:var(--muted)} .tiny{font-size:11px} .small{font-size:12px} .b{font-weight:700}
+  .divider{width:5px;border-left:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+  .divider span{color:var(--muted);font-size:9px}
+  /* board */
+  .board{flex:1;min-width:0;overflow:hidden;display:flex;flex-direction:column}
+  .bhead{padding:10px 18px 9px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:10px}
+  .station{border-bottom:1px solid var(--border)}
+  .sthead{display:flex;align-items:baseline;gap:10px;padding:9px 18px 9px 10px}
+  .chev{color:var(--muted);font-size:9px;width:10px;flex-shrink:0;align-self:center}
+  .stname{width:60px;font-weight:700;font-size:12.5px}
+  .stunits{width:95px;font-size:10px;color:var(--muted)}
+  .stcount{flex:1;text-align:right;font-size:12px}
+  .cards{padding:0 18px 12px 30px;display:flex;flex-direction:column;gap:8px}
+  .tcard{border:1px solid var(--border);border-radius:9px;background:var(--bg2);overflow:hidden}
+  .tcard.ask{border-color:var(--you)}
+  .tcard.sel{box-shadow:inset 3px 0 0 var(--accent)}
+  .thead{display:flex;align-items:center;gap:8px;padding:7px 11px}
+  .thead .num{color:var(--muted);font-size:11px;width:42px}
+  .thead .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+  .pulse{width:6px;height:6px;border-radius:9px;background:var(--agents);flex-shrink:0}
+  .ask .qrow{display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);padding:7px 11px;background:var(--bg)}
+  .ask .qrow .qt{flex:1;font-size:12px}
+  .opt{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid var(--border);border-radius:99px;padding:3px 10px;margin-right:6px;background:var(--bg2)}
+  .opt.on{border-color:var(--accent);background:var(--bg3)}
+  .radio{width:10px;height:10px;border-radius:99px;border:1.5px solid var(--muted)}
+  .opt.on .radio{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2px var(--bg)}
+  .btn{height:25px;padding:0 11px;border-radius:6px;font-weight:600;font-size:11.5px;display:inline-flex;align-items:center;border:1px solid var(--border);background:var(--bg3)}
+  .btn.p{background:var(--accent);color:#fff;border-color:transparent}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 11px;border-top:1px solid var(--border);font-size:12px}
+  .dim{opacity:.55}
+  /* agent dock */
+  .dock{width:480px;min-width:480px;display:flex;flex-direction:column}
+  .chathead{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border);min-height:32px}
+  .msgs{flex:1;padding:14px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+  .who{font-size:10.5px;color:var(--muted);margin-bottom:3px}
+  .bubble{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:9px 12px;line-height:1.5;font-size:12.5px}
+  .me .bubble{background:#262238}
+  .composer{margin:0 14px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);padding:9px 12px;color:var(--muted);display:flex}
+  .bar{display:flex;gap:1px;height:6px;border-radius:4px;overflow:hidden;margin:0 18px 9px 30px;background:var(--bg)}
+</style></head><body>
+
+<div class="top">
+  <span class="b small">#995 The Customer Portal: a customer walks their own links</span>
+  <span class="chip" style="border:1px solid var(--border);color:var(--muted)">map #996</span>
+  <span style="flex:1"></span>
+  <span class="tiny muted">interroseclabs/netsight</span>
+</div>
+
+<div class="cols">
+  <!-- THE BOARD IS THE MAIN WINDOW: stations full width, questions answered
+       inline on the ticket cards, one Send for the lot in the header. -->
+  <div class="board">
+    <div class="bhead">
+      <span class="b">Front: <span style="color:var(--you)">Build</span></span>
+      <span class="chip q">4 questions waiting on you · 3 picked</span>
+      <span style="flex:1"></span>
+      <span class="btn p">Send all 3 answers</span>
+      <span class="btn">Take all recommendations</span>
+    </div>
+
+    <div class="station">
+      <div class="sthead"><span class="chev">▾</span><span class="stname">Conductor</span><span class="stunits">the effort</span><span class="stcount"><span class="chip qq">1 question</span></span></div>
+      <div class="cards">
+        <div class="tcard ask">
+          <div class="thead"><span class="num">💬</span><span class="t">Conductor · watching the frontier</span><span class="chip qq">1 question</span></div>
+          <div class="qrow"><span class="qt b">Start #1030's FRlab walk as soon as #1023 lands?</span>
+            <span class="opt on"><span class="radio"></span>Start <span class="tiny" style="color:var(--accent)">rec</span></span><span class="opt"><span class="radio"></span>Later</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="station dim"><div class="sthead"><span class="chev"> </span><span class="stname">Intake</span><span class="stunits">source issues</span><span class="stcount muted">entered at Shape</span></div></div>
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Shape</span><span class="stunits">map tickets</span><span class="stcount"><span class="b">4 done</span></span></div><div class="bar"><span style="flex:1;background:var(--done)"></span></div></div>
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Grill</span><span class="stunits">questions</span><span class="stcount"><span class="b">3 answered</span></span></div><div class="bar"><span style="flex:1;background:var(--done)"></span></div></div>
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Plan</span><span class="stunits">spec → tickets</span><span class="stcount"><span class="b">1 spec</span> → 9 tickets</span></div><div class="bar"><span style="flex:1;background:var(--done)"></span></div></div>
+
+    <div class="station">
+      <div class="sthead"><span class="chev">▾</span><span class="stname">Build</span><span class="stunits">tickets</span>
+        <span class="stcount"><span class="chip qq">3 questions</span> · <span class="b">3 in agents</span> · 6 blocked</span></div>
+      <div class="bar"><span style="flex:3;background:var(--agents)"></span><span style="flex:6;background:var(--blocked)"></span></div>
+      <div class="cards">
+        <div class="tcard ask sel">
+          <div class="thead"><span class="num">#1022</span><span class="t">One Add takes a customer's whole list: one batch add under both sides…</span><span class="pulse"></span><span class="tiny" style="color:var(--accent)">chat open →</span></div>
+          <div class="qrow"><span class="qt b">A row that fails validation mid-batch?</span>
+            <span class="opt on"><span class="radio"></span>Skip, report at the end <span class="tiny" style="color:var(--accent)">rec</span></span><span class="opt"><span class="radio"></span>Fail the batch</span></div>
+        </div>
+        <div class="tcard ask">
+          <div class="thead"><span class="num">#1027</span><span class="t">One login check for the Portal and the Vault: SSH port, Meraki key…</span><span class="pulse"></span></div>
+          <div class="qrow"><span class="qt b">The Meraki key check calls a live API — stub it in tests?</span>
+            <span class="opt on"><span class="radio"></span>Stub it <span class="tiny" style="color:var(--accent)">rec</span></span><span class="opt"><span class="radio"></span>Hit the sandbox</span></div>
+        </div>
+        <div class="tcard ask">
+          <div class="thead"><span class="num">#1029</span><span class="t">Settings → Customer Portal says links are served over HTTPS</span><span class="pulse"></span></div>
+          <div class="qrow"><span class="qt b">The settings copy: just "HTTPS", or name port 443 too?</span>
+            <span class="opt"><span class="radio"></span>Just HTTPS <span class="tiny" style="color:var(--accent)">rec</span></span><span class="opt"><span class="radio"></span>Name port 443</span></div>
+        </div>
+        <div class="row dim"><span class="num muted tiny">#1023</span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The customer's review is the import's review, in customer mode</span><span class="chip" style="border:1px solid var(--blocked);color:var(--blocked)">blocked</span></div>
+        <div class="row dim"><span class="num muted tiny">#1024</span><span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A refused range is recorded for the operator, who can Add or Dismiss</span><span class="chip" style="border:1px solid var(--blocked);color:var(--blocked)">+4 more blocked</span></div>
+      </div>
+    </div>
+
+    <div class="station"><div class="sthead"><span class="chev"> </span><span class="stname">Review</span><span class="stunits">PRs</span><span class="stcount muted tiny">each PR reviewed, clean ones merged</span></div></div>
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Done</span><span class="stunits">merged · retro</span><span class="stcount"><span class="b">8 of 17</span> · retro not yet</span></div><div class="bar"><span style="flex:8;background:var(--done)"></span><span style="flex:9;background:transparent"></span></div></div>
+  </div>
+
+  <div class="divider"><span>⋮</span></div>
+
+  <!-- THE AGENT, DOCKED: the selected card's conversation. -->
+  <div class="dock">
+    <div class="chathead">
+      <span class="small b">#1022 · build</span>
+      <span class="tiny muted">Running implement · tdd</span>
+      <span style="flex:1"></span>
+      <span class="pulse"></span><span class="tiny" style="color:var(--agents)">agent working</span>
+    </div>
+    <div class="msgs">
+      <div class="msg me"><div class="who">Nick</div><div class="bubble">[KiPo] Effort #995 · ticket #1022, Deliver lane. Load <code>kipo-build</code>. Run /implement.</div></div>
+      <div class="msg"><div class="who">Agent · build-t1022</div><div class="bubble">Reader and batch-add tests green (14 passing). One call I can't make alone, numbered on your board:<br><br><span class="b">1. A row that fails validation mid-batch: skip and report, or fail the whole batch?</span></div></div>
+    </div>
+    <div class="composer">Message the agent… <span style="flex:1"></span>⏎</div>
+  </div>
+</div>
+</body></html>

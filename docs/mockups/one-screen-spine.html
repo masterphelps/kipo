@@ -1,0 +1,182 @@
+<!doctype html>
+<!-- Variant A: one screen. The stations are the permanent spine on the left
+     (conductor pinned on top), the open conversation sits in the middle, its
+     questions and ticket on the right. Clicking any spine row swaps only the
+     middle and right. Real data: netsight effort #995 on 2026-11-09. -->
+<html><head><meta charset="utf-8"><style>
+  :root{
+    --bg:#14121c; --bg2:#1b1826; --bg3:#221e30; --border:#2b2740; --text:#e8e6f0; --muted:#8a86a3;
+    --accent:#8b7ff0; --you:#e3b341; --afk:#4ec9a8; --agents:#58a6ff; --review:#b48bf2; --done:#3fb950; --blocked:#f06060;
+  }
+  *{box-sizing:border-box;margin:0;font-family:-apple-system,'Segoe UI',sans-serif}
+  body{width:1800px;height:1050px;background:var(--bg);color:var(--text);overflow:hidden;font-size:13px}
+  .top{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--border)}
+  .cols{display:flex;height:1012px}
+  .chip{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:1px 6px;border-radius:99px;white-space:nowrap}
+  .q{background:var(--you);color:#14121c;border:1px solid transparent}
+  .qq{color:var(--you);border:1px solid var(--you)}
+  .muted{color:var(--muted)} .tiny{font-size:11px} .small{font-size:12px} .b{font-weight:700}
+  .divider{width:5px;cursor:col-resize;background:transparent;border-left:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+  .divider span{color:var(--muted);font-size:9px;letter-spacing:-1px}
+  /* spine */
+  .spine{width:340px;min-width:340px;display:flex;flex-direction:column}
+  .sphead{padding:10px 14px 9px;border-bottom:1px solid var(--border)}
+  .station{border-bottom:1px solid var(--border)}
+  .sthead{display:flex;align-items:baseline;gap:8px;padding:8px 14px 9px 8px}
+  .chev{color:var(--muted);font-size:9px;width:10px;flex-shrink:0;align-self:center}
+  .stname{width:52px;font-weight:700;font-size:12px}
+  .stunits{width:78px;font-size:10px;color:var(--muted)}
+  .stcount{flex:1;text-align:right;font-size:12px}
+  .bar{display:flex;gap:1px;height:6px;border-radius:4px;overflow:hidden;margin:0 14px 8px 32px;background:var(--bg)}
+  .rows{margin:0 14px 10px 26px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg)}
+  .row{display:flex;align-items:center;gap:7px;padding:6px 9px;border-top:1px solid var(--border);font-size:12px}
+  .row:first-child{border-top:none}
+  .row .num{color:var(--muted);font-size:11px;width:40px;flex-shrink:0}
+  .row .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sel{background:var(--bg3);box-shadow:inset 2px 0 0 var(--accent)}
+  .dim{opacity:.55}
+  .pulse{width:6px;height:6px;border-radius:9px;background:var(--agents);flex-shrink:0}
+  /* chat */
+  .chat{flex:1;display:flex;flex-direction:column;min-width:0}
+  .chathead{display:flex;align-items:center;gap:8px;padding:6px 16px;border-bottom:1px solid var(--border);min-height:32px}
+  .sits{padding:8px 16px 10px;border-bottom:1px solid var(--border)}
+  .tile{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:7px;padding:4px 9px;font-size:11.5px;background:var(--bg2)}
+  .arrow{color:var(--muted);margin:0 7px;font-size:12px}
+  .msgs{flex:1;padding:18px 0;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+  .msg{max-width:720px;margin:0 auto;width:86%}
+  .who{font-size:10.5px;color:var(--muted);margin-bottom:3px}
+  .bubble{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 13px;line-height:1.5;font-size:13px}
+  .me .bubble{background:#262238}
+  .composer{margin:0 auto 16px;width:86%;max-width:720px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);padding:10px 13px;color:var(--muted);display:flex;align-items:center}
+  /* right */
+  .right{width:400px;min-width:400px;overflow:hidden;display:flex;flex-direction:column}
+  .blk{padding:12px 16px}
+  .blkhead{display:flex;align-items:baseline;gap:6px;margin-bottom:8px}
+  .card{border:1px solid var(--accent);border-radius:8px;overflow:hidden;margin-bottom:8px}
+  .cardhead{display:flex;align-items:baseline;gap:8px;padding:8px 10px}
+  .opt{display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:12px}
+  .radio{width:12px;height:12px;border-radius:99px;border:1.5px solid var(--muted);flex-shrink:0}
+  .radio.on{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 2px var(--bg)}
+  .btn{height:26px;padding:0 11px;border-radius:6px;font-weight:600;font-size:12px;display:inline-flex;align-items:center;border:1px solid var(--border);background:var(--bg3)}
+  .btn.p{background:var(--accent);color:#fff;border-color:transparent}
+  .sec{border-top:1px solid var(--border);padding:10px 16px}
+  .pill{font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid var(--agents);color:var(--agents)}
+</style></head><body>
+
+<div class="top">
+  <span class="b small">#995 The Customer Portal: a customer walks their own links</span>
+  <span class="chip" style="border:1px solid var(--border);color:var(--muted)">map #996</span>
+  <span style="flex:1"></span>
+  <span class="tiny muted">interroseclabs/netsight</span>
+</div>
+
+<div class="cols">
+  <!-- THE SPINE: always visible. Conductor pinned on top; clicking any row only
+       swaps the chat + questions. -->
+  <div class="spine">
+    <div class="sphead">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span class="b" style="flex:1">Front: <span style="color:var(--you)">Build</span></span>
+        <span class="tiny" style="color:var(--accent)">Open on GitHub</span>
+      </div>
+      <div class="tiny" style="margin-top:4px"><span class="chip q">4 questions waiting on you</span></div>
+      <div class="tiny muted" style="margin-top:5px">● Autopilot on: freed agent tickets start on their own</div>
+    </div>
+
+    <div class="station">
+      <div class="row" style="padding:9px 14px;border-top:none">
+        <span style="color:var(--muted)">💬</span><span class="t b">Conductor</span>
+        <span class="chip qq">1 question</span>
+      </div>
+    </div>
+
+    <div class="station dim"><div class="sthead"><span class="chev"> </span><span class="stname">Intake</span><span class="stunits">source issues</span><span class="stcount muted">entered at Shape</span></div></div>
+
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Shape</span><span class="stunits">map tickets</span><span class="stcount"><span class="b">4 done</span></span></div>
+      <div class="bar"><span style="flex:4;background:var(--done)"></span></div></div>
+
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Grill</span><span class="stunits">questions</span><span class="stcount"><span class="b">3 answered</span></span></div>
+      <div class="bar"><span style="flex:3;background:var(--done)"></span></div></div>
+
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Plan</span><span class="stunits">spec → tickets</span><span class="stcount"><span class="b">1 spec</span> → 9 tickets</span></div>
+      <div class="bar"><span style="flex:1;background:var(--done)"></span></div></div>
+
+    <div class="station">
+      <div class="sthead"><span class="chev">▾</span><span class="stname">Build</span><span class="stunits">tickets</span>
+        <span class="stcount"><span class="chip qq">3 questions</span> · <span class="b">3 in agents</span> · 6 blocked</span></div>
+      <div class="bar"><span style="flex:3;background:var(--agents)"></span><span style="flex:6;background:var(--blocked)"></span></div>
+      <div class="rows">
+        <div class="row sel"><span class="num">#1022</span><span class="t">One Add takes a customer's whole list: one batch add…</span><span class="pulse"></span><span class="chip qq">1 question</span></div>
+        <div class="row"><span class="num">#1027</span><span class="t">One login check for the Portal and the Vault: SSH port…</span><span class="pulse"></span><span class="chip qq">1 question</span></div>
+        <div class="row"><span class="num">#1029</span><span class="t">Settings → Customer Portal says links are served over…</span><span class="pulse"></span><span class="chip qq">1 question</span></div>
+        <div class="row dim"><span class="num">#1023</span><span class="t">The customer's review is the import's review, in cust…</span><span class="chip" style="border:1px solid var(--blocked);color:var(--blocked)">blocked</span></div>
+        <div class="row dim"><span class="num">#1024</span><span class="t">A refused range is recorded for the operator…</span><span class="chip" style="border:1px solid var(--blocked);color:var(--blocked)">blocked</span></div>
+        <div class="row dim"><span class="num">#1030</span><span class="t">Walk a real Customer Link on FRlab: a messy workbook…</span><span class="chip" style="border:1px solid var(--blocked);color:var(--blocked)">+3 more blocked</span></div>
+      </div>
+    </div>
+
+    <div class="station"><div class="sthead"><span class="chev"> </span><span class="stname">Review</span><span class="stunits">PRs</span><span class="stcount muted tiny">each PR reviewed, clean ones merged</span></div></div>
+
+    <div class="station"><div class="sthead"><span class="chev">▸</span><span class="stname">Done</span><span class="stunits">merged · retro</span><span class="stcount"><span class="b">8 of 17</span> · retro not yet</span></div>
+      <div class="bar"><span style="flex:8;background:var(--done)"></span><span style="flex:9;background:transparent"></span></div></div>
+
+    <div style="flex:1"></div>
+    <div class="tiny muted" style="padding:9px 14px;display:flex;gap:10px;flex-wrap:wrap">
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--done);margin-right:4px"></span>done</span>
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--agents);margin-right:4px"></span>in agents</span>
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--you);margin-right:4px"></span>HITL</span>
+      <span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:var(--blocked);margin-right:4px"></span>blocked</span>
+    </div>
+  </div>
+
+  <div class="divider"><span>⋮</span></div>
+
+  <!-- THE CONVERSATION: whichever row is selected. -->
+  <div class="chat">
+    <div class="chathead">
+      <span class="small b">#1022 · build</span>
+      <span class="tiny muted">Running implement · tdd</span>
+      <span style="flex:1"></span>
+      <span class="pulse"></span><span class="tiny" style="color:var(--agents)">agent working</span>
+    </div>
+    <div class="sits">
+      <div class="tiny muted" style="margin-bottom:6px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:10px">Where it sits</div>
+      <span class="tile" style="opacity:.6">#1013 <span class="chip" style="border:1px solid var(--done);color:var(--done)">done</span></span><span class="arrow">→</span><span class="tile" style="border-color:var(--accent)"><span class="b">#1022</span> <span class="chip" style="background:var(--agents);color:#14121c">building</span></span><span class="arrow">→ frees</span><span class="tile">#1023</span><span class="arrow">·</span><span class="tile">#1024</span>
+    </div>
+    <div class="msgs">
+      <div class="msg me"><div class="who">Nick</div><div class="bubble">[KiPo] Effort #995 · ticket #1022, in the Deliver lane. Load the skill <code>kipo-build</code> and follow it. Run /implement.</div></div>
+      <div class="msg"><div class="who">Agent · build-t1022</div><div class="bubble">Reader and batch-add tests are green (14 passing). One call I can't make alone before I wire the endpoint — it's on the right, numbered:<br><br><span class="b">1. A row that fails validation mid-batch: skip it and report at the end, or fail the whole batch?</span><br>Options: Skip and report (my recommendation — matches the import's behaviour) / Fail the whole batch.</div></div>
+    </div>
+    <div class="composer">Message the agent… <span style="flex:1"></span>⏎</div>
+  </div>
+
+  <div class="divider"><span>⋮</span></div>
+
+  <!-- THE QUESTIONS + THE TICKET, for the open conversation. -->
+  <div class="right">
+    <div class="blk">
+      <div class="blkhead"><span class="b small">Decisions (HITL)</span><span style="flex:1"></span><span class="tiny muted">1 of 1 picked</span></div>
+      <div class="card">
+        <div class="cardhead"><span class="muted tiny">1.</span><span class="b small" style="flex:1">A row that fails validation mid-batch?</span><span class="chip q">open</span></div>
+        <div class="opt"><span class="radio on"></span><span style="flex:1">Skip it, report at the end</span><span class="tiny" style="color:var(--accent)">recommended</span></div>
+        <div class="opt"><span class="radio"></span><span style="flex:1">Fail the whole batch</span></div>
+        <div class="opt"><span class="radio"></span><span class="muted" style="flex:1">Something else…</span></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="btn p">Send all 1 answers</span><span class="btn">Take all recommendations</span>
+      </div>
+      <div class="tiny muted" style="margin-top:6px">Sent together, as one message.</div>
+    </div>
+    <div class="sec">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="muted tiny">#1022 · Build</span><span class="pill">In progress</span><span style="flex:1"></span><span class="tiny" style="color:var(--accent)">Open on GitHub</span>
+      </div>
+      <div class="b" style="margin-top:4px;line-height:1.35">One Add takes a customer's whole list: one batch add under both sides, every field kept</div>
+      <div class="small" style="margin-top:5px">An agent is working on it. Its question is above.</div>
+    </div>
+    <div class="sec"><span class="b small">▾ What it asks</span>
+      <div class="small muted" style="margin-top:6px;line-height:1.5">A customer pastes or uploads their whole list; one batch add creates every row under both the Networks map and the Portal, keeping network, VLAN, gateway and description. Rows the reader can't place land in the review…</div>
+    </div>
+  </div>
+</div>
+</body></html>

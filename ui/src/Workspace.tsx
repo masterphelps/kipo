@@ -2,12 +2,12 @@ import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BackendError, backend, errorText } from './api'
-import { ErrorLine, MapTag, T, TextButton, muted, strong } from './common'
+import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
 import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit, useStoredSize } from './layout'
-import { Decisions, SessionSidebar } from './SessionPanel'
+import { SessionSidebar } from './SessionPanel'
 import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
@@ -51,8 +51,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   useEffect(() => { remember(`${cacheKey}:focus`, focus) }, [cacheKey, focus])
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [rightWidth, setRightWidth] = useStoredSize('right', 560, 340, 1200)
-  // A session's own right panel: its decision cards and its ticket.
+  // One screen: the stations spine on the left, the open conversation in the
+  // middle, its questions and ticket on the right.
+  const [spineWidth, setSpineWidth] = useStoredSize('spine', 420, 340, 700)
   const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
@@ -363,6 +364,27 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // decision cards are history, never questions still waiting on you.
   const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
 
+  // Every conversation with open questions, in spine order: the conductor,
+  // then the tickets, then the stage conversations. The spine's amber chip
+  // walks them: each click jumps to the next one, cycling.
+  const openQCount = (s?: PhaseState | null) => s?.decisions.filter(d => !d.answer).length ?? 0
+  const questionStops: Focus[] = []
+  if (openQCount(detail.sessionStates?.conductor ?? detail.state)) questionStops.push({ kind: 'column' })
+  for (const t of detail.frontier?.tiles ?? []) {
+    if (t.state === 'done' || !t.sessionKey || !openQCount(detail.sessionStates?.[t.sessionKey])) continue
+    questionStops.push(t.sessionKey.startsWith('review-t') ? { kind: 'review', t: t.number }
+      : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
+  }
+  for (const c of ['plan', 'review', 'done', 'intake', 'shape', 'grill'] as Column[]) {
+    if (detail.sessions[c] && openQCount(detail.sessionStates?.[c])) questionStops.push({ kind: 'stage', column: c })
+  }
+  if (detail.sessions['build-spec'] && openQCount(detail.sessionStates?.['build-spec'])) questionStops.push({ kind: 'spec' })
+  const jumpQuestions = () => {
+    if (!questionStops.length) return
+    const idx = questionStops.findIndex(f => focusKey(f) === key)
+    setFocus(questionStops[(idx + 1) % questionStops.length])
+  }
+
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {/* One view. The conductor screen: its conversation, with its question
@@ -386,14 +408,11 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       {actionError && <div style={{ padding: '6px 12px 0' }}><ErrorLine>{actionError}</ErrorLine></div>}
 
       {(() => {
-          // The slim header: the way back and what's running. The embedded chat
-          // page carries the session's title, renaming and Kiro's side panel
-          // (subagents, browser, terminal, changes) itself.
+          // The slim header: what's open and what it's running. The embedded
+          // chat page carries the session's title, renaming and Kiro's side
+          // panel (subagents, browser, terminal, changes) itself.
           const chatHead = (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: '1px solid var(--border)', minWidth: 0, minHeight: 30 }}>
-              {focus.kind !== 'column' && (
-                <TextButton onClick={() => setFocus({ kind: 'column' })} title="Back to the conductor">← Conductor</TextButton>
-              )}
               <span style={{ ...(slotKey ? muted : strong), fontSize: slotKey ? T.small : T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                 {focusTile ? `#${focusTile.number}${slotKey ? '' : ` ${focusTile.title}`}` : focus.kind === 'column' ? 'Conductor' : detail.title}
               </span>
@@ -408,50 +427,28 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
               alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
           )
-
-          if (focus.kind === 'column') {
-            // The conductor screen: its conversation, and the effort as seven
-            // stations on the right. A station expands to its queue; a queue row
-            // opens that ticket's session.
-            return (
-              <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                  {chatHead}
-                  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
-                </section>
-                <Divider direction="vertical" label="Resize the conversation and the stations"
-                  onDrag={d => setRightWidth(w => w - d)} onReset={() => setRightWidth(560)} />
-                <section style={{ flex: `0 0 ${rightWidth}px`, width: rightWidth, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                  {/* The conductor's own questions (its Ask-you batch), answerable here. */}
-                  {(() => {
-                    const cState = convState ?? detail.state
-                    if (!cState?.decisions.some(d => !d.answer) && !cState?.blocking) return null
-                    return (
-                      <div style={{ flex: 'none', maxHeight: '45%', overflowY: 'auto', scrollbarWidth: 'thin', borderBottom: '1px solid var(--border)' }}>
-                        <Decisions key={slotKey ?? 'none'} state={cState} slotKey={slotKey} settled={false} onError={setActionError} />
-                      </div>
-                    )
-                  })()}
-                  <div style={{ flex: 1, minHeight: 0 }}>
-                    <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
-                      autopilot={autopilot} onAutopilot={setAutopilot}
-                      onOpenTile={openTile}
-                      onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }
-                        : /^review-t\d+$/.test(k) ? { kind: 'review', t: Number(k.slice(8)) }
-                        : { kind: 'stage', column: k as Column })}
-                      onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
-                  </div>
-                </section>
-              </div>
-            )
-          }
-
-          // A ticket's (or stage's) session: its map over the conversation in the
-          // middle, and on the right everything it needs from you — the decision
-          // cards (answered together, sent as one message) and the ticket itself.
           const chainTiles = focusTile && detail.frontier ? chain(detail.frontier.tiles, focusTile.number) : []
+          // The conductor's conversation shows its own state on the right.
+          const panelState = focus.kind === 'column' ? (convState ?? detail.state) : convState
+
+          // One screen, no modes. The spine (conductor + seven stations) is
+          // always on the left; clicking any row swaps only the conversation
+          // in the middle and its questions on the right.
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+              <section style={{ flex: `0 0 ${spineWidth}px`, width: spineWidth, minWidth: 340, minHeight: 0 }}>
+                <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
+                  autopilot={autopilot} selectedKey={key} onAutopilot={setAutopilot}
+                  onOpenTile={openTile}
+                  onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }
+                    : /^review-t\d+$/.test(k) ? { kind: 'review', t: Number(k.slice(8)) }
+                    : { kind: 'stage', column: k as Column })}
+                  onSelectConductor={() => setFocus({ kind: 'column' })}
+                  onJumpQuestions={jumpQuestions}
+                  onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
+              </section>
+              <Divider direction="vertical" label="Resize the stations and the conversation"
+                onDrag={d => setSpineWidth(w => w + d)} onReset={() => setSpineWidth(360)} />
               <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
                 {focusTile && chainTiles.length > 1 && (<>
@@ -469,7 +466,7 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
               <Divider direction="vertical" label="Resize the conversation and the session's panel"
                 onDrag={d => setSessionRight(w => w - d)} onReset={() => setSessionRight(420)} />
               <section style={{ flex: `0 0 ${sessionRight}px`, width: sessionRight, minWidth: 320, minHeight: 0 }}>
-                <SessionSidebar detail={detail} tile={focusTile} state={convState} slotKey={slotKey}
+                <SessionSidebar detail={detail} tile={focusTile} state={panelState} slotKey={slotKey}
                   settled={settled} onError={setActionError} />
               </section>
             </div>

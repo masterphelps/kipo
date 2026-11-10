@@ -99,6 +99,8 @@ type Row = {
   chip: { label: string; color: string; solid?: boolean }
   url?: string; pulse?: boolean
   onOpen?: () => void // a stage conversation's row: opens that conversation
+  questions?: number  // unanswered decisions waiting on the human in its conversation
+  selKeys?: string[]  // focus keys that mean this row is the open conversation
 }
 type Station = {
   id: ColId
@@ -112,20 +114,30 @@ type Station = {
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
-export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, onOpenTile, onOpenConversation, onHandover, onReview, onRetro, onClose }: {
+export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
   busy: boolean
   autopilot: boolean
+  selectedKey: string | null // the open conversation's focus key; its row reads as selected
   onAutopilot: (on: boolean) => void
   onOpenTile: (t: Tile) => void
   onOpenConversation: (key: string) => void // back into a stage conversation (plan, review, done, …, build-spec)
+  onSelectConductor: () => void
+  onJumpQuestions: () => void // jump to the next conversation with open questions
   onHandover: () => void
   onReview: () => void
   onRetro: () => void
   onClose: () => void // close the effort and its issue (confirmed inline, Done station)
 }) {
   const [confirmClose, setConfirmClose] = useState(false)
+  // Unanswered decisions waiting on the human, per conversation. A done
+  // ticket's unanswered entries are settled history, never counted.
+  const qFor = (key?: string | null) =>
+    key ? (detail.sessionStates?.[key]?.decisions ?? []).filter(d => !d.answer).length : 0
+  const conductorQ = ((detail.sessionStates?.conductor ?? detail.state)?.decisions ?? []).filter(d => !d.answer).length
+  const qChip = (n: number): Row['chip'] =>
+    ({ label: n === 1 ? '1 question' : `${n} questions`, color: STATE_META.you.color })
   const f = detail.frontier
   const tiles = f?.tiles ?? []
   const fogItems = f?.fogItems?.length ? f.fogItems : f?.fogLeft ?? []
@@ -147,14 +159,21 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
   const doneCount = tiles.filter(t => t.state === 'done').length
   const retroRan = !!detail.sessions.done
 
-  const tileRow = (t: Tile): Row => ({
-    key: `t${t.number}`,
-    number: t.number,
-    title: t.title,
-    tile: t,
-    chip: { label: STATE_META[t.state].label, color: t.state === 'done' ? STATE_META.done.text : STATE_META[t.state].color, solid: t.state === 'you' || t.state === 'afk' },
-    pulse: statuses[t.number] === 'running',
-  })
+  const tileRow = (t: Tile): Row => {
+    const q = t.state !== 'done' ? qFor(t.sessionKey) : 0
+    return {
+      key: `t${t.number}`,
+      number: t.number,
+      title: t.title,
+      tile: t,
+      // A ticket whose agent is waiting on an answer says so, louder than its state.
+      chip: q ? qChip(q)
+        : { label: STATE_META[t.state].label, color: t.state === 'done' ? STATE_META.done.text : STATE_META[t.state].color, solid: t.state === 'you' || t.state === 'afk' },
+      pulse: statuses[t.number] === 'running',
+      questions: q,
+      selKeys: [`build-t${t.number}`, `shape-t${t.number}`, `review-t${t.number}`],
+    }
+  }
   const counts = (ts: Tile[]) => {
     const by = (s: Tile['state']) => ts.filter(t => t.state === s).length
     return { done: by('done'), you: by('you'), afk: by('afk'), building: by('building'), review: by('review'), blocked: by('blocked') }
@@ -174,10 +193,13 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
   const convRow = (key: string): Row[] => {
     const slot = detail.sessions[key]
     if (!slot || isClosed(slot)) return []
+    const q = qFor(key)
     return [{
       key: `conv-${key}`, title: CONV_LABEL[key] ?? 'Its conversation',
-      chip: { label: 'conversation', color: 'var(--accent)' },
+      chip: q ? qChip(q) : { label: 'conversation', color: 'var(--accent)' },
       onOpen: () => onOpenConversation(key),
+      questions: q,
+      selKeys: [key],
     }]
   }
 
@@ -284,16 +306,19 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
     return next
   })
 
+  const totalQ = conductorQ + stations.reduce((a, s) => a + s.rows.reduce((x, r) => x + (r.questions ?? 0), 0), 0)
+  const conductorSelected = selectedKey === 'conductor'
+  const conductorOpen = !!detail.sessions.conductor && !isClosed(detail.sessions.conductor)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+      {/* The effort's title lives in the top bar; this header carries only
+          what the spine itself says. */}
       <div style={{ padding: '10px 16px 9px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ ...strong, fontSize: T.body, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={detail.title}>
-            {detail.title}
-          </span>
+          <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>entered at {LABELS[entry]} ({START_LABEL[detail.start] ?? detail.start})</span>
           <a href={detail.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.tiny, whiteSpace: 'nowrap' }}>Open on GitHub</a>
         </div>
-        <div style={{ ...muted, fontSize: T.tiny, marginTop: 2 }}>entered at {LABELS[entry]} ({START_LABEL[detail.start] ?? detail.start})</div>
         <div style={{ fontSize: T.small, marginTop: 5 }}>
           Front: <b style={{ color: front ? STATE_META.you.color : STATE_META.done.text }}>{front ? LABELS[front.id] : 'Done'}</b>
           {' · '}
@@ -301,6 +326,14 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
             ? <>behind it: <b style={strong}>{waitingInTail} waiting in {LABELS[tail.id]}</b></>
             : <span style={muted}>behind it: nothing earlier open</span>}
         </div>
+        {totalQ > 0 && (
+          <button type="button" onClick={onJumpQuestions}
+            title="Jump to the next conversation with open questions; answer them on the right"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '2px 9px', borderRadius: 99,
+              background: STATE_META.you.color, color: '#14121c', fontSize: T.tiny, fontWeight: 700, cursor: 'pointer', border: 0 }}>
+            {totalQ === 1 ? '1 question waiting on you' : `${totalQ} questions waiting on you`} →
+          </button>
+        )}
         <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}
           title="When a ticket closes and frees the next Deliver ticket an agent can take, KiPo starts it. Runs while this effort is open in KiPo."
           style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', padding: 0, marginTop: 5, cursor: 'pointer',
@@ -312,7 +345,23 @@ export function StationsPanel({ detail, statuses, busy, autopilot, onAutopilot, 
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)}
+        {/* The conductor, pinned above the stations: the effort's own conversation. */}
+        <button type="button" onClick={onSelectConductor}
+          title="The conductor runs this effort: it watches the frontier, dispatches conversations and asks you in one batch."
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 16px 9px 12px',
+            borderBottom: '1px solid var(--border)', background: conductorSelected ? 'var(--bg-elevated)' : 'transparent',
+            borderLeft: conductorSelected ? '2px solid var(--accent)' : '2px solid transparent',
+            color: 'var(--text)', cursor: 'pointer', fontSize: T.small }}>
+          <MessageSquare size={13} aria-hidden style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <span style={{ ...strong, flex: 1 }}>Conductor</span>
+          {conductorQ > 0
+            ? <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+                borderRadius: 99, border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.color, whiteSpace: 'nowrap' }}>
+                {conductorQ === 1 ? '1 question' : `${conductorQ} questions`}
+              </span>
+            : <span style={{ ...muted, fontSize: T.tiny }}>{conductorOpen ? 'conversation' : 'not started'}</span>}
+        </button>
+        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)} selectedKey={selectedKey}
           onToggle={() => toggle(s.id)} onOpenTile={onOpenTile} />)}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '9px 16px', fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <Sw color={STATE_META.done.color} label="done" />
@@ -330,13 +379,14 @@ function Sw({ color, label }: { color: string; label: string }) {
   return <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: color, marginRight: 4, verticalAlign: -1 }} />{label}</span>
 }
 
-function StationRow({ s, open, busy, onToggle, onOpenTile }: {
-  s: Station; open: boolean; busy: boolean; onToggle: () => void; onOpenTile: (t: Tile) => void
+function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
+  s: Station; open: boolean; busy: boolean; selectedKey: string | null; onToggle: () => void; onOpenTile: (t: Tile) => void
 }) {
   const dim = s.state === 'skipped' || s.state === 'queued'
   const expandable = s.rows.length > 0 || !!s.action
   const col = COLUMN_DEFS.find(c => c.id === s.id)
   const total = s.segments.reduce((a, x) => a + x.n, 0)
+  const stationQ = s.rows.reduce((a, r) => a + (r.questions ?? 0), 0)
   return (
     <div style={{ borderBottom: '1px solid var(--border)', background: open ? 'var(--bg-elevated)' : undefined,
       borderLeft: open ? `2px solid ${STATE_META.you.color}` : '2px solid transparent' }}>
@@ -352,7 +402,15 @@ function StationRow({ s, open, busy, onToggle, onOpenTile }: {
           }} />
           <span style={{ width: 56, flexShrink: 0, fontSize: T.small, fontWeight: 700, color: dim ? 'var(--muted)' : 'var(--text-strong, var(--text))' }}>{LABELS[s.id]}</span>
           <span style={{ width: 92, flexShrink: 0, fontSize: 10, color: 'var(--muted)' }}>{UNITS[s.id]}</span>
-          <span style={{ flex: 1, textAlign: 'right', fontSize: T.small, minWidth: 0 }}>{s.count}</span>
+          <span style={{ flex: 1, textAlign: 'right', fontSize: T.small, minWidth: 0 }}>
+            {stationQ > 0 && (
+              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+                borderRadius: 99, border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.color, whiteSpace: 'nowrap', marginRight: 6 }}>
+                {stationQ === 1 ? '1 question' : `${stationQ} questions`}
+              </span>
+            )}
+            {s.count}
+          </span>
         </span>
         {total > 0 && (
           <span style={{ display: 'flex', gap: 1, height: 6, borderRadius: 4, overflow: 'hidden', marginTop: 6, background: 'var(--bg)' }}>
@@ -375,15 +433,18 @@ function StationRow({ s, open, busy, onToggle, onOpenTile }: {
           {s.rows.map(r => {
             const open_ = () => { if (r.onOpen) r.onOpen(); else if (r.tile) onOpenTile(r.tile); else if (r.url) window.open(r.url, '_blank', 'noreferrer') }
             const clickable = !!r.onOpen || !!r.tile || !!r.url
+            const selected = !!selectedKey && !!r.selKeys?.includes(selectedKey)
             return (
               <button key={r.key} type="button" onClick={clickable ? open_ : undefined} disabled={!clickable}
                 title={r.tile ? `#${r.number} ${r.title}\n${STATE_MEANING[r.tile.state]}\nClick to open its session`
                   : r.onOpen ? `${r.title}\nClick to open this conversation` : r.title}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '6px 10px',
-                  borderTop: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', fontSize: T.small,
+                  borderTop: '1px solid var(--border)', color: 'var(--text)', fontSize: T.small,
+                  background: selected ? 'var(--bg-elevated)' : 'transparent',
+                  boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
                   cursor: clickable ? 'pointer' : 'default' }}
-                onMouseEnter={e => { if (clickable) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                onMouseEnter={e => { if (clickable && !selected) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
+                onMouseLeave={e => { e.currentTarget.style.background = selected ? 'var(--bg-elevated)' : 'transparent' }}>
                 <span style={{ ...muted, fontSize: T.tiny, width: 42, flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center' }}>
                   {r.number != null ? `#${r.number}` : r.onOpen ? <MessageSquare size={11} aria-hidden /> : '☁'}
                 </span>
