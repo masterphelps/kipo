@@ -55,23 +55,25 @@ export function SessionSidebar({ detail, tile, state, slotKey, settled, onError 
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {tile && (
-        <div role="tablist" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {tabBtn('questions', <>
-            Questions
-            {openQ > 0 && (
-              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '0 6px', borderRadius: 99, background: 'var(--accent)', color: 'var(--accent-fg, #fff)' }}>{openQ}</span>
-            )}
-          </>)}
-          {tabBtn('ticket', <>#{tile.number}</>)}
-        </div>
-      )}
+      {/* Always a tab strip, so every session's panel reads the same. The
+          Questions tab is always present; the ticket tab only with a ticket. */}
+      <div role="tablist" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: '1px solid var(--border)', flexShrink: 0, minHeight: 33 }}>
+        {tabBtn('questions', <>
+          Questions
+          {openQ > 0 && (
+            <span style={{ fontSize: 9.5, fontWeight: 700, padding: '0 6px', borderRadius: 99, background: 'var(--accent)', color: 'var(--accent-fg, #fff)' }}>{openQ}</span>
+          )}
+        </>)}
+        {tile && tabBtn('ticket', <>#{tile.number}</>)}
+      </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', scrollbarWidth: 'thin' }}>
         {tab === 'questions' || !tile ? (<>
           <Decisions key={slotKey ?? 'none'} state={state} slotKey={slotKey} settled={settled} onError={onError} />
           {!hasDecisions && (
             <div style={{ ...muted, fontSize: T.small, padding: '14px 16px', lineHeight: 1.5 }}>
-              No open questions. When this conversation asks you something, its cards appear here.
+              {slotKey
+                ? 'No open questions. When this conversation asks you something, its cards appear here to answer.'
+                : 'This conversation hasn’t started yet. Its questions will appear here once it does.'}
             </div>
           )}
         </>) : (

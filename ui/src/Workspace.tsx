@@ -482,22 +482,22 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 
 // ---------------------------------------------------------------- middle column
 
-// Just the conversation: Kiro's embedded chat, with its own side panel
-// suppressed. `/embed/chat` is the surface whose panel-open button is hidden
-// and whose side panel never shows, so the session has exactly ONE right panel
-// — KiPo's, next door — instead of Kiro's panel stacked beside it. The popout
-// route (`/popout/chat`) is the opposite: it keeps Kiro's panel alive embedded,
-// which is what produced a second right panel. Same origin, shares the login.
+// The conversation itself. `/popout/chat?sid=` is the one embedded surface that
+// binds to a single session and renders ONLY that conversation (the plain
+// `/embed/chat` surface shows the session list). Whether Kiro's own side panel
+// shows inside it is governed by Kiro's "Keep Side Panel Open" setting, which
+// the popout honors: with it OFF, the panel stays closed and this session has a
+// single right panel — KiPo's, next door. Same origin, shares the login.
 function KiroChatFrame({ slotKey }: { slotKey: string }) {
-  const src = `/embed/chat?sid=${encodeURIComponent(slotKey)}`
+  const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
   const ref = useRef<HTMLIFrameElement>(null)
   // A control inside the page could navigate the frame to the whole dashboard;
-  // keep it on the embedded chat.
+  // keep it on the session's chat.
   const onLoad = () => {
     const frame = ref.current
     try {
       const path = frame?.contentWindow?.location.pathname
-      if (frame && path && !path.startsWith('/embed/chat')) frame.src = src
+      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
     } catch { /* same origin, so never unreadable; just in case */ }
   }
   return (
