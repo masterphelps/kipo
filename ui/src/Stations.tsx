@@ -53,13 +53,14 @@ export function stationGlance(s: StationsSummary): Glance {
   const agents = s.shape.building + s.grill.building + s.build.building + s.intake.building
   const ready = s.shape.afk + s.grill.afk + s.build.afk + s.intake.afk
   const pieces = [
+    s.doneTiles ? `${s.doneTiles}/${s.total} done` : '',
     you ? `${you} HITL` : '',
     agents ? `${agents} in agents` : '',
     ready ? `${ready} ready` : '',
     s.prs.open ? `${s.prs.open} PR${s.prs.open === 1 ? '' : 's'}` : '',
     s.fog ? `${s.fog} fog` : '',
   ].filter(Boolean)
-  return { segs, front, bits: pieces.slice(0, 3).join(' · ') }
+  return { segs, front, bits: pieces.slice(0, 4).join(' · ') }
 }
 
 export function StationGlanceBar({ glance }: { glance: Glance }) {
@@ -307,10 +308,22 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
   const hasOpen = (s: Station) => s.state === 'live'
   const frontIdx = stations.reduce((a, s, i) => (hasOpen(s) ? i : a), -1)
   const front = frontIdx >= 0 ? stations[frontIdx] : null
-  const tail = stations.find((s, i) => i < frontIdx && s.rows.some(r => r.tile?.state === 'you'))
-  const waitingInTail = tail ? tail.rows.filter(r => r.tile?.state === 'you').length : 0
 
-  // Any number of stations open at once; the front one starts open.
+  // An effort with mixed tickets isn't "at" one stage — saying "Front: Review"
+  // when work is spread across Build, Review and Done reads as nonsense. The
+  // header is an honest roll-up of every ticket's state instead.
+  const all = counts(tiles)
+  const total = tiles.length
+  const overview = [
+    { n: all.building, label: 'in agents', color: STATE_META.building.color },
+    { n: all.review, label: 'in review', color: STATE_META.review.color },
+    { n: all.you, label: 'HITL', color: STATE_META.you.color },
+    { n: all.afk, label: 'ready', color: STATE_META.afk.color },
+    { n: all.blocked, label: 'blocked', color: STATE_META.blocked.color },
+    { n: fogItems.length, label: 'fog', color: 'var(--muted)' },
+  ].filter(x => x.n > 0)
+
+  // Any number of stations open at once; the furthest active one starts open.
   const [open, setOpen] = useState<Set<ColId>>(() => new Set(front ? [front.id] : []))
   const toggle = (id: ColId) => setOpen(o => {
     const next = new Set(o)
@@ -334,12 +347,19 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
           {/* In the sidebar the row's ⋯ menu already opens GitHub. */}
           {!embedded && <a href={detail.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.tiny, whiteSpace: 'nowrap' }}>Open on GitHub</a>}
         </div>
-        <div style={{ fontSize: T.small, marginTop: 5 }}>
-          Front: <b style={{ color: front ? STATE_META.you.color : STATE_META.done.text }}>{front ? LABELS[front.id] : 'Done'}</b>
-          {' · '}
-          {tail
-            ? <>behind it: <b style={strong}>{waitingInTail} waiting in {LABELS[tail.id]}</b></>
-            : <span style={muted}>behind it: nothing earlier open</span>}
+        <div style={{ fontSize: T.small, marginTop: 5, display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
+          {total > 0
+            ? (<>
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  <b style={{ color: STATE_META.done.text }}>{all.done} of {total}</b> <span style={muted}>done</span>
+                </span>
+                {overview.map(x => (
+                  <span key={x.label} style={{ whiteSpace: 'nowrap' }}>
+                    <b style={{ color: x.color }}>{x.n}</b> <span style={muted}>{x.label}</span>
+                  </span>
+                ))}
+              </>)
+            : <span style={muted}>{fogItems.length ? `${fogItems.length} in the fog, nothing cut yet` : 'nothing cut yet'}</span>}
         </div>
         {totalQ > 0 && (
           <button type="button" onClick={onJumpQuestions}

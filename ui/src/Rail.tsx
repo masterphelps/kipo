@@ -160,9 +160,9 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
                         <div style={{ ...muted, fontSize: T.tiny, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <MapTag kind={i.kind} map={i.mapIssue} />
                           {!g && <StageTag stage={i.stage ?? stageOfColumn(i.column)} />}
-                          <span title={g ? `Front: ${g.front}${g.bits ? ` · ${g.bits}` : ''}\n\n${TERM.HITL}\n${TERM.Agent}` : undefined}
+                          <span title={g ? `${g.bits || g.front}\n\n${TERM.HITL}\n${TERM.Agent}` : undefined}
                             style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {g ? <><b style={{ color: 'var(--text)', fontWeight: 600 }}>{g.front}</b>{g.bits ? ` · ${g.bits}` : ''}</> : i.repo.split('/').pop()}
+                            {g ? (g.bits || g.front) : i.repo.split('/').pop()}
                           </span>
                           <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
                         </div>
