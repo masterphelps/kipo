@@ -2,6 +2,7 @@ import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { PanelRight } from 'lucide-react'
 import { BackendError, backend, errorText } from './api'
 import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
@@ -500,20 +501,31 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 // shows inside it is governed by Kiro's "Keep Side Panel Open" setting, which
 // the popout honors: with it OFF, the panel stays closed and this session has a
 // single right panel — KiPo's, next door. Same origin, shares the login.
-function KiroChatFrame({ slotKey }: { slotKey: string }) {
+function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React.RefObject<HTMLIFrameElement> }) {
   const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
-  const ref = useRef<HTMLIFrameElement>(null)
-  // A control inside the page could navigate the frame to the whole dashboard;
-  // keep it on the session's chat.
+  // Keep the frame on the session's chat, and hide the popout's dead "Return to
+  // the main window" control. Same-origin, so we can read the path and style
+  // the frame's own document.
   const onLoad = () => {
-    const frame = ref.current
+    const frame = frameRef.current
     try {
       const path = frame?.contentWindow?.location.pathname
-      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
+      if (frame && path && !path.startsWith('/popout/chat')) { frame.src = src; return }
+      const doc = frame?.contentDocument
+      if (doc && !doc.getElementById('kipo-popout-css')) {
+        const style = doc.createElement('style')
+        style.id = 'kipo-popout-css'
+        style.textContent = [
+          'button[title*="main window" i]',
+          'button[aria-label*="main window" i]',
+          '[data-ui-location="chat.return-to-main"]',
+        ].join(',') + '{display:none !important}'
+        doc.head.appendChild(style)
+      }
     } catch { /* same origin, so never unreadable; just in case */ }
   }
   return (
-    <iframe ref={ref} src={src} title="The session in Kiro's chat" onLoad={onLoad}
+    <iframe ref={frameRef} src={src} title="The session in Kiro's chat" onLoad={onLoad}
       style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />
   )
 }
@@ -587,7 +599,7 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     body = "kipo-review reviews this ticket's PR, fixes what it finds, and merges it if it's a two-way door."
     action = 'Review this ticket'
   } else if (focus.kind === 'decision') {
-    title = `Decision #${ffocus.t}`
+    title = `Decision #${focus.t}`
     body = 'Work through this decision ticket from the map in its own conversation.'
     action = 'Start this decision'
   } else if (focus.kind === 'column') {
