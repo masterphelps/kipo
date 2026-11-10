@@ -1,0 +1,134 @@
+<!doctype html>
+<!-- The conductor overview: one screen that reads the effort as a chain, an
+     inbox ("Needs you"), what's moving on its own, the stage gates, and the
+     integrity checks ("Nothing missed"). Real data: netSIGHT effort #995. -->
+<html><head><meta charset="utf-8"><style>
+  :root{
+    --bg:#14121c; --panel:#1b1826; --panel2:#201c2e; --border:#2b2740; --border2:#39334f;
+    --text:#e8e6f0; --muted:#8a86a3; --accent:#8b7ff0;
+    --green:#3fb950; --greenbg:rgba(63,185,80,.13); --greenbd:rgba(63,185,80,.35);
+    --amber:#e3b341; --amberbg:rgba(227,179,65,.13); --amberbd:rgba(227,179,65,.4);
+    --blue:#58a6ff; --bluebg:rgba(88,166,255,.14); --bluebd:rgba(88,166,255,.4);
+    --red:#f06060; --redbg:rgba(240,96,96,.12); --redbd:rgba(240,96,96,.38);
+  }
+  *{box-sizing:border-box;margin:0;font-family:-apple-system,'Segoe UI',sans-serif}
+  body{width:1240px;background:var(--bg);color:var(--text);padding:26px 30px 32px}
+  .b{font-weight:700}.muted{color:var(--muted)}.small{font-size:13px}.tiny{font-size:12px}
+  /* header */
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .num{color:var(--muted);font-weight:700;font-size:21px;font-variant-numeric:tabular-nums}
+  .title{font-size:21px;font-weight:700}
+  .ap{margin-left:auto;font-size:13px;color:var(--blue);background:var(--bluebg);border:1px solid var(--bluebd);border-radius:99px;padding:4px 12px}
+  /* chain */
+  .chain{display:flex;align-items:center;gap:0;margin-bottom:24px}
+  .cpill{font-size:14px;font-weight:600;border-radius:8px;padding:5px 13px;white-space:nowrap}
+  .cg{color:var(--green);background:var(--greenbg);border:1px solid var(--greenbd)}
+  .ca{color:var(--amber);background:var(--amberbg);border:1px solid var(--amberbd)}
+  .clink{width:16px;height:16px;border:1px solid var(--border2);border-radius:3px;margin:0 9px;flex-shrink:0}
+  .unlinked{margin-left:auto;font-size:15px;font-weight:600}
+  /* sections */
+  .sec{margin-bottom:22px}
+  .seclabel{font-size:14px;color:var(--muted);margin-bottom:9px}
+  .list{border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--panel)}
+  .row{display:flex;align-items:center;gap:16px;padding:15px 18px;border-top:1px solid var(--border)}
+  .row:first-child{border-top:none}
+  .row .id{color:var(--muted);font-weight:600;font-size:15px;width:52px;flex-shrink:0;font-variant-numeric:tabular-nums}
+  .row .t{flex:1;min-width:0;font-size:15.5px}
+  .ico{width:22px;height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:5px}
+  .ico.pr{border:2px solid var(--blue)}
+  .ico.q{color:var(--amber);font-size:17px;font-weight:800}
+  .pill{font-size:13px;font-weight:600;border-radius:99px;padding:4px 12px;white-space:nowrap;flex-shrink:0}
+  .pblue{color:var(--blue);background:var(--bluebg);border:1px solid var(--bluebd)}
+  .pred{color:var(--red);background:var(--redbg);border:1px solid var(--redbd)}
+  .act{border:1px solid var(--border2);border-radius:9px;padding:9px 20px;font-size:15px;font-weight:600;color:var(--text);background:transparent;display:inline-flex;align-items:center;gap:5px;flex-shrink:0}
+  .act .ar{color:var(--muted);font-size:12px}
+  /* gates */
+  .gates{display:flex;gap:10px}
+  .gate{flex:1;text-align:center;padding:12px 6px;border-radius:10px}
+  .gate .gn{font-weight:700;font-size:15px}
+  .gate .gs{font-size:13px;color:var(--muted);margin-top:3px}
+  .gate.on{background:var(--amberbg);border:1px solid var(--amberbd)}
+  .gate.on .gn{color:var(--amber)} .gate.on .gs{color:var(--amber);opacity:.85}
+  .gate.done .gn{color:var(--green)}
+  /* nothing missed */
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:10px 34px}
+  .chk{display:flex;align-items:center;gap:11px;font-size:15px}
+  .box{width:17px;height:17px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+  .box.ok{border:1.5px solid var(--green);color:var(--green)}
+  .box.warn{border:1.5px solid var(--amber)}
+  .chk.warn{color:var(--amber)}
+</style></head><body>
+
+  <div class="head">
+    <span class="num">#995</span><span class="title">Customer Portal networks entry</span>
+    <span class="ap">Autopilot on</span>
+  </div>
+
+  <!-- the chain: every item links to the one before it -->
+  <div class="chain">
+    <span class="cpill cg">1 map</span><span class="clink"></span>
+    <span class="cpill cg">5 decisions</span><span class="clink"></span>
+    <span class="cpill cg">1 spec</span><span class="clink"></span>
+    <span class="cpill ca">9 tickets, 4 done</span><span class="clink"></span>
+    <span class="cpill ca">5 PRs, 4 merged</span>
+    <span class="unlinked"><span class="b" style="color:var(--green)">0</span> <span class="muted">unlinked</span></span>
+  </div>
+
+  <!-- the inbox: the only things that need a human -->
+  <div class="sec">
+    <div class="seclabel">Needs you · 2</div>
+    <div class="list">
+      <div class="row">
+        <span class="ico pr"></span>
+        <span class="id">#1040</span>
+        <span class="t">Review PR: the customer's review is the import's record</span>
+        <span class="pill pblue">Low merge risk</span>
+        <button class="act">Review <span class="ar">↗</span></button>
+      </div>
+      <div class="row">
+        <span class="ico q">?</span>
+        <span class="id">#1024</span>
+        <span class="t">Question: keep a refused range after the customer edits it?</span>
+        <button class="act">Answer <span class="ar">↗</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- running without you -->
+  <div class="sec">
+    <div class="seclabel">Moving on its own · 4</div>
+    <div class="list">
+      <div class="row"><span class="id">#1024</span><span class="t">A refused range is recorded</span><span class="pill pblue">Building, 12 min</span></div>
+      <div class="row"><span class="id">#1025</span><span class="t">A customer's row already on the map</span><span class="pill pred">Waits on #1023</span></div>
+      <div class="row"><span class="id">#1026</span><span class="t">A site the customer names</span><span class="pill pred">Waits on #1023</span></div>
+      <div class="row"><span class="id">#1030</span><span class="t">Walk a real customer link on FRlab</span><span class="pill pred">Waits on #1025, #1026</span></div>
+    </div>
+  </div>
+
+  <!-- the stage gates -->
+  <div class="sec">
+    <div class="seclabel">Gates</div>
+    <div class="gates">
+      <div class="gate done"><div class="gn">Shape</div><div class="gs">3 of 3</div></div>
+      <div class="gate done"><div class="gn">Grill</div><div class="gs">5 of 5</div></div>
+      <div class="gate done"><div class="gn">Plan</div><div class="gs">Spec covered</div></div>
+      <div class="gate on"><div class="gn">Build</div><div class="gs">4 of 9</div></div>
+      <div class="gate"><div class="gn">Review</div><div class="gs">4 of 5</div></div>
+      <div class="gate"><div class="gn">Done</div><div class="gs">Retro not run</div></div>
+    </div>
+  </div>
+
+  <!-- integrity checks enforced by code -->
+  <div class="sec">
+    <div class="seclabel">Nothing missed</div>
+    <div class="checks">
+      <div class="chk"><span class="box ok">✓</span>Every ticket has a state and an owner</div>
+      <div class="chk"><span class="box ok">✓</span>Every blocker points at an open ticket</div>
+      <div class="chk"><span class="box ok">✓</span>Every decision appears in the spec</div>
+      <div class="chk"><span class="box ok">✓</span>Every spec section has a ticket</div>
+      <div class="chk"><span class="box ok">✓</span>No session silent over 30 min</div>
+      <div class="chk warn"><span class="box warn"></span>1 question open, #1024 can't close</div>
+    </div>
+  </div>
+
+</body></html>

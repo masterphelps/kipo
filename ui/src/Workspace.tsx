@@ -11,6 +11,7 @@ import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
 import { QuestionWizard, TicketPanel } from './SessionPanel'
+import { Overview } from './Overview'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import {
@@ -399,6 +400,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   }
   // A ticket's "Where it sits" map is shown on demand, not stacked over the chat.
   const [mapOpen, setMapOpen] = useState(false)
+  // The conductor's overview panel width (the right side of the conductor screen).
+  const [overviewWidth, setOverviewWidth] = useState(480)
   // A done ticket (or a closed conversation) is settled: its unanswered
   // decisions are history, so the question wizard stays closed on it.
   const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
@@ -450,7 +453,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                   <MapIcon size={14} /> Map
                 </button>
               )}
-              {slotKey && (
+              {slotKey && focus.kind !== 'column' && (
                 <button type="button" onClick={toggleKiroPanel}
                   title="Show or hide the side panel — browser, Changes, Terminal, Subagents"
                   aria-label="Show or hide the side panel"
@@ -533,6 +536,20 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                 {/* The question wizard: open decisions one at a time, Submit sends them as one message. */}
                 <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
               </section>
+              {/* The conductor's right panel is the effort overview: the chain,
+                  the "Needs you" inbox, what's moving on its own, the gates and
+                  the integrity checks. You talk to the conductor on the left;
+                  the overview is how you see the effort and act on it. */}
+              {focus.kind === 'column' && (<>
+                <Divider direction="vertical" label="Resize the conversation and the overview"
+                  onDrag={d => setOverviewWidth(w => w - d)} onReset={() => setOverviewWidth(480)} />
+                <section style={{ flex: `0 0 ${overviewWidth}px`, width: overviewWidth, minWidth: 360, minHeight: 0 }}>
+                  <Overview detail={detail}
+                    onOpenTicket={t => { const tile = t != null ? detail.frontier?.tiles.find(x => x.number === t) : null; if (tile) openTile(tile) }}
+                    onReview={(t) => { if (t != null) setFocus({ kind: 'review', t }) }}
+                    onSignoff={stage => stage === 'plan' ? handover() : runRetro()} />
+                </section>
+              </>)}
             </div>
           )
       })()}

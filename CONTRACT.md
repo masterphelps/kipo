@@ -111,7 +111,17 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   GitHub), or — efforts only, behind a confirm — closes its issue as not planned. **Repos**
   shows each watched repo as a tree of its efforts and open maps; a green dot means it's on
   the sidebar, and clicking the dot adds or removes it. Repos are added there.
-- **One screen, no modes**:
+- **The conductor screen** (the effort's own conversation): you talk to the conductor in
+  the centre — the one place you type — and on the right is the **overview**: the effort read
+  as a **chain** (map · decisions · spec · tickets · PRs, with a `N unlinked` watch-number),
+  a **Needs you** inbox (open questions, PRs to review, gate sign-offs — each with an Answer /
+  Review / Sign off action that opens that ticket), **Moving on its own** (building, ready,
+  waiting on a named ticket), the stage **Gates**, and **Nothing missed** (the integrity
+  checks code enforces; the coverage and silent-stall checks are marked "soon" until pass 2).
+  The native Kiro panel is not shown here — the conductor does no work, so the overview takes
+  that slot.
+
+- **One screen, no modes** (ticket sessions):
   - **The spine, inside the sidebar**: the open effort's row unfolds in place into its spine
     (the sidebar's other efforts keep their glance rows). The **conductor is pinned on top**
     (with its open question count), then the effort as the seven KiPo skills, each a counter
