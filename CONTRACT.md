@@ -131,10 +131,12 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     entry point read "entered at <station>". Autopilot lives in the spine header. A narrow
     sidebar drops the units column; hover a station's name for them.
   - **The conversation** (middle): whichever row is open, Kiro's chat embedded through
-    `/embed/chat?sid=` — just the conversation, with Kiro's own side panel suppressed, so the
-    session has exactly **one** right panel (KiPo's, next door) and not Kiro's stacked beside
-    it. A ticket's conversation carries its map over the chat ("Where it sits": the whole
-    chain, blockers in a top row with arrows down).
+    `/popout/chat?sid=` (the one embedded surface that binds to a single session and renders
+    only its conversation; plain `/embed/chat` shows the session list). Whether Kiro's own
+    in-iframe side panel appears is left to Kiro's "Keep Side Panel Open" setting — with it
+    off, the session has a single right panel: KiPo's, next door. A ticket's conversation
+    carries its map over the chat ("Where it sits": the whole chain, blockers in a top row
+    with arrows down).
   - **The session panel** (right), two tabs when a ticket is open — **Questions** (badged
     with the open count) and **#N**, the ticket: Questions holds the conversation's decision
     cards (each question's options as radios plus a free-text answer, answered together and
