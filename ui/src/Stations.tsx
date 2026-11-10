@@ -114,12 +114,14 @@ type Station = {
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
-export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
+export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, embedded, compact, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
   busy: boolean
   autopilot: boolean
   selectedKey: string | null // the open conversation's focus key; its row reads as selected
+  embedded?: boolean // inside the sidebar, under the effort's row: flows with the rail's scroll
+  compact?: boolean  // a narrow rail: drop the units column and tighten padding
   onAutopilot: (on: boolean) => void
   onOpenTile: (t: Tile) => void
   onOpenConversation: (key: string) => void // back into a stage conversation (plan, review, done, …, build-spec)
@@ -273,9 +275,11 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
     if (c.blocked) bits.push(`${c.blocked} blocked`)
     const segments = [seg(c.done, 'done'), seg(c.building, 'building'), seg(c.review, 'review'), seg(c.you, 'you'), seg(c.afk, 'afk'), seg(c.blocked, 'blocked')]
     if (id === 'shape' && fogItems.length) segments.push({ n: fogItems.length, color: 'transparent', dashed: true })
-    // Done tickets are counted here (the segments and the "N done" bit) but
-    // listed only in the Done station; the queue is what's still open.
-    const rows = [...conv, ...sortRows(own.filter(t => t.state !== 'done')).map(tileRow)]
+    // The queue: open work first; the station's answered/done tickets last and
+    // dim, so "5 answered" always expands to show which five (the chat can say
+    // "start #997" long after #997 closed — the row is how you check). The
+    // Done station still lists every done ticket in one place.
+    const rows = [...conv, ...sortRows(own).map(tileRow)]
     if (id === 'shape') {
       fogItems.forEach((t, i) => rows.push({
         key: `fog${i}`, title: plain(t),
@@ -310,14 +314,16 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
   const conductorSelected = selectedKey === 'conductor'
   const conductorOpen = !!detail.sessions.conductor && !isClosed(detail.sessions.conductor)
 
+  const pad = compact ? 10 : 16
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      {/* The effort's title lives in the top bar; this header carries only
-          what the spine itself says. */}
-      <div style={{ padding: '10px 16px 9px', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, ...(embedded ? {} : { height: '100%' }) }}>
+      {/* The effort's title lives in its row (or the top bar); this header
+          carries only what the spine itself says. */}
+      <div style={{ padding: `10px ${pad}px 9px`, borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>entered at {LABELS[entry]} ({START_LABEL[detail.start] ?? detail.start})</span>
-          <a href={detail.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.tiny, whiteSpace: 'nowrap' }}>Open on GitHub</a>
+          {/* In the sidebar the row's ⋯ menu already opens GitHub. */}
+          {!embedded && <a href={detail.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.tiny, whiteSpace: 'nowrap' }}>Open on GitHub</a>}
         </div>
         <div style={{ fontSize: T.small, marginTop: 5 }}>
           Front: <b style={{ color: front ? STATE_META.you.color : STATE_META.done.text }}>{front ? LABELS[front.id] : 'Done'}</b>
@@ -344,11 +350,11 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
         </button>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div style={embedded ? undefined : { flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {/* The conductor, pinned above the stations: the effort's own conversation. */}
         <button type="button" onClick={onSelectConductor}
           title="The conductor runs this effort: it watches the frontier, dispatches conversations and asks you in one batch."
-          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 16px 9px 12px',
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: `9px ${pad}px 9px ${compact ? 8 : 12}px`,
             borderBottom: '1px solid var(--border)', background: conductorSelected ? 'var(--bg-elevated)' : 'transparent',
             borderLeft: conductorSelected ? '2px solid var(--accent)' : '2px solid transparent',
             color: 'var(--text)', cursor: 'pointer', fontSize: T.small }}>
@@ -361,9 +367,9 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
               </span>
             : <span style={{ ...muted, fontSize: T.tiny }}>{conductorOpen ? 'conversation' : 'not started'}</span>}
         </button>
-        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)} selectedKey={selectedKey}
+        {stations.map(s => <StationRow key={s.id} s={s} busy={busy} open={open.has(s.id)} selectedKey={selectedKey} compact={compact}
           onToggle={() => toggle(s.id)} onOpenTile={onOpenTile} />)}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '9px 16px', fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: `9px ${pad}px`, fontSize: T.tiny, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <Sw color={STATE_META.done.color} label="done" />
           <Sw color={STATE_META.building.color} label="in agents" />
           <Sw color={STATE_META.you.color} label="HITL" />
@@ -379,8 +385,8 @@ function Sw({ color, label }: { color: string; label: string }) {
   return <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: color, marginRight: 4, verticalAlign: -1 }} />{label}</span>
 }
 
-function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
-  s: Station; open: boolean; busy: boolean; selectedKey: string | null; onToggle: () => void; onOpenTile: (t: Tile) => void
+function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile }: {
+  s: Station; open: boolean; busy: boolean; selectedKey: string | null; compact?: boolean; onToggle: () => void; onOpenTile: (t: Tile) => void
 }) {
   const dim = s.state === 'skipped' || s.state === 'queued'
   const expandable = s.rows.length > 0 || !!s.action
@@ -392,7 +398,7 @@ function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
       borderLeft: open ? `2px solid ${STATE_META.you.color}` : '2px solid transparent' }}>
       <button type="button" onClick={expandable ? onToggle : undefined} aria-expanded={expandable ? open : undefined}
         title={col ? `${LABELS[s.id]} · ${col.skill}\n${col.what}` : undefined}
-        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px 9px 10px', background: 'transparent',
+        style={{ display: 'block', width: '100%', textAlign: 'left', padding: compact ? '8px 10px 9px 6px' : '8px 16px 9px 10px', background: 'transparent',
           color: 'var(--text)', cursor: expandable ? 'pointer' : 'default', opacity: dim ? 0.55 : 1 }}>
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <ChevronRight size={12} aria-hidden style={{
@@ -400,8 +406,9 @@ function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
             transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .12s',
             visibility: expandable ? 'visible' : 'hidden',
           }} />
-          <span style={{ width: 56, flexShrink: 0, fontSize: T.small, fontWeight: 700, color: dim ? 'var(--muted)' : 'var(--text-strong, var(--text))' }}>{LABELS[s.id]}</span>
-          <span style={{ width: 92, flexShrink: 0, fontSize: 10, color: 'var(--muted)' }}>{UNITS[s.id]}</span>
+          <span style={{ width: compact ? 48 : 56, flexShrink: 0, fontSize: T.small, fontWeight: 700, color: dim ? 'var(--muted)' : 'var(--text-strong, var(--text))' }}
+            title={compact ? UNITS[s.id] : undefined}>{LABELS[s.id]}</span>
+          {!compact && <span style={{ width: 92, flexShrink: 0, fontSize: 10, color: 'var(--muted)' }}>{UNITS[s.id]}</span>}
           <span style={{ flex: 1, textAlign: 'right', fontSize: T.small, minWidth: 0 }}>
             {stationQ > 0 && (
               <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
@@ -422,7 +429,7 @@ function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
         {s.ghost && <span style={{ display: 'block', fontSize: T.tiny, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{s.ghost}</span>}
       </button>
       {open && expandable && (
-        <div style={{ margin: '0 16px 10px 14px', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
+        <div style={{ margin: compact ? '0 10px 10px 8px' : '0 16px 10px 14px', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }}>
           {s.action && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: s.rows.length ? '1px solid var(--border)' : undefined }}>
               <span style={{ ...muted, fontSize: T.tiny, flex: 1 }}>{s.action.confirm ? '' : `${LABELS[s.id]}'s next step`}</span>
@@ -442,6 +449,7 @@ function StationRow({ s, open, busy, selectedKey, onToggle, onOpenTile }: {
                   borderTop: '1px solid var(--border)', color: 'var(--text)', fontSize: T.small,
                   background: selected ? 'var(--bg-elevated)' : 'transparent',
                   boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
+                  opacity: r.tile?.state === 'done' && !selected ? 0.55 : 1,
                   cursor: clickable ? 'pointer' : 'default' }}
                 onMouseEnter={e => { if (clickable && !selected) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
                 onMouseLeave={e => { e.currentTarget.style.background = selected ? 'var(--bg-elevated)' : 'transparent' }}>

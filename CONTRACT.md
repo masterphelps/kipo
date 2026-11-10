@@ -111,32 +111,37 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   GitHub), or — efforts only, behind a confirm — closes its issue as not planned. **Repos**
   shows each watched repo as a tree of its efforts and open maps; a green dot means it's on
   the sidebar, and clicking the dot adds or removes it. Repos are added there.
-- **One screen, no modes** — three columns, every divider draggable:
-  - **The spine** (left, always visible): the **conductor pinned on top** (with its open
-    question count), then the effort as the seven KiPo skills, each a counter **in its own
-    units** (Grill counts questions, Plan is the `1 spec → N tickets` fan-out, Build counts
-    tickets, Review counts PRs, Done is merged-of-total plus whether /retro ran), each with a
-    bar normalized to its own station. The header names the **front** and the **tail** (the
-    earliest station still waiting on a human) and carries the amber roll-up — "N questions
-    waiting on you" — which on each click jumps to the next conversation with open questions.
-    A station expands to its queue: ticket rows (each badged with its session's open question
-    count; a done ticket is listed only in Done, its home station keeps the counter) and a
-    row for the station's own conversation once it exists (Writing the spec, Reviewing the
-    PRs, The retro, …). Clicking any row — conductor, ticket, conversation — swaps only the
-    middle and right columns; the spine never leaves. The open row reads as selected.
-    Stations carry their own next step until its conversation exists (Write the spec, Review
-    the PRs, Run /retro, Close effort behind a confirm). Stations before the entry point read
-    "entered at <station>". Autopilot lives in the spine header.
+- **One screen, no modes**:
+  - **The spine, inside the sidebar**: the open effort's row unfolds in place into its spine
+    (the sidebar's other efforts keep their glance rows). The **conductor is pinned on top**
+    (with its open question count), then the effort as the seven KiPo skills, each a counter
+    **in its own units** (Grill counts questions, Plan is the `1 spec → N tickets` fan-out,
+    Build counts tickets, Review counts PRs, Done is merged-of-total plus whether /retro
+    ran), each with a bar normalized to its own station. The spine header names the **front**
+    and the **tail** (the earliest station still waiting on a human) and carries the amber
+    roll-up — "N questions waiting on you" — which on each click jumps to the next
+    conversation with open questions. A station expands to its queue: ticket rows (each
+    badged with its session's open question count), its answered/done tickets last and dim —
+    so "5 answered" always expands to show which five — and a row for the station's own
+    conversation once it exists (Writing the spec, Reviewing the PRs, The retro, …). The
+    Done station lists every done ticket in one place. Clicking any row — conductor, ticket,
+    conversation — swaps only the conversation and the right panel; the open row reads as
+    selected. Stations carry their own next step until its conversation exists (Write the
+    spec, Review the PRs, Run /retro, Close effort behind a confirm). Stations before the
+    entry point read "entered at <station>". Autopilot lives in the spine header. A narrow
+    sidebar drops the units column; hover a station's name for them.
   - **The conversation** (middle): whichever row is open, in Kiro's own chat page (embedded
     through `/popout/chat?sid=`, so its side panel — subagents, browser, terminal, changes —
     works). A ticket's conversation carries its map over the chat ("Where it sits": the whole
     chain, blockers in a top row with arrows down).
-  - **The session panel** (right): the open conversation's decision cards (each question's
-    options as radios plus a free-text answer, answered together and sent as one message,
-    "Take all recommendations"), what it's waiting on, what's been decided, and — for a
-    ticket — the ticket itself (state, PRs, what it asks, how it ended). Questions and
-    interviews still happen in the chat in full; the cards are the same questions,
-    answerable without typing. The conductor's own cards show here too when it's open.
+  - **The session panel** (right), two tabs when a ticket is open — **Questions** (badged
+    with the open count) and **#N**, the ticket: Questions holds the conversation's decision
+    cards (each question's options as radios plus a free-text answer, answered together and
+    sent as one message, "Take all recommendations"), what it's waiting on, what's been
+    decided; the ticket tab holds state, PRs, what it asks, how it ended. The panel lands on
+    Questions when any are open (and pulls back to it when a new one arrives), else on the
+    ticket. Questions and interviews still happen in the chat in full; the cards are the
+    same questions, answerable without typing. The conductor's cards show the same way.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 

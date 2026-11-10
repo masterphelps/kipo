@@ -31,7 +31,10 @@ export default function KiPo() {
     return m.kind === 'initiative' ? { ...m, autoStart: undefined } : m
   })
   useEffect(() => { if (main) remember('main', main) }, [main])
-  const [railWidth, setRailWidth] = useStoredSize('rail', 228, 168, 400)
+  const [railWidth, setRailWidth] = useStoredSize('rail', 300, 168, 620)
+  // The open effort's spine (conductor + stations) renders inside the rail,
+  // under its row: the Rail provides this element, the Workspace portals in.
+  const [spineHost, setSpineHost] = useState<HTMLElement | null>(null)
   // The effort list can be folded to a narrow strip; remembered per browser.
   const [railOpen, setRailOpenState] = useState(() => localStorage.getItem('kipo.railOpen') !== '0')
   const setRailOpen = (on: boolean) => { setRailOpenState(on); localStorage.setItem('kipo.railOpen', on ? '1' : '0') }
@@ -87,6 +90,7 @@ export default function KiPo() {
         items={items}
         error={error}
         selected={selected}
+        spineSlot={setSpineHost}
         view={main?.kind === 'maps' ? 'maps' : null}
         onNew={() => setMain({ kind: 'new' })}
         onMaps={() => setMain({ kind: 'maps' })}
@@ -118,6 +122,8 @@ export default function KiPo() {
             number={main.number}
             autoStart={main.autoStart}
             active={active}
+            spineHost={railOpen ? spineHost : null}
+            spineCompact={railWidth < 340}
             onChanged={load}
             onRemoved={() => { load(); setMain(null) }}
           />

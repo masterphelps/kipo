@@ -26,12 +26,15 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, onHide, onRemove, onCollapse }: {
+export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, onSelect, onHide, onRemove, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
   error: string
   selected: string | null
+  // The open effort's stations render here, under its row: the Workspace
+  // portals its spine (conductor + seven stations) into this element.
+  spineSlot?: (el: HTMLElement | null) => void
   view: RailView | null
   onNew: () => void
   onMaps: () => void
@@ -123,6 +126,17 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
                       <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
                     </div>
                     {(() => {
+                      // The open effort's spine unfolds right below: its glance
+                      // bar and front line would say the same thing twice.
+                      if (on && spineSlot) {
+                        return (
+                          <div style={{ ...muted, fontSize: T.tiny, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <MapTag kind={i.kind} map={i.mapIssue} />
+                            <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.repo.split('/').pop()}</span>
+                            <span style={{ flexShrink: 0 }}>{timeAgo(i.updatedAt)}</span>
+                          </div>
+                        )
+                      }
                       const g = i.frontier?.stations ? stationGlance(i.frontier.stations) : null
                       return (<>
                         {g && <div style={{ marginTop: 6 }}><StationGlanceBar glance={g} /></div>}
@@ -147,6 +161,11 @@ export function Rail({ width, items, error, selected, onNew, onMaps, onSelect, o
                         justifyContent: 'center', background: 'transparent', color: 'var(--text-muted, var(--muted))', cursor: 'pointer', padding: 0 }}>
                       <MoreHorizontal size={14} />
                     </button>
+                  )}
+                  {/* The open effort unfolds in place: its spine (conductor +
+                      seven stations) portals in here from the Workspace. */}
+                  {on && spineSlot && (
+                    <div ref={spineSlot} style={{ margin: '2px 0 6px', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg)' }} />
                   )}
                   </div>
                 )

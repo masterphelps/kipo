@@ -1,6 +1,7 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { BackendError, backend, errorText } from './api'
 import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
@@ -33,11 +34,15 @@ const focusKey = (f: Focus) =>
     : f.kind === 'review' ? `review-t${f.t}`
     : f.kind === 'stage' ? f.column : 'conductor' // the effort's own conversation is its conductor
 
-export function Workspace({ repo, number, active, autoStart, onRemoved, onChanged }: {
+export function Workspace({ repo, number, active, autoStart, spineHost, spineCompact, onRemoved, onChanged }: {
   repo: string
   number: number
   active: boolean
   autoStart?: boolean
+  // The sidebar's slot under this effort's row: the spine (conductor + seven
+  // stations) portals into it, so the stations live in the existing sidebar.
+  spineHost?: HTMLElement | null
+  spineCompact?: boolean
   onRemoved: () => void
   onChanged: () => void
 }) {
@@ -51,9 +56,8 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   useEffect(() => { remember(`${cacheKey}:focus`, focus) }, [cacheKey, focus])
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
-  // One screen: the stations spine on the left, the open conversation in the
+  // One screen: the spine lives in the sidebar, the open conversation in the
   // middle, its questions and ticket on the right.
-  const [spineWidth, setSpineWidth] = useStoredSize('spine', 420, 340, 700)
   const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
@@ -431,24 +435,24 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
           // The conductor's conversation shows its own state on the right.
           const panelState = focus.kind === 'column' ? (convState ?? detail.state) : convState
 
-          // One screen, no modes. The spine (conductor + seven stations) is
-          // always on the left; clicking any row swaps only the conversation
-          // in the middle and its questions on the right.
+          // One screen, no modes. The spine (conductor + seven stations) lives
+          // in the sidebar under this effort's row; clicking any of its rows
+          // swaps only the conversation here and its questions on the right.
+          const spine = spineHost ? createPortal(
+            <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
+              autopilot={autopilot} selectedKey={key} embedded compact={spineCompact} onAutopilot={setAutopilot}
+              onOpenTile={openTile}
+              onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }
+                : /^review-t\d+$/.test(k) ? { kind: 'review', t: Number(k.slice(8)) }
+                : { kind: 'stage', column: k as Column })}
+              onSelectConductor={() => setFocus({ kind: 'column' })}
+              onJumpQuestions={jumpQuestions}
+              onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />,
+            spineHost,
+          ) : null
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-              <section style={{ flex: `0 0 ${spineWidth}px`, width: spineWidth, minWidth: 340, minHeight: 0 }}>
-                <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
-                  autopilot={autopilot} selectedKey={key} onAutopilot={setAutopilot}
-                  onOpenTile={openTile}
-                  onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }
-                    : /^review-t\d+$/.test(k) ? { kind: 'review', t: Number(k.slice(8)) }
-                    : { kind: 'stage', column: k as Column })}
-                  onSelectConductor={() => setFocus({ kind: 'column' })}
-                  onJumpQuestions={jumpQuestions}
-                  onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
-              </section>
-              <Divider direction="vertical" label="Resize the stations and the conversation"
-                onDrag={d => setSpineWidth(w => w + d)} onReset={() => setSpineWidth(360)} />
+              {spine}
               <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
                 {focusTile && chainTiles.length > 1 && (<>

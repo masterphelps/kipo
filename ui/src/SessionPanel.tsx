@@ -1,6 +1,6 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { Badge, Btn, MarkdownRenderer } from '@kirocrew/app-sdk/ui'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
@@ -20,16 +20,64 @@ export function SessionSidebar({ detail, tile, state, slotKey, settled, onError 
   settled: boolean
   onError: (m: string) => void
 }) {
+  const openQ = settled ? 0 : state?.decisions.filter(d => !d.answer).length ?? 0
   const hasDecisions = !!state && (state.decisions.length > 0 || (!!state.blocking && !settled))
+  // Two tabs when there's a ticket: Questions and the Ticket. Each conversation
+  // lands on Questions when any are open, else on its ticket.
+  const [tab, setTab] = useState<'questions' | 'ticket'>(openQ || !tile ? 'questions' : 'ticket')
+  const conv = `${slotKey ?? 'none'}:${tile?.number ?? ''}`
+  const lastConv = useRef(conv)
+  useEffect(() => {
+    if (lastConv.current === conv) return
+    lastConv.current = conv
+    setTab(openQ || !tile ? 'questions' : 'ticket')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv])
+  // A question arriving while the ticket tab is open pulls the panel over to it.
+  const lastOpenQ = useRef(openQ)
+  useEffect(() => {
+    if (openQ > lastOpenQ.current) setTab('questions')
+    lastOpenQ.current = openQ
+  }, [openQ])
+
+  const tabBtn = (id: 'questions' | 'ticket', label: ReactNode) => {
+    const on = tab === id
+    return (
+      <button key={id} type="button" role="tab" aria-selected={on} onClick={() => setTab(id)}
+        style={{ background: 'transparent', padding: '7px 10px 8px', marginBottom: -1, cursor: 'pointer', fontSize: T.small,
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          color: on ? 'var(--text)' : 'var(--muted)', fontWeight: on ? 600 : 400,
+          borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}>
+        {label}
+      </button>
+    )
+  }
+
   return (
-    <div style={{ height: '100%', minHeight: 0, overflowY: 'auto', scrollbarWidth: 'thin' }}>
-      <Decisions key={slotKey ?? 'none'} state={state} slotKey={slotKey} settled={settled} onError={onError} />
-      {tile && <TicketPanel detail={detail} tile={tile} />}
-      {!hasDecisions && !tile && (
-        <div style={{ ...muted, fontSize: T.small, padding: '14px 16px', lineHeight: 1.5 }}>
-          No open questions. When this conversation asks you something, its cards appear here.
+    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {tile && (
+        <div role="tablist" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          {tabBtn('questions', <>
+            Questions
+            {openQ > 0 && (
+              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '0 6px', borderRadius: 99, background: 'var(--accent)', color: 'var(--accent-fg, #fff)' }}>{openQ}</span>
+            )}
+          </>)}
+          {tabBtn('ticket', <>#{tile.number}</>)}
         </div>
       )}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', scrollbarWidth: 'thin' }}>
+        {tab === 'questions' || !tile ? (<>
+          <Decisions key={slotKey ?? 'none'} state={state} slotKey={slotKey} settled={settled} onError={onError} />
+          {!hasDecisions && (
+            <div style={{ ...muted, fontSize: T.small, padding: '14px 16px', lineHeight: 1.5 }}>
+              No open questions. When this conversation asks you something, its cards appear here.
+            </div>
+          )}
+        </>) : (
+          <TicketPanel detail={detail} tile={tile} />
+        )}
+      </div>
     </div>
   )
 }
