@@ -106,7 +106,7 @@ export function Overview({ detail, onOpenTicket, onReview, onSignoff }: {
   ]
 
   return (
-    <div style={{ height: '100%', minHeight: 0, overflowY: 'auto', scrollbarWidth: 'thin', padding: '14px 16px 20px' }}>
+    <div style={{ padding: '14px 16px 18px' }}>
       {/* the chain */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 4px', marginBottom: 18 }}>
         {chain.map((c, i) => (
