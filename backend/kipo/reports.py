@@ -132,11 +132,11 @@ def take_unread(repo_path, number, mark=True):
 # The effort's own state.json is shared by its stage conversations; it is named
 # by the latest of them that exists.
 _STAGE_ORDER = ("done", "review", "plan", "shape", "grill", "intake", "build")
-_KEY_RE = re.compile(r"^(?:shape|build)-t(\d+)$")
+_KEY_RE = re.compile(r"^(?:shape|build|review)-t(\d+)$")
 
 
 def source_of_key(key):
-    """The report id of a session-state key: shape-t24 / build-t22 -> t24 / t22."""
+    """The report id of a session-state key: shape-t24 / build-t22 / review-t22 -> t24 / t22 / t22."""
     m = _KEY_RE.match(key)
     return f"t{m.group(1)}" if m else key
 

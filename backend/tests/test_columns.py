@@ -301,6 +301,34 @@ class SessionTests(Columns):
         self.assertEqual(d["sessions"]["build-t20"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual({t["number"]: t["sessionKey"] for t in d["tickets"]}, {19: None, 20: "build-t20"})
 
+    def test_ticket_review_session_beside_its_build(self):
+        # A dispatched --ticket 20 --skill kipo-review: its own review conversation,
+        # seeded with the ticket and its open PR, not a second build session.
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        self.fake.add_pr(REPO, 50, body="Closes #20")
+        self.fake.add_pr(REPO, 51, body="Closes #20", state="MERGED")
+        self.post("/session", {"column": "build", "ticket": 20})
+        status, out = self.post("/session", {"column": "review", "ticket": 20, "skill": "kipo-review"})
+        self.assertEqual(status, 200, out)
+        self.assertEqual(out["slotName"], "kipo-acme-widgets-7-review-t20")
+        seed = out["seed"].split("\n")
+        self.assertIn("Conversation: ticket #20's review: its PR reviewed, fixed and merged", seed)
+        self.assertIn('Ticket: #20 "Add export"', seed)
+        self.assertIn(f"PRs: #50 {self.fake.prs[(REPO, 50)]['url']}".strip(), seed)
+        self.assertIn(f"State file: {self.checkout}/.kipo/7/review-t20.json", seed)
+        self.assertIn(self.report("t20"), seed)
+        self.assertIn("Load the skill `kipo-review` and follow it. Destination: Ship widgets.", seed)
+        self.assertNotIn("Run /", out["seed"])  # kipo-review is the column's own skill, loaded above
+        self.assertEqual({k: v for k, v in self.get()[1]["sessions"].items() if k.endswith("t20")},
+                         {"build-t20": "kipo-acme-widgets-7-build-t20", "review-t20": "kipo-acme-widgets-7-review-t20"})
+
+    def test_ticket_sessions_only_in_build_shape_and_review(self):
+        self.make_effort(column="build")
+        self.ticket(20)
+        status, out = self.post("/session", {"column": "plan", "ticket": 20})
+        self.assertEqual((status, out["code"]), (400, "invalid_ticket"))
+
     def test_ticket_without_blockers_has_no_blocked_line(self):
         self.make_effort(column="build")
         self.ticket(20)

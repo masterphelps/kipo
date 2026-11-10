@@ -60,6 +60,30 @@ class Cli(unittest.TestCase):
         self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review")
         self.assertEqual([(e.get("ticket"), e.get("stage")) for e in self.queue()], [(4, None), (None, "review")])
 
+    def test_dispatch_review_after_build_on_the_same_ticket(self):
+        # #995's case: the build entry {"ticket": T} must not swallow T's kipo-review.
+        self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4")
+        code, out, _ = self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4", "--skill", "kipo-review")
+        self.assertEqual((code, json.loads(out)["queued"]), (0, True))
+        self.assertEqual([(e.get("ticket"), e.get("skill")) for e in self.queue()], [(4, None), (4, "kipo-review")])
+
+    def test_dispatch_review_twice_is_still_deduped(self):
+        self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4")
+        self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4", "--skill", "kipo-review")
+        code, out, _ = self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "4", "--skill", "kipo-review")
+        self.assertEqual((code, json.loads(out)["queued"], json.loads(out)["reason"]), (0, False, "already queued"))
+        # A later, different skill on the same ticket queues once too.
+        later = ("dispatch", "acme/widgets", "7", "--ticket", "4", "--skill", "diagnosing-bugs")
+        self.assertTrue(json.loads(self.run_cli(*later)[1])["queued"])
+        self.assertFalse(json.loads(self.run_cli(*later)[1])["queued"])
+        self.assertEqual(len(self.queue()), 3)
+
+    def test_dispatch_stage_dedups_on_skill_too(self):
+        self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review")
+        self.assertTrue(json.loads(self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review", "--skill", "code-review")[1])["queued"])
+        self.assertFalse(json.loads(self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review")[1])["queued"])
+        self.assertEqual(len(self.queue()), 2)
+
     def test_dispatch_refuses_blocked_or_unknown(self):
         self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "5")[0], 2)
         self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "99")[0], 2)

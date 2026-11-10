@@ -9,7 +9,10 @@
   python3 kipo_cli.py dispatch OWNER/REPO N (--ticket T | --stage shape|plan|review|done) [--skill S]
       Ask KiPo to start a stage-skill session: a ticket's conversation, or
       the effort's Shape (chart the fog), Plan (hand-over), Review or Done
-      (retro) conversation.
+      (retro) conversation. --skill names the KiPo skill when it isn't the
+      ticket's build: --ticket T --skill kipo-review opens the ticket's
+      review conversation (its PR reviewed, fixed, merged). One entry per
+      (ticket or stage, skill): the same again is "already queued".
       It's queued in the conductor's state file; the KiPo page starts it
       (once) while it's open.
 
@@ -116,8 +119,11 @@ def main(argv=None):
     if not isinstance(data, dict):
         data = {}
     queue = data.setdefault("dispatch", [])
-    same = lambda e: e.get("ticket") == entry.get("ticket") and e.get("stage") == entry.get("stage")  # noqa: E731
-    if any(same(e) for e in queue):
+    # One entry per (ticket, stage, skill). No skill means the stage's default
+    # skill and is its own entry, so a ticket's build and then its kipo-review
+    # each queue once.
+    key = lambda e: (e.get("ticket"), e.get("stage"), e.get("skill"))  # noqa: E731
+    if any(key(e) == key(entry) for e in queue):
         print(json.dumps({"queued": False, "reason": "already queued", "entry": entry}))
         return 0
     queue.append(entry)

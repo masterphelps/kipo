@@ -280,6 +280,8 @@ CONVERSATIONS = {
 
 def conversation_of(key, ticket=None):
     if ticket is not None:
+        if key.startswith("review-"):
+            return f"ticket #{ticket['number']}'s review: its PR reviewed, fixed and merged"
         lane = "Deliver" if key.startswith("build-") else "Decide"
         return f"ticket #{ticket['number']}, in the {lane} lane"
     return CONVERSATIONS.get(key, "the effort's own conversation")
@@ -317,6 +319,9 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         if ticket.get("blockers"):
             listed = ", ".join(f"#{b['number']} ({b['state'].lower()})" for b in ticket["blockers"])
             lines.append(f"Blocked by: {listed}")
+        if "prs" in ticket:
+            listed = ", ".join(f"#{p['number']} {p['url']}".strip() for p in ticket["prs"])
+            lines.append(f"PRs: {listed or 'none open'}")
     lines.append(f"Load the skill `kipo-{column}` and follow it. Destination: {effort['destination']}")
     if skill:
         lines.append(run_line(skill))
@@ -336,7 +341,8 @@ def render_conductor_seed(effort, repo_path):
         f"Effort issue: {effort['url']}",
         f"State file: {col_state.session_state_path(repo_path, n, 'conductor')}",
         f"Frontier: python3 {KIPO_CLI} frontier {repo} {n}",
-        f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage shape|plan|review|done)",
+        f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage shape|plan|review|done)"
+        " [--skill <thread's skill>: always when a ticket thread's skill isn't kipo-build]",
         f"Reports: python3 {KIPO_CLI} reports {repo} {n}"
         + (f" --checkout {shlex.quote(repo_path)}" if repo_path else "")
         + " (only when the frontier fails: the frontier carries them)",
@@ -958,7 +964,9 @@ class Initiatives:
         issue, body = self._fetch(repo, number)
         summary = self._summary(repo, issue, body)
         column = validate_column(column or summary["column"])
-        skill = validate_skill(skill)
+        # The column's own KiPo skill (kipo-review in review) is what its seed
+        # loads anyway: not a skill to run on top.
+        skill = validate_skill(None if skill == f"kipo-{column}" else skill)
         if mode not in (None, "implement-spec", "conductor"):
             raise KipoError(f"{mode!r} is not a session mode.", "invalid_mode", 400)
         repo_path = self._repo_path(repo, body["meta"]) or ""
@@ -984,9 +992,18 @@ class Initiatives:
                 found = self.gh.view_issue(repo, ticket)
                 seed_ticket = {"number": ticket, "title": (found or {}).get("title") or ""}
                 key = f"shape-t{ticket}"
+            elif column == "review":
+                # One ticket's review (kipo-review): its own conversation beside
+                # the build's, seeded with the ticket and its open PRs.
+                found = self.gh.view_issue(repo, ticket)
+                prs = [p for p in self._prs(repo, number, [ticket])
+                       if ticket in p["tickets"] and p["state"] == "OPEN"]
+                seed_ticket = {"number": ticket, "title": (found or {}).get("title") or "", "prs": prs}
+                key = f"review-t{ticket}"
             else:
                 raise KipoError(
-                    f"{column.capitalize()} has no ticket sessions; only Build and Shape do.", "invalid_ticket", 400
+                    f"{column.capitalize()} has no ticket sessions; only Build, Shape and Review do.",
+                    "invalid_ticket", 400,
                 )
         else:
             key, seed_ticket = column, None

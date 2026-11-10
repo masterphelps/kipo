@@ -148,10 +148,18 @@ the effort's own conversation and never does the work itself.
   (`[KiPo] Report from <session>: <event>: <text>`, or `[KiPo] Reports from the sessions:` with a
   list; also only when it's not mid-turn; the last report id sent is remembered per effort in
   the browser, and a report the conductor has already read is never sent).
-- **Dispatch**: `kipo_cli.py dispatch <repo> <n> --ticket <t> | --stage shape|plan|review|done`
-  appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`); the page starts each
-  queued session once while it's open (skipping a ticket that's done, blocked or already has
-  its conversation, and a stage conversation that exists).
+- **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage shape|plan|review|done) [--skill <s>]`
+  appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`). A ticket thread whose
+  skill is `kipo-build` is `--ticket <t>`; whenever the thread's skill differs from `kipo-build`,
+  it is `--ticket <t> --skill <thread's skill>`. A ticket in review (action "dispatch
+  kipo-review: review, fix, merge if a two-way door") is `--ticket <t> --skill kipo-review`:
+  its own review conversation (`review-t<t>`, seeded with the ticket and its open PRs), beside
+  its build. Entries are deduped on (ticket, stage, skill), a missing skill counting as its
+  own value, so a ticket's build and then its review each queue once. The page starts each
+  queued entry once while it's open, its started-marker keyed on ticket or stage, skill and
+  time (skipping a ticket that's done or blocked, a ticket that already has the conversation
+  the entry asks for: `review-t<t>` for kipo-review, its build or decision otherwise, and a
+  stage conversation that exists).
 - **Hear**: every stage session reports to it (below). The frontier command's JSON also carries
   `reports` (the unread reports, oldest first, marked read once printed; `--peek` leaves them
   unread), `waiting` (every stage session's unanswered decision cards, `{from, id, title,

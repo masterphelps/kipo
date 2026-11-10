@@ -10,9 +10,10 @@ import { Divider, useFitSplit, useStoredSize } from './layout'
 import { Decisions, SessionSidebar } from './SessionPanel'
 import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
+import { dispatchStarts } from './dispatch'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
-  type Column, type DispatchEntry, type EffortDetail, type PhaseState, type TicketInfo, type Tile,
+  type Column, type EffortDetail, type PhaseState, type TicketInfo, type Tile,
 } from './types'
 
 // The workspace, after Spec Builder's: the conversation in the middle at full
@@ -24,10 +25,12 @@ type Focus =
   | { kind: 'ticket'; t: number }   // a /implement session for one ticket
   | { kind: 'spec' }                // the /implement-spec session across all tickets
   | { kind: 'decision'; t: number } // a Decide ticket: a map child, or the source issue being triaged
+  | { kind: 'review'; t: number }   // one ticket's kipo-review session: its PR reviewed, fixed, merged
   | { kind: 'stage'; column: Column } // one column's own conversation: review, plan (the hand-over), done (retro)
 
 const focusKey = (f: Focus) =>
   f.kind === 'ticket' ? `build-t${f.t}` : f.kind === 'spec' ? 'build-spec' : f.kind === 'decision' ? `shape-t${f.t}`
+    : f.kind === 'review' ? `review-t${f.t}`
     : f.kind === 'stage' ? f.column : 'conductor' // the effort's own conversation is its conductor
 
 export function Workspace({ repo, number, active, autoStart, onRemoved, onChanged }: {
@@ -97,12 +100,14 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
       const body = f.kind === 'ticket' ? { column: 'build' as Column, ticket: f.t, skill: skill ?? 'implement' }
         : f.kind === 'spec' ? { column: 'build' as Column, mode: 'implement-spec' as const, skill: skill ?? 'implement-spec' }
         : f.kind === 'decision' ? { column: 'shape' as Column, ticket: f.t, skill }
+        : f.kind === 'review' ? { column: 'review' as Column, ticket: f.t, skill }
         : f.kind === 'stage' ? { column: f.column, skill }
         : { column: detail.column, mode: 'conductor' as const }
       const res = await backend.startSession(repo, number, body)
       const title = f.kind === 'ticket' ? `${detail.title}: #${f.t}`
         : f.kind === 'spec' ? `${detail.title}: implement-spec`
         : f.kind === 'decision' ? `${detail.title}: decision #${f.t}`
+        : f.kind === 'review' ? `${detail.title}: review #${f.t}`
         : f.kind === 'stage' ? `${detail.title}: ${COLUMN_LABELS[f.column]}`
         : `${detail.title}: conductor`
       if (res.existing) {
@@ -199,6 +204,10 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
   // The conductor's Dispatch: start each session it queued (kipo_cli.py dispatch),
   // once, while this page is open. A ticket that's done, blocked or already has
   // its conversation, or a stage conversation that exists, is skipped.
+  // An entry's skill picks the conversation: kipo-review on a ticket is that
+  // ticket's review (review-t<t>), beside its build; none, or kipo-build, is
+  // its build or decision. Entries are told apart by ticket or stage, skill and
+  // time, so a ticket's review isn't taken for its build that already started.
   const dispatchSeenKey = `kipo.dispatched:${repo}#${number}`
   const dispatching = useRef(new Set<string>())
   useEffect(() => {
@@ -206,26 +215,19 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
     const queue = detail.sessionStates?.conductor?.dispatch ?? []
     let seen: string[] = []
     try { seen = JSON.parse(localStorage.getItem(dispatchSeenKey) || '[]') } catch { seen = [] }
-    const idOf = (e: DispatchEntry) => `${e.ticket ?? e.stage}@${e.at}`
-    const todo = queue.filter(e => !seen.includes(idOf(e)) && !dispatching.current.has(idOf(e)))
-    if (!todo.length) return
-    for (const e of todo) { dispatching.current.add(idOf(e)); seen.push(idOf(e)) }
+    const { fresh, starts } = dispatchStarts(
+      queue, id => seen.includes(id) || dispatching.current.has(id), detail.frontier.tiles, detail.sessions)
+    if (!fresh.length) return
+    for (const id of fresh) { dispatching.current.add(id); seen.push(id) }
     try { localStorage.setItem(dispatchSeenKey, JSON.stringify(seen.slice(-300))) } catch { /* full: fine */ }
+    if (!starts.length) return
     void (async () => {
-      let started = 0
-      for (const e of todo) {
-        if (e.ticket != null) {
-          const t = detail.frontier!.tiles.find(x => x.number === e.ticket)
-          if (!t || t.state === 'done' || t.state === 'blocked' || (t.sessionKey && detail.sessions[t.sessionKey])) continue
-          await start(e.skill ?? tileSkill(t), tileFocus(t), false)
-          started++
-        } else if (e.stage) {
-          if (detail.sessions[e.stage]) continue
-          await start(e.skill ?? null, { kind: 'stage', column: e.stage }, false)
-          started++
-        }
+      for (const s of starts) {
+        if (s.kind === 'tile') await start(s.skill ?? tileSkill(s.tile), tileFocus(s.tile), false)
+        else if (s.kind === 'review') await start(null, { kind: 'review', t: s.t }, false)
+        else await start(s.skill, { kind: 'stage', column: s.column }, false)
       }
-      if (started) { load(); onChanged() }
+      load(); onChanged()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, starting, startingAgents, detail])
@@ -434,7 +436,9 @@ export function Workspace({ repo, number, active, autoStart, onRemoved, onChange
                     <StationsPanel detail={detail} statuses={statuses} busy={busy || starting || !!startingAgents}
                       autopilot={autopilot} onAutopilot={setAutopilot}
                       onOpenTile={openTile}
-                      onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' } : { kind: 'stage', column: k as Column })}
+                      onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }
+                        : /^review-t\d+$/.test(k) ? { kind: 'review', t: Number(k.slice(8)) }
+                        : { kind: 'stage', column: k as Column })}
                       onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />
                   </div>
                 </section>
@@ -570,6 +574,10 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     title = 'Implement the whole spec'
     body = '/implement-spec builds every unblocked ticket in parallel on one integration branch, then one review.'
     action = 'Run /implement-spec'
+  } else if (focus.kind === 'review') {
+    title = `Review #${focus.t}`
+    body = "kipo-review reviews this ticket's PR, fixes what it finds, and merges it if it's a two-way door."
+    action = 'Review this ticket'
   } else if (focus.kind === 'decision') {
     title = `Decision #${focus.t}`
     body = 'Work through this decision ticket from the map in its own conversation.'

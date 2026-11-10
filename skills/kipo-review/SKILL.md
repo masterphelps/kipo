@@ -59,6 +59,8 @@ The report doesn't replace asking in the chat and recording the cards (above), a
 
 ## Steps
 
+A seed with a `Ticket:` line is one ticket's review (dispatched as `--ticket <t> --skill kipo-review`): its `PRs:` line lists that ticket's open PRs, and only those are this conversation's. Skip step 1 and run the rest on them.
+
 1. List the effort's PRs: `gh pr list --state open --search "kipo/<n>"`, plus PRs closing its tickets.
 2. For each open PR, run `code-review`. Fix every finding on the PR's own branch, in its worktree, test-first where it's behaviour. Re-run the suite; publish the branch as its own command.
 3. Rewrite the body with `pr` (`gh pr edit <pr> --body-file <file>`), and mark a draft ready (`gh pr ready <pr>`).
