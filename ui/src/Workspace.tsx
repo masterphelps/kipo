@@ -163,7 +163,12 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   useEffect(() => {
     if (!sessionTiles.length) { setStatuses({}); setActivity({}); return }
     let live = true
-    type SlotInfo = { running?: boolean; messages?: { ts?: string; role?: string; content?: unknown; text?: unknown }[] }
+    type SlotInfo = {
+      running?: boolean
+      pending_approval?: boolean // stopped on a trust prompt
+      needs_input?: boolean      // asked and is waiting for an answer
+      messages?: { ts?: string; role?: string; content?: unknown; text?: unknown }[]
+    }
     // The last message's first line, whatever shape its content takes; null when
     // the field isn't there (then the row shows only the elapsed time).
     const lineOf = (m: { content?: unknown; text?: unknown } | undefined): string | null => {
@@ -179,9 +184,11 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
         api.get<SlotInfo>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
           .then(r => {
             const last = r?.messages?.[r.messages.length - 1]
-            const act: SessionActivity = { at: last?.ts ?? null, line: last && last.role !== 'user' ? lineOf(last) : null }
-            // A finished ticket's idle session isn't waiting on anyone: no dot.
-            const status = r?.running ? 'running' as const : t.state === 'done' ? null : 'waiting' as const
+            const needs = r?.pending_approval ? 'approval' as const : r?.needs_input ? 'input' as const : null
+            const act: SessionActivity = { at: last?.ts ?? null, line: last && last.role !== 'user' ? lineOf(last) : null, needs }
+            // A trust prompt or a question outranks running; a finished
+            // ticket's idle session isn't waiting on anyone: no dot.
+            const status = needs ? 'attention' as const : r?.running ? 'running' as const : t.state === 'done' ? null : 'waiting' as const
             return [t.number, status, act] as const
           })
           .catch(() => null),

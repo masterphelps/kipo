@@ -103,6 +103,7 @@ type Row = {
   questions?: number  // unanswered decisions waiting on the human in its conversation
   selKeys?: string[]  // focus keys that mean this row is the open conversation
   live?: SessionActivity // a running session's last output: elapsed + first line
+  attention?: boolean // waiting on the human (trust prompt, question): pulse amber
 }
 type Station = {
   id: ColId
@@ -168,17 +169,25 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
 
   const tileRow = (t: Tile): Row => {
     const q = t.state !== 'done' ? qFor(t.sessionKey) : 0
+    const st = statuses[t.number]
+    const needs = st === 'attention' ? activity?.[t.number]?.needs ?? null : null
+    const busy_ = st === 'running' || st === 'attention'
     return {
       key: `t${t.number}`,
       number: t.number,
       title: t.title,
       tile: t,
-      // A ticket whose agent is waiting on an answer says so, louder than its state.
+      // What needs the human outranks the state: a recorded question, then a
+      // trust prompt or an unrecorded ask straight from the session.
       chip: q ? qChip(q)
+        : needs === 'approval' ? { label: 'trust prompt', color: STATE_META.you.color }
+        : needs === 'input' ? { label: 'asking', color: STATE_META.you.color }
         : { label: STATE_META[t.state].label, color: t.state === 'done' ? STATE_META.done.text : STATE_META[t.state].color, solid: t.state === 'you' || t.state === 'afk' },
-      pulse: statuses[t.number] === 'running',
-      // Only a running row carries its live line; idle ones stay one line tall.
-      live: statuses[t.number] === 'running' ? activity?.[t.number] : undefined,
+      pulse: busy_,
+      // Needing the human pulses amber (chip and dot), not the quiet blue.
+      attention: st === 'attention' || q > 0,
+      // Only a busy row carries its live line; idle ones stay one line tall.
+      live: busy_ ? activity?.[t.number] : undefined,
       questions: q,
       selKeys: [`build-t${t.number}`, `shape-t${t.number}`, `review-t${t.number}`],
     }
@@ -291,11 +300,9 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
     if (c.blocked) bits.push(`${c.blocked} blocked`)
     const segments = [seg(c.done, 'done'), seg(c.building, 'building'), seg(c.review, 'review'), seg(c.you, 'you'), seg(c.afk, 'afk'), seg(c.blocked, 'blocked')]
     if (id === 'shape' && fogItems.length) segments.push({ n: fogItems.length, color: 'transparent', dashed: true })
-    // The queue: open work first; the station's answered/done tickets last and
-    // dim, so "5 answered" always expands to show which five (the chat can say
-    // "start #997" long after #997 closed — the row is how you check). The
-    // Done station still lists every done ticket in one place.
-    const rows = [...conv, ...sortRows(own).map(tileRow)]
+    // The queue is only the OPEN work (plus the station's conversation). Done
+    // tickets are counted here ("5 answered") but listed in one place: Done.
+    const rows = [...conv, ...sortRows(own.filter(t => t.state !== 'done')).map(tileRow)]
     if (id === 'shape') {
       fogItems.forEach((t, i) => rows.push({
         key: `fog${i}`, title: plain(t),
@@ -399,7 +406,7 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
             <MessageSquare size={14} aria-hidden style={{ flexShrink: 0 }} />
             <span style={{ flex: 1 }}>Conductor</span>
             {conductorQ > 0
-              ? <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+              ? <span className="kipo-pulse" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
                   borderRadius: 99, whiteSpace: 'nowrap',
                   border: `1px solid ${conductorSelected ? 'var(--accent-fg, #fff)' : STATE_META.you.color}`,
                   color: conductorSelected ? 'var(--accent-fg, #fff)' : STATE_META.you.color }}>
@@ -490,7 +497,6 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
                   borderTop: '1px solid var(--border)', color: 'var(--text)', fontSize: T.small,
                   background: selected ? 'var(--bg-elevated)' : 'transparent',
                   boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
-                  opacity: r.tile?.state === 'done' && !selected ? 0.55 : 1,
                   cursor: clickable ? 'pointer' : 'default' }}
                 onMouseEnter={e => { if (clickable && !selected) e.currentTarget.style.background = 'var(--bg-hover, var(--bg-elevated))' }}
                 onMouseLeave={e => { e.currentTarget.style.background = selected ? 'var(--bg-elevated)' : 'transparent' }}>
@@ -499,8 +505,10 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
                     {r.number != null ? `#${r.number}` : r.onOpen ? <MessageSquare size={11} aria-hidden /> : '☁'}
                   </span>
                   <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</span>
-                  {r.pulse && <span className="kipo-pulse" style={{ width: 6, height: 6, borderRadius: 9, background: STATE_META.building.color, flexShrink: 0 }} />}
-                  <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+                  {r.pulse && <span className="kipo-pulse" style={{ width: 6, height: 6, borderRadius: 9,
+                    background: r.attention ? STATE_META.you.color : STATE_META.building.color, flexShrink: 0 }} />}
+                  <span className={r.attention ? 'kipo-pulse' : undefined}
+                    style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
                     borderRadius: 99, flexShrink: 0, whiteSpace: 'nowrap',
                     color: r.chip.solid ? '#14121c' : r.chip.color, background: r.chip.solid ? r.chip.color : 'transparent',
                     border: r.chip.solid ? '1px solid transparent' : `1px solid ${r.chip.color}` }}>

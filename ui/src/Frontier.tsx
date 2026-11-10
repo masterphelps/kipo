@@ -70,7 +70,9 @@ export function LaneBars({ frontier, height = 4 }: { frontier: Saved; height?: n
 
 // A session's status dot: pulsing blue while the agent works, amber when it has
 // stopped and the conversation is waiting on you.
-export type SessionStatus = 'running' | 'waiting'
+// attention: the session stopped on something only the human can give it (a
+// trust prompt on a tool call, or input it asked for) — louder than running.
+export type SessionStatus = 'running' | 'waiting' | 'attention'
 
 export function TileButton({ tile, onClick, size = 34, open, status, bare, numberOnly, width }: {
   tile: Tile; onClick?: () => void; size?: number; open?: boolean; status?: SessionStatus
@@ -86,7 +88,9 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare, numbe
   const hint = tile.state === 'blocked' && tile.blockedBy.length
     ? `#${tile.number} ${tile.title}: waiting on ${tile.blockedBy.map(b => `#${b}`).join(', ')}`
     : `#${tile.number} ${tile.title}: ${c.label}`
-  const sessionHint = status === 'running' ? ' · agent working' : status === 'waiting' ? ' · awaiting input' : ''
+  const sessionHint = status === 'running' ? ' · agent working'
+    : status === 'attention' ? ' · needs you: a trust prompt or question'
+    : status === 'waiting' ? ' · awaiting input' : ''
   return (
     <button
       type="button"
@@ -109,10 +113,10 @@ export function TileButton({ tile, onClick, size = 34, open, status, bare, numbe
       </>)}
       {status && (
         // Inside the tile's top-right corner, in the tile's own text color so it
-        // reads on every tile color: pulsing while the agent works, steady
-        // when the conversation is waiting on you.
+        // reads on every tile color: pulsing while the agent works or needs
+        // you (trust prompt, question), steady when merely waiting.
         <span
-          className={status === 'running' ? 'kipo-pulse' : undefined}
+          className={status === 'running' || status === 'attention' ? 'kipo-pulse' : undefined}
           style={{
             position: 'absolute', top: numberOnly ? 2 : 4, right: numberOnly ? 2 : 4, width: numberOnly ? 5 : 6, height: numberOnly ? 5 : 6, borderRadius: 999,
             background: 'currentColor',
