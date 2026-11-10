@@ -9,6 +9,7 @@ declare module 'lucide-react' {
   export const Plus: Icon
   export const ChevronRight: Icon
   export const MessageSquare: Icon
+  export const PanelRight: Icon
   export const FolderGit2: Icon
   export const FolderPlus: Icon
   export const FolderOpen: Icon

@@ -230,10 +230,19 @@ export function StationsPanel({ detail, statuses, busy, autopilot, selectedKey, 
         state: openPrs.length ? 'live' : 'full',
         count: <><b style={strong}>{mergedPrs.length} merged</b>{openPrs.length ? <> · {openPrs.length} waiting</> : null}</>,
         segments: [{ n: mergedPrs.length, color: STATE_META.done.color }, { n: openPrs.length, color: STATE_META.review.color }],
-        rows: [...conv, ...openPrs.map(p => ({
-          key: `pr${p.number}`, number: p.number, title: p.title, url: p.url,
-          chip: { label: 'open', color: STATE_META.review.color },
-        }))],
+        // A PR's row opens its ticket's review conversation; the PR itself is
+        // linked from the right panel's ticket tab. GitHub only when KiPo
+        // can't tell which ticket the PR belongs to.
+        rows: [...conv, ...openPrs.map((p): Row => {
+          const t = p.tickets[0]
+          return {
+            key: `pr${p.number}`, number: p.number, title: p.title,
+            chip: { label: 'open', color: STATE_META.review.color },
+            ...(t != null
+              ? { onOpen: () => onOpenConversation(`review-t${t}`), selKeys: [`review-t${t}`] }
+              : { url: p.url }),
+          }
+        })],
         action: openPrs.length && !conv.length ? { label: 'Review the PRs', onClick: onReview } : undefined,
       }
     }

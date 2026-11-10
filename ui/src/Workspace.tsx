@@ -2,6 +2,7 @@ import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { PanelRight } from 'lucide-react'
 import { BackendError, backend, errorText } from './api'
 import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
@@ -59,6 +60,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // One screen: the spine lives in the sidebar, the open conversation in the
   // middle, its questions and ticket on the right.
   const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
+  // Kiro hides its panel-open button on embedded surfaces, so a closed side
+  // panel has no way back. Reloading the frame runs Kiro's open-at-load path
+  // again ("Keep Side Panel Open"): this is that reload.
+  const [chatReload, setChatReload] = useState(0)
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
 
@@ -422,10 +427,19 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               </span>
               {slotKey && running.length > 0 && <Running skills={running} />}
               <span style={{ flex: 1 }} />
+              {slotKey && (
+                <button type="button" onClick={() => setChatReload(n => n + 1)}
+                  title={'Show Kiro\'s side panel — subagents, browser, terminal, changes. Reloads the chat view; the panel opens when Settings → Chat → Side panel → "Keep Side Panel Open" is on.'}
+                  aria-label="Show Kiro's side panel"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
+                    borderRadius: 6, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', flexShrink: 0 }}>
+                  <PanelRight size={14} />
+                </button>
+              )}
             </div>
           )
           const chatBody = slotKey ? (
-            <KiroChatFrame key={slotKey} slotKey={slotKey} />
+            <KiroChatFrame key={`${slotKey}:${chatReload}`} slotKey={slotKey} />
           ) : (
             <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
               onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
