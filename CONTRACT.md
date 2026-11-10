@@ -130,9 +130,10 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     spec, Review the PRs, Run /retro, Close effort behind a confirm). Stations before the
     entry point read "entered at <station>". Autopilot lives in the spine header. A narrow
     sidebar drops the units column; hover a station's name for them.
-  - **The conversation** (middle): whichever row is open, in Kiro's own chat page (embedded
-    through `/popout/chat?sid=`, so its side panel — subagents, browser, terminal, changes —
-    works). A ticket's conversation carries its map over the chat ("Where it sits": the whole
+  - **The conversation** (middle): whichever row is open, Kiro's chat embedded through
+    `/embed/chat?sid=` — just the conversation, with Kiro's own side panel suppressed, so the
+    session has exactly **one** right panel (KiPo's, next door) and not Kiro's stacked beside
+    it. A ticket's conversation carries its map over the chat ("Where it sits": the whole
     chain, blockers in a top row with arrows down).
   - **The session panel** (right), two tabs when a ticket is open — **Questions** (badged
     with the open count) and **#N**, the ticket: Questions holds the conversation's decision

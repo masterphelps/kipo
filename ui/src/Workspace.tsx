@@ -2,7 +2,6 @@ import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { PanelRight } from 'lucide-react'
 import { BackendError, backend, errorText } from './api'
 import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
@@ -60,10 +59,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // One screen: the spine lives in the sidebar, the open conversation in the
   // middle, its questions and ticket on the right.
   const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
-  // Kiro hides its panel-open button on embedded surfaces, so a closed side
-  // panel has no way back. Reloading the frame runs Kiro's open-at-load path
-  // again ("Keep Side Panel Open"): this is that reload.
-  const [chatReload, setChatReload] = useState(0)
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
 
@@ -427,19 +422,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               </span>
               {slotKey && running.length > 0 && <Running skills={running} />}
               <span style={{ flex: 1 }} />
-              {slotKey && (
-                <button type="button" onClick={() => setChatReload(n => n + 1)}
-                  title={'Show Kiro\'s side panel — subagents, browser, terminal, changes. Reloads the chat view; the panel opens when Settings → Chat → Side panel → "Keep Side Panel Open" is on.'}
-                  aria-label="Show Kiro's side panel"
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24,
-                    borderRadius: 6, background: 'transparent', color: 'var(--muted)', cursor: 'pointer', flexShrink: 0 }}>
-                  <PanelRight size={14} />
-                </button>
-              )}
             </div>
           )
           const chatBody = slotKey ? (
-            <KiroChatFrame key={`${slotKey}:${chatReload}`} slotKey={slotKey} />
+            <KiroChatFrame key={slotKey} slotKey={slotKey} />
           ) : (
             <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
               onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
@@ -496,27 +482,22 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 
 // ---------------------------------------------------------------- middle column
 
-// Kiro's full chat page for the session, right panel and all: subagents, browser,
-// terminal, background work. The popout route is the one surface where Kiro keeps
-// that panel working in an embedded chat (its /chat page suppresses it whenever
-// the chat is embedded and not a popout), and it centers the conversation at
-// Kiro's own reading width. Same origin, so it shares the dashboard's login.
+// Just the conversation: Kiro's embedded chat, with its own side panel
+// suppressed. `/embed/chat` is the surface whose panel-open button is hidden
+// and whose side panel never shows, so the session has exactly ONE right panel
+// — KiPo's, next door — instead of Kiro's panel stacked beside it. The popout
+// route (`/popout/chat`) is the opposite: it keeps Kiro's panel alive embedded,
+// which is what produced a second right panel. Same origin, shares the login.
 function KiroChatFrame({ slotKey }: { slotKey: string }) {
-  const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
+  const src = `/embed/chat?sid=${encodeURIComponent(slotKey)}`
   const ref = useRef<HTMLIFrameElement>(null)
-  // A control inside the page ("return to main") would navigate the frame to the
-  // whole dashboard; put it back on the popout chat instead.
-  //
-  // The right panel: Kiro's chat page hides its panel-open button on every
-  // embedded surface (the condition is !embedMode && !popout), so KiPo cannot
-  // open the panel for the user. The one switch that does it is Kiro's
-  // Settings → Chat → Side panel → "Keep Side Panel Open", which this popout
-  // surface honors (its sidePanelAlwaysOpen dispatch runs whenever popout).
+  // A control inside the page could navigate the frame to the whole dashboard;
+  // keep it on the embedded chat.
   const onLoad = () => {
     const frame = ref.current
     try {
       const path = frame?.contentWindow?.location.pathname
-      if (frame && path && !path.startsWith('/popout/chat')) frame.src = src
+      if (frame && path && !path.startsWith('/embed/chat')) frame.src = src
     } catch { /* same origin, so never unreadable; just in case */ }
   }
   return (
