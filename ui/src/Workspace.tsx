@@ -7,8 +7,7 @@ import { ErrorLine, MapTag, T, muted, strong } from './common'
 import { cached, remember } from './cache'
 import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
-import { Divider, useFitSplit, useStoredSize } from './layout'
-import { SessionSidebar } from './SessionPanel'
+import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
@@ -56,9 +55,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   useEffect(() => { remember(`${cacheKey}:focus`, focus) }, [cacheKey, focus])
   const [starting, setStarting] = useState(false)
   const [busy, setBusy] = useState(false)
-  // One screen: the spine lives in the sidebar, the open conversation in the
-  // middle, its questions and ticket on the right.
-  const [sessionRight, setSessionRight] = useStoredSize('sessionRight', 420, 320, 900)
+  // The spine lives in the sidebar; the conversation fills the rest, and its
+  // right panel is Kiro's own native side panel inside the chat.
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
 
@@ -364,10 +362,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // conversation): the effort's own uses state.json, a ticket's its own file.
   const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
-  // A done ticket (or a conversation KiPo closed) is settled: its unanswered
-  // decision cards are history, never questions still waiting on you.
-  const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
-
   // Every conversation with open questions, in spine order: the conductor,
   // then the tickets, then the stage conversations. The spine's amber chip
   // walks them: each click jumps to the next one, cycling.
@@ -432,8 +426,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
           )
           const chainTiles = focusTile && detail.frontier ? chain(detail.frontier.tiles, focusTile.number) : []
-          // The conductor's conversation shows its own state on the right.
-          const panelState = focus.kind === 'column' ? (convState ?? detail.state) : convState
 
           // One screen, no modes. The spine (conductor + seven stations) lives
           // in the sidebar under this effort's row; clicking any of its rows
@@ -450,6 +442,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               onHandover={handover} onReview={openReview} onRetro={runRetro} onClose={closeEffort} />,
             spineHost,
           ) : null
+          // The conversation fills the width. The ONE right panel is Kiro's own
+          // native side panel (browser, +, Changes, Terminal), which lives
+          // inside the popout chat with its own show/hide toggle — KiPo adds no
+          // right panel of its own. A ticket's map sits over the chat.
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
@@ -466,12 +462,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                     onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
                 </>)}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
-              </section>
-              <Divider direction="vertical" label="Resize the conversation and the session's panel"
-                onDrag={d => setSessionRight(w => w - d)} onReset={() => setSessionRight(420)} />
-              <section style={{ flex: `0 0 ${sessionRight}px`, width: sessionRight, minWidth: 320, minHeight: 0 }}>
-                <SessionSidebar detail={detail} tile={focusTile} state={panelState} slotKey={slotKey}
-                  settled={settled} onError={setActionError} />
               </section>
             </div>
           )

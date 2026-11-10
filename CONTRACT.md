@@ -130,21 +130,19 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
     spec, Review the PRs, Run /retro, Close effort behind a confirm). Stations before the
     entry point read "entered at <station>". Autopilot lives in the spine header. A narrow
     sidebar drops the units column; hover a station's name for them.
-  - **The conversation** (middle): whichever row is open, Kiro's chat embedded through
-    `/popout/chat?sid=` (the one embedded surface that binds to a single session and renders
-    only its conversation; plain `/embed/chat` shows the session list). Whether Kiro's own
-    in-iframe side panel appears is left to Kiro's "Keep Side Panel Open" setting — with it
-    off, the session has a single right panel: KiPo's, next door. A ticket's conversation
-    carries its map over the chat ("Where it sits": the whole chain, blockers in a top row
-    with arrows down).
-  - **The session panel** (right), two tabs when a ticket is open — **Questions** (badged
-    with the open count) and **#N**, the ticket: Questions holds the conversation's decision
-    cards (each question's options as radios plus a free-text answer, answered together and
-    sent as one message, "Take all recommendations"), what it's waiting on, what's been
-    decided; the ticket tab holds state, PRs, what it asks, how it ended. The panel lands on
-    Questions when any are open (and pulls back to it when a new one arrives), else on the
-    ticket. Questions and interviews still happen in the chat in full; the cards are the
-    same questions, answerable without typing. The conductor's cards show the same way.
+  - **The conversation fills the rest**, and **its right panel is Kiro's own native side
+    panel** — browser, +, Changes, Terminal, Subagents and the rest — with Kiro's own
+    show/hide toggle. KiPo adds **no** right panel of its own: there is exactly one, and it is
+    Kiro's, exactly as a normal Kiro chat. The conversation is embedded through
+    `/popout/chat?sid=` (the one embedded surface that binds to a single session, renders only
+    its conversation, and keeps Kiro's native panel and toggle working; `/embed/chat` shows
+    the session list and suppresses the panel). A ticket's conversation carries its map over
+    the chat ("Where it sits": the whole chain, blockers in a top row with arrows down).
+  - **Questions are answered in the chat.** The agent asks each in full, numbered, with
+    options and a recommendation (the skills mandate this), and records them in its state
+    file so the spine can **count and point to them**: a ticket row badges its open count, a
+    station rolls them up, and the spine header's amber "N questions waiting on you" jumps to
+    the next conversation with open questions. There is no separate question panel.
 - **Autopilot** (per effort, in the browser, while the page is open): each Deliver tile that
   becomes `afk` gets an `implement` conversation, once.
 
