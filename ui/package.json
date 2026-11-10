@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/dispatch.test.ts"
+    "test": "node --test src/dispatch.test.ts src/stalls.test.ts"
   },
   "dependencies": {
     "react": "^18.2.0",

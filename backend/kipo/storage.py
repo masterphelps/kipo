@@ -182,3 +182,23 @@ class Storage:
                 entry.setdefault(key, when)
             self._write("closed.json", data)
         return entry
+
+    # -- session activity -------------------------------------------------
+    # What the page last read from Kiro Crew for each open session
+    # (kipo/activity.py): {key: {at, running, agent, seen}}.
+
+    def get_activity(self, repo, number):
+        data = self._read("activity.json", {})
+        value = data.get(self.session_key(repo, number)) if isinstance(data, dict) else None
+        return value if isinstance(value, dict) else {}
+
+    def record_activity(self, repo, number, observations, seen):
+        with self._lock:
+            data = self._read("activity.json", {})
+            if not isinstance(data, dict):
+                data = {}
+            entry = data.setdefault(self.session_key(repo, number), {})
+            for key, obs in observations.items():
+                entry[key] = {**obs, "seen": seen}
+            self._write("activity.json", data)
+        return entry

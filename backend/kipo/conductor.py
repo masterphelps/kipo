@@ -2,10 +2,15 @@
 
 A thread is one thing still open: a ticket, a PR, the fog, a closed map's
 leftovers, the hand-over, the retro. Each says which KiPo stage handles it,
-who holds it (HITL, Agent, Running, Blocked) and the one next action. It is
+who holds it (HITL, Agent, Running, Stalled, Blocked) and the one next action.
+A ticket whose session has stalled (kipo/stalls.py: idle, or its blocker
+cleared, and not woken back) is ``Stalled`` instead of ``Running`` or ``Agent``,
+with the reason; KiPo's page wakes it. It is
 computed from the effort's detail (GitHub, through KiPo's own frontier code),
 never remembered, so the conductor and the screen can't disagree.
 """
+
+from . import stalls
 
 # The KiPo skill each stage runs.
 STAGE_SKILL = {
@@ -29,11 +34,22 @@ def stage_of(tile):
     return "shape"
 
 
-def _ticket_thread(t):
+_STALL_ACTION = {
+    "stalled": "{key} stalled ({why}); KiPo's page wakes it",
+    "woken": "{key} was woken ({why}); wait for it to answer",
+    "stuck": "{key} is stuck ({why}); put it to the human",
+}
+
+
+def _ticket_thread(t, stalled=None):
     stage = stage_of(t)
     base = {"id": f"t{t['number']}", "kind": "ticket", "ticket": t["number"], "stage": stage,
             "skill": STAGE_SKILL[stage], "label": f"#{t['number']} {t['title']}", "type": t["type"]}
     state = t["state"]
+    if stalled and state in ("building", "review", "afk"):
+        s = stalled["stall"]
+        return {**base, "owner": "Stalled", "session": stalled["key"], "stall": s["state"], "why": s["why"],
+                "action": _STALL_ACTION[s["state"]].format(key=stalled["key"], why=s["why"])}
     if state == "blocked":
         waits = t.get("blockedBy") or []
         return {**base, "owner": "Blocked", "waitsOn": waits,
@@ -58,7 +74,8 @@ def threads(detail):
     fog_left = front.get("fogLeft") or []
     known = {t["number"] for t in tiles}
 
-    out = [_ticket_thread(t) for t in tiles if t["state"] != "done"]
+    stalled = stalls.stalled_by_ticket(detail.get("closing"))
+    out = [_ticket_thread(t, stalled.get(t["number"])) for t in tiles if t["state"] != "done"]
 
     for p in prs:
         if p.get("state") == "OPEN" and not any(n in known for n in p.get("tickets") or []):
@@ -106,6 +123,7 @@ def where(out, done, total):
     hitl = [t for t in live if t["owner"] == "HITL"]
     agent = [t for t in live if t["owner"] == "Agent"]
     running = [t for t in live if t["owner"] == "Running"]
+    stalled = [t for t in live if t["owner"] == "Stalled"]
     blocked = [t for t in live if t["owner"] == "Blocked"]
     bits = []
     if hitl:
@@ -114,6 +132,8 @@ def where(out, done, total):
         bits.append(f"{len(agent)} ready for an agent")
     if running:
         bits.append(f"{len(running)} running")
+    if stalled:
+        bits.append(f"{len(stalled)} stalled")
     if blocked:
         bits.append(f"{len(blocked)} blocked")
     return f"{done}/{total} tickets done. Open: " + ", ".join(bits) + "."

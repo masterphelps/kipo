@@ -81,6 +81,8 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/advance$"), "advance"),
     ("POST", re.compile(_ISSUE + r"/session$"), "session"),
     ("POST", re.compile(_ISSUE + r"/sessions/closed$"), "sessions_closed"),
+    ("POST", re.compile(_ISSUE + r"/sessions/activity$"), "sessions_activity"),
+    ("POST", re.compile(_ISSUE + r"/sessions/woken$"), "sessions_woken"),
     ("POST", re.compile(_ISSUE + r"/skill$"), "skill"),
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
     ("POST", re.compile(_ISSUE + r"/hide$"), "hide"),
@@ -243,6 +245,15 @@ class App:
     def sessions_closed(self, body, owner, repo, n):
         body = body if isinstance(body, dict) else {}
         return self.initiatives.record_closed(f"{owner}/{repo}", int(n), body.get("keys"))
+
+    def sessions_activity(self, body, owner, repo, n):
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.record_activity(f"{owner}/{repo}", int(n), body.get("activity"))
+
+    def sessions_woken(self, body, owner, repo, n):
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.record_wake(
+            f"{owner}/{repo}", int(n), body.get("key"), body.get("stall"), body.get("why"))
 
     def skill(self, body, owner, repo, n):
         body = body if isinstance(body, dict) else {}

@@ -1,6 +1,6 @@
 // Client for the KiPo backend, reached through the gateway's reverse proxy.
 import type {
-  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoTree, SessionStart, Start, Ticket, TicketCard,
+  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoTree, SessionObservation, SessionStart, Start, Ticket, TicketCard,
 } from './types'
 
 const BASE = '/apps/kipo/api'
@@ -70,6 +70,13 @@ export const backend = {
   // The page closed these sessions (the close rule's closable ones): KiPo records them.
   sessionsClosed: (repo: string, n: number, keys: string[]) =>
     call<{ closed: Record<string, string> }>(`${issuePath(repo, n)}/sessions/closed`, 'POST', { keys }),
+  // What Kiro Crew says of each open session (last message's time and author,
+  // mid-turn or not), for the stall rule (backend/kipo/stalls.py).
+  sessionsActivity: (repo: string, n: number, activity: Record<string, SessionObservation>) =>
+    call<{ recorded: string[] }>(`${issuePath(repo, n)}/sessions/activity`, 'POST', { activity }),
+  // The page woke a stalled session: KiPo records it in .kipo/<n>/wakes.json, once per stall.
+  sessionsWoken: (repo: string, n: number, key: string, stall: string, why: string) =>
+    call<{ wake: { at: string; stall: string; why: string } }>(`${issuePath(repo, n)}/sessions/woken`, 'POST', { key, stall, why }),
   // The "Run /<skill>: …" line, to send into a session that already exists.
   skillMessage: (repo: string, n: number, skill: string) =>
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),

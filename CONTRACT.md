@@ -175,13 +175,17 @@ the effort's own conversation and never does the work itself.
 
 - **Watch**: on every wake it runs `python3 <app>/backend/kipo_cli.py frontier <repo> <n>`,
   which prints the open threads (`kipo/conductor.py`: each with its stage, KiPo skill, owner
-  HITL / Agent / Running / Blocked, and next action) from GitHub through KiPo's own frontier
+  HITL / Agent / Running / Stalled / Blocked, and next action; a ticket whose session stalled is
+  `Stalled` instead of `Running` or `Agent`, with `session`, `stall` and `why`: see "Stalled
+  sessions") from GitHub through KiPo's own frontier
   code. It works from that output only. It wakes when the human writes, and when the page sees
   a ticket's or PR's state change (`[KiPo] Frontier changed: …`, sent only if it's not mid-turn;
   what it last saw is remembered per effort in the browser), and when a stage session reports
   (`[KiPo] Report from <session>: <event>: <text>`, or `[KiPo] Reports from the sessions:` with a
   list; also only when it's not mid-turn; the last report id sent is remembered per effort in
-  the browser, and a report the conductor has already read is never sent).
+  the browser, and a report the conductor has already read is never sent), and when the page
+  woke a stalled session (`[KiPo] Woke <session>: <why>`, held until it's not mid-turn) or one
+  turned stuck (in `[KiPo] Frontier changed: <session> stuck …`).
 - **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage shape|plan|review|done) [--skill <s>]`
   appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`). A ticket thread whose
   skill is `kipo-build` is `--ticket <t>`; whenever the thread's skill differs from `kipo-build`,
@@ -197,7 +201,8 @@ the effort's own conversation and never does the work itself.
 - **Hear**: every stage session reports to it (below). The frontier command's JSON also carries
   `reports` (the unread reports, oldest first, marked read once printed; `--peek` leaves them
   unread), `waiting` (every stage session's unanswered decision cards, `{from, id, title,
-  options, recommended}`: not the conductor's own, not a done ticket's) and `sessionsBlocking`
+  options, recommended}`: not the conductor's own, not a done ticket's; plus one card per stuck
+  session, `{from: <key>, id: "stuck-<key>", …, stuck: true}`) and `sessionsBlocking`
   (`{from, blocking}`). `kipo_cli.py reports <repo> <n> [--checkout <path>] [--peek]` prints
   the unread reports without GitHub, for when the frontier fails. Each wake it relays the
   reports, one line each.
@@ -206,14 +211,16 @@ the effort's own conversation and never does the work itself.
   and each `blocked` or `failed` session; it never copies a session's cards into its own
   `decisions` or answers them, and drops its own card when a session's asks the same thing.
 - **Sessions**: each wake it also runs `kipo_cli.py sessions <repo> <n>` (below, "Closing
-  sessions") and names on its Closed line each session KiPo closed since it last said.
+  sessions") and names on its Closed line each session KiPo closed since it last said, and on
+  its Stalled line each stalled, woken or stuck session with why. It never wakes or messages a
+  session itself, and never dispatches a `Stalled` thread.
 - **Merge**: through the kipo-review conversation it dispatches (Merge Danger).
 - **Close**: dispatches kipo-done when the retro is the only thread, then closes the effort
   issue once `done` reports `finished`.
 - **Reply**: short, in this order, empty lines left out: Changed, Reports, Dispatched,
-  Closed, Waiting on you.
+  Closed, Stalled, Waiting on you.
 - **Cron**: with Kiro Crew's cron tools it arms one 15-minute `[KiPo] Check the frontier`
-  while there are `Agent` or `Running` threads or a dispatched session hasn't reported
+  while there are `Agent`, `Running` or `Stalled` threads or a dispatched session hasn't reported
   `finished`, `nothing-to-do` or `failed`. That is how it hears reports while the page is closed.
 
 ## Reports: stage sessions to the conductor
@@ -226,11 +233,19 @@ python3 <app>/backend/kipo_cli.py report <repo> <n> --from <session> --checkout 
 ```
 
 - `--from`: the session's key: `build-t<t>`, `review-t<t>` or `shape-t<t>` for a ticket's
-  conversation (older seeds said `t<t>` for all three; still accepted), `shape`, `plan`,
-  `review`, `done`, or `intake`, `grill`, `build-spec`.
+  conversation (older seeds said `t<t>` for all three; still accepted, and attributed to the
+  ticket's only conversation open at the time, it existed and KiPo hadn't closed it, or else to
+  `build-t<t>`: `closing.attribute`), `shape`, `plan`, `review`, `done`, or `intake`, `grill`,
+  `build-spec`.
 - `--event`: `started`; `asked` (one `--item` per question, `<card id>: <title>`); `answered`
   (`<card id>: <answer>`); `pr-opened`, `pr-merged`; `issue-created`, `issue-closed`;
-  `finished`; `nothing-to-do` (and why); `blocked` (what it waits on); `failed` (what broke).
+  `finished`; `nothing-to-do` (and why); `blocked` (exactly what clears it: `#<n>` for an issue
+  or PR, or the session it waits on); `failed` (what broke).
+- **After `blocked`** a session keeps checking on its own where it can (the Monitor tool, or a
+  short loop on `gh pr view`, `gh issue view`, `git status`) until the blocker clears, rather
+  than ending its turn to wait. It ends a turn while waiting only when the blocker needs the
+  human or will take hours, with a `blocked` report naming what clears it (every stage skill's
+  "Blocked: keep checking yourself").
 - `--checkout`: the effort's checkout (the seed's Report line carries it); without it the CLI
   reads it from the effort issue's meta, else the repo's configured path.
 
@@ -249,8 +264,9 @@ is **closable** when both hold:
 
 1. **It finished**: it reported `finished` or `nothing-to-do`, or it reported `failed` and a
    later report on the same thread (`started`, `finished`, `nothing-to-do`, `pr-merged`) shows
-   another try took over. Reports count by session key; an older `t<t>` report counts for every
-   conversation of ticket `t`. A session with no report at all predates reporting and counts
+   another try took over. Reports count by session key; an older `t<t>` report counts for the
+   session it is attributed to (above, "Reports"), so a build's `finished` never makes the
+   ticket's review look finished. A session with no report at all predates reporting and counts
    as finished.
 2. **Its thread is settled**:
 
@@ -282,6 +298,63 @@ every session regardless.
 `{effort, repo, open, closable, closed, sessions: [...]}` for the conductor. Closing happens only
 in the page (Kiro Crew's API is the page's), so `closable` ones close the next time the effort
 is open.
+
+## Stalled sessions
+
+KiPo notices its stage sessions that stopped without finishing and wakes them itself, so the
+human never has to type "carry on". One rule (`backend/kipo/stalls.py`, a pure function of the
+effort detail, every report, each session's activity, the wakes sent, and the time).
+
+A session is a candidate when it isn't the conductor, is `open` in the close rule (not
+closable, not closed), has no unanswered decision card (a session waiting on the human's cards
+is never stalled), isn't mid-turn, and its thread isn't settled (the close rule's table). A
+candidate is **stalled** when either holds:
+
+1. **Idle**: its last activity was 15 minutes ago or more, and its last report isn't
+   `finished` or `nothing-to-do`. A session that never reported predates reporting and is left
+   alone.
+2. **Its blocker cleared**: its last report is `blocked`, and later another session on the same
+   ticket reported `finished` or `pr-opened`, or a PR or issue that the blocked report's text
+   names (`#<n>`, not its own ticket or PRs) was merged or closed: by a later `pr-merged` /
+   `issue-closed` report, or on GitHub (the effort's tickets and PRs).
+
+Each stall has an id (`blocked#<report id>`, or `idle@<last activity>`). The effort detail's
+`closing` rows carry `stall: {state, why, id, wakes}` on such sessions, `state` being:
+
+| `state` | Meaning | The page |
+|---|---|---|
+| `stalled` | stalled, not yet woken for this stall | wakes it |
+| `woken` | woken for this stall, or its last wake is unanswered | waits |
+| `stuck` | 2 wakes in a row with no answer | never wakes it again; the conductor puts it to the human (a `stuck` card in `waiting`) |
+
+A wake is answered when the session reports after it, or acts after it (the agent's message;
+when only the transcript mtime is known, more than 30 s after the wake).
+
+**Activity.** Every 30 seconds, for each open stage session (not the conductor), the page reads
+Kiro Crew's `GET /api/chat/slots/<slot>?limit=1` (`running`, and the last message's `ts` and
+`role`) and posts `POST …/sessions/activity` (`{activity: {key: {at, running, agent}}}`). KiPo
+keeps it in `data/activity.json` with when it was seen. An observation over 2 minutes old (the
+page is closed, as for `kipo_cli.py`) falls back to the session's transcript mtime
+(`~/.kiro/crew/session_map.json` maps `dashboard:<slot>` to its session id;
+`~/.claude/projects/<cwd as a folder name>/<sid>.jsonl`), with mid-turn unknown.
+
+**Waking.** On its 5-second effort refresh the page wakes each `stalled` session through the same
+chat websocket it uses for the conductor (`POST /api/chat?ws=1`), skipping one that is mid-turn
+(`running`) or on screen (the close rule's guards):
+
+```
+[KiPo] Carry on: <why: idle N min | your blocker cleared: <what>>. Re-read your ticket, its PR and comments, and your state file, then continue from where you stopped; report when you finish or block.
+```
+
+It then posts `POST …/sessions/woken` (`{key, stall, why}`), which records the wake in the
+effort's checkout, `.kipo/<n>/wakes.json` (`{"wakes": {key: [{at, stall, why}]}}`, once per
+stall id, the last 20 per session), and tells the conductor `[KiPo] Woke <session>: <why>` (held
+in the browser until the conductor isn't mid-turn) so it can relay it. Each (session, stall) is
+also woken at most once per browser.
+
+`kipo_cli.py sessions` counts `stalled`, `woken` and `stuck` beside `open`, `closable` and
+`closed`, and each row with a stall carries it. In the frontier, a ticket whose session is
+stalled, woken or stuck is owned by `Stalled` with that session, its state and why.
 
 ## Conversations, keys and seeds
 
@@ -351,6 +424,9 @@ handlers read the query string.
 | GET | `/initiatives` | | `{"initiatives":[Effort]}`: the sidebar (watched repos' efforts and opened maps, minus hidden ones) |
 | POST | `/initiatives` | `{"path","description","start","worktree":bool,"sourceIssue":n\|null}` | `Effort` |
 | GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` (with `reports: {reports, read}`) |
+| POST | `…/{n}/sessions/closed` | `{"keys":[…]}` | the page closed these (closable) sessions: recorded in `data/closed.json` |
+| POST | `…/{n}/sessions/activity` | `{"activity":{key:{at,running,agent}}}` | `{recorded}`: what Kiro Crew says of each open session, for the stall rule |
+| POST | `…/{n}/sessions/woken` | `{"key","stall","why"}` | `{wake}`: the page woke a stalled session; recorded in `.kipo/<n>/wakes.json`, once per stall |
 | POST | `…/{n}/session` | `{"column":"<key base>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null}` | `{"slotName","seed","existing":bool}` |
 | GET | `…/{n}/tickets/{t}` | | a ticket's card: body and latest comment |
 | POST | `…/{n}/hide`, `…/{n}/unhide` | | off and back on the sidebar (local) |
@@ -363,6 +439,8 @@ handlers read the query string.
 
 ## Storage
 
-`$KIROCREW_HOME/apps/kipo/data/`: `config.json` (watched repos), `sessions.json`,
+`$KIROCREW_HOME/apps/kipo/data/`: `config.json` (watched repos), `sessions.json`, `closed.json`
+(sessions the page closed), `activity.json` (what the page last read of each open session),
 `frontier.json` (each effort's last frontier, for the sidebar bars), `maps.json` (maps put on
-the sidebar), `hidden.json` (efforts taken off it).
+the sidebar), `hidden.json` (efforts taken off it). In the effort's checkout,
+`.kipo/<n>/`: the state files, `reports.json` and `wakes.json`.

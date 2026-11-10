@@ -14,7 +14,9 @@ import re
 import shlex
 
 from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
+from . import activity as col_activity
 from . import closing
+from . import stalls
 from . import docs
 from . import frontier as frontier_mod
 from . import reports as col_reports
@@ -349,7 +351,7 @@ def render_conductor_seed(effort, repo_path):
         f"Reports: python3 {KIPO_CLI} reports {repo} {n}"
         + (f" --checkout {shlex.quote(repo_path)}" if repo_path else "")
         + " (only when the frontier fails: the frontier carries them)",
-        f"Sessions: python3 {KIPO_CLI} sessions {repo} {n} (each session KiPo opened: open, closable or closed)",
+        f"Sessions: python3 {KIPO_CLI} sessions {repo} {n} (each session KiPo opened: open, closable or closed; stalled, woken or stuck)",
         f"Load the skill `kipo-conductor` and follow it. Destination: {effort['destination']}",
         "Start with a wake: run the frontier, then report where the effort stands.",
     ])
@@ -445,6 +447,9 @@ class Initiatives:
         self.gh = gh
         self.storage = storage
         self.clock = clock
+        # The stall rule's inputs that aren't GitHub's (kipo/activity.py).
+        self.now = lambda: datetime.datetime.now(datetime.timezone.utc)
+        self.transcript_activity = col_activity.transcript_activity
 
     # -- helpers ----------------------------------------------------------
 
@@ -676,9 +681,16 @@ class Initiatives:
             # What stage sessions told the conductor (kipo_cli.py report), and how far it has read.
             "reports": col_reports.read(repo_path, number),
         }
-        # Each session with its close status (kipo/closing.py): the page closes the closable ones.
-        detail["closing"] = closing.sessions(
-            detail, col_reports.all_reports(repo_path, number), self.storage.get_closed(repo, number))
+        # Each session with its close status (kipo/closing.py): the page closes the
+        # closable ones; and, open ones, its stall (kipo/stalls.py): the page wakes
+        # the stalled ones.
+        now = self.now()
+        live = {k: v for k, v in sessions.items() if k not in closing.NEVER}
+        activity = col_activity.merge(
+            self.storage.get_activity(repo, number), self.transcript_activity(live), now)
+        detail["closing"] = stalls.sessions(
+            detail, col_reports.all_reports(repo_path, number), self.storage.get_closed(repo, number),
+            activity, col_activity.read_wakes(repo_path, number), now)
         if tickets_note:
             detail["ticketsNote"] = tickets_note
         if tickets_error:
@@ -893,6 +905,31 @@ class Initiatives:
             raise KipoError(f"Not closable session keys: {', '.join(unknown)}.", "invalid_keys", 400)
         when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         return {"closed": self.storage.record_closed(repo, number, keys, when)}
+
+    def record_activity(self, repo, number, observations):
+        """What the page read from Kiro Crew for each open session
+        (``{key: {at, running, agent}}``): kept for the stall rule."""
+        sessions = self.storage.get_sessions(repo, number)
+        if not isinstance(observations, dict):
+            raise KipoError("activity must be an object of session keys.", "invalid_activity", 400)
+        clean = {k: o for k, o in ((k, col_activity.clean_observation(v)) for k, v in observations.items())
+                 if k in sessions and o}
+        seen = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.storage.record_activity(repo, number, clean, seen)
+        return {"recorded": sorted(clean)}
+
+    def record_wake(self, repo, number, key, stall, why):
+        """The page woke a stalled session (kipo/stalls.py): record it in the
+        effort's checkout (.kipo/<n>/wakes.json), once per stall."""
+        sessions = self.storage.get_sessions(repo, number)
+        if not isinstance(key, str) or key not in sessions or key in closing.NEVER:
+            raise KipoError(f"Not a stage session of this effort: {key!r}.", "invalid_key", 400)
+        if not isinstance(stall, str) or not stall:
+            raise KipoError("stall must name the stall woken for.", "invalid_stall", 400)
+        repo_path = self.repo_path(repo, number)
+        if not repo_path:
+            raise KipoError("No repo checkout is known for this effort.", "no_checkout", 409)
+        return {"wake": col_activity.record_wake(repo_path, number, key, stall, str(why or ""))}
 
     # -- advance ----------------------------------------------------------
 

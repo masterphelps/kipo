@@ -239,7 +239,15 @@ export type Reports = { reports: SessionReport[]; read: number }
 
 // Each session KiPo opened, with the close rule's verdict (backend/kipo/closing.py):
 // `closable` ones the page closes; `closed` ones it already did; `open` ones stay.
-export type SessionClose = { key: string; slot: string; status: 'open' | 'closable' | 'closed'; reason: string }
+// An open one that stalled (backend/kipo/stalls.py) carries `stall`: `stalled`
+// ones the page wakes (once per stall `id`); `woken` ones it already did;
+// `stuck` ones (two unanswered wakes) go to the human through the conductor.
+export type SessionStall = { state: 'stalled' | 'woken' | 'stuck'; why: string; id: string | null; wakes: number }
+export type SessionClose = {
+  key: string; slot: string; status: 'open' | 'closable' | 'closed'; reason: string; stall?: SessionStall
+}
+// What the page read of one session from Kiro Crew (GET /api/chat/slots/<slot>?limit=1).
+export type SessionObservation = { at: string | null; running: boolean | null; agent: boolean | null }
 
 export type TicketInfo = {
   number: number

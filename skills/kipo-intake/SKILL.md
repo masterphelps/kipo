@@ -39,7 +39,7 @@ The effort's conductor tracks every conversation it dispatched, and knows only w
 | You create or close an issue | `issue-created`, `issue-closed` | why; `--item` `#<issue> <title>` per issue |
 | The job is done | `finished` | the `summary` you set |
 | There is nothing for you to do | `nothing-to-do` | why, in one line |
-| You can't go on until something happens | `blocked` | what you wait on (the same as `blocking`) |
+| You can't go on until something happens | `blocked` | what you wait on, named so its clearing can be seen (the same as `blocking`) |
 | Something broke that you can't fix here | `failed` | what broke: the command and its error |
 
 For example, from the hand-over:
@@ -49,6 +49,8 @@ python3 <kipo>/backend/kipo_cli.py report <owner/repo> <n> --from plan --checkou
 ```
 
 In this conversation: `issue-closed` or a `blocked` when triage ends `needs-info`, `ready-for-human` or `wontfix`; `finished` names where the effort starts (a Deliver ticket ready for an agent, an idea to grill).
+
+**Blocked: keep checking yourself.** After a `blocked` report, don't end your turn to wait when you can watch the blocker from here: poll it until it clears, then carry on. Use the Monitor tool, or a short loop, such as `for i in $(seq 30); do [ "$(gh pr view <pr> --json state -q .state)" = MERGED ] && break; sleep 60; done` for a PR, `gh issue view <t> --json state` for an issue, or `git -C <worktree> status --short` and `git log origin/<branch> -1` for a worktree another session is editing. End your turn while waiting only when the blocker needs the human or will take hours, and then report `blocked` naming exactly what clears it: `#<number>` for an issue or PR ("PR #77 merged", "#24 closed"), or the session it waits on ("build-t41 pushes its fix"). KiPo watches for that: when your blocker clears (another session on your ticket reports `finished` or `pr-opened`, or a PR or issue your `blocked` text names is merged or closed), or when you have sat idle 15 minutes with your work unfinished, it sends you `[KiPo] Carry on: <why>. …`. Then re-read your ticket, its PR and comments, and your state file, continue from where you stopped, and report when you finish or block. Two wakes with no answer and KiPo hands you to the human as stuck.
 
 The report doesn't replace asking in the chat and recording the cards (above), and the conductor never answers for the human. Reporting is plumbing: don't mention it in chat. If the command fails, say so in one line and carry on; don't retry in a loop. A seed with no `Report:` line (a conversation started before reporting existed): skip reporting.
 

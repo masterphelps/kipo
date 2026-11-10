@@ -26,7 +26,9 @@ history kept, resumable) and records them here as ``closed``.
 
 Reports name their session: ``build-t<t>``, ``review-t<t>``, ``shape-t<t>``, or
 a stage key. Older seeds reported a ticket's conversations as ``t<t>``; such a
-report counts for every conversation of that ticket.
+report is attributed (``attribute``) to the session that was the ticket's only
+open conversation at that time, or else to ``build-t<t>``, so a build's
+``finished`` never makes the ticket's review look finished.
 """
 import re
 
@@ -43,12 +45,46 @@ def _ticket_of(key):
     return (m.group(1), int(m.group(2))) if m else (None, None)
 
 
+_OLD_TICKET_SOURCE = re.compile(r"^t(\d+)$")
+
+
+def attribute(reports, sessions, closed=None):
+    """Each report with ``session``: the session that made it. A report names
+    its session, except an older seed's shared ``t<t>``: that one goes to the
+    ticket's only conversation open at the time (it existed and KiPo hadn't
+    closed it before then), or else to ``build-t<t>``."""
+    closed = closed or {}
+    out = []
+    for r in reports or []:
+        if not isinstance(r, dict):
+            continue
+        source = r.get("from") or ""
+        m = _OLD_TICKET_SOURCE.match(source)
+        if m:
+            t = m.group(1)
+            at = r.get("at") or ""
+            live = [k for k in (f"build-t{t}", f"review-t{t}", f"shape-t{t}")
+                    if k in (sessions or {}) and not (k in closed and str(closed[k]) < at)]
+            source = live[0] if len(live) == 1 else f"build-t{t}"
+        out.append({**r, "session": source})
+    return out
+
+
 def thread_reports(key, reports):
-    """The reports a session made, oldest first: its own key, and for a ticket's
-    conversation also the older shared ``t<t>`` id."""
+    """The reports a session made, oldest first. Reports run through
+    ``attribute`` carry their session; a bare older ``t<t>`` report (not
+    attributed) counts for every conversation of ticket ``t``."""
     _, t = _ticket_of(key)
-    ids = {key} | ({f"t{t}"} if t is not None else set())
-    return [r for r in reports or [] if isinstance(r, dict) and r.get("from") in ids]
+    out = []
+    for r in reports or []:
+        if not isinstance(r, dict):
+            continue
+        if "session" in r:
+            if r["session"] == key:
+                out.append(r)
+        elif r.get("from") == key or (t is not None and r.get("from") == f"t{t}"):
+            out.append(r)
+    return out
 
 
 def finished(rs):
@@ -67,6 +103,15 @@ def _open_cards(state):
     if not isinstance(state, dict):
         return 0
     return sum(1 for d in state.get("decisions") or [] if isinstance(d, dict) and d.get("answer") in (None, ""))
+
+
+def open_cards(detail, key):
+    """How many unanswered decision cards hold this session. A ticket's
+    conversation (and build-spec) has its own state file; the stage ones share
+    state.json."""
+    states = detail.get("sessionStates") or {}
+    own = _ticket_of(key)[0] or key == "build-spec"
+    return _open_cards(states.get(key) if own else detail.get("state"))
 
 
 def settled(key, detail, rs, closed_tickets, prs):
@@ -123,7 +168,7 @@ def sessions(detail, reports, closed=None):
     prs = [p for p in detail.get("prs") or [] if isinstance(p, dict) and "number" in p]
     closed_tickets = {t["number"] for t in detail.get("tickets") or [] if t.get("state") not in (None, "OPEN")}
     closed_tickets |= {t["number"] for t in (detail.get("frontier") or {}).get("tiles") or [] if t.get("state") == "done"}
-    states = detail.get("sessionStates") or {}
+    reports = attribute(reports, detail.get("sessions") or {}, closed)
     out = []
     for key, slot in sorted((detail.get("sessions") or {}).items()):
         row = {"key": key, "slot": slot}
@@ -134,7 +179,7 @@ def sessions(detail, reports, closed=None):
             out.append({**row, "status": "closed", "reason": f"closed by KiPo {closed[key]}"})
             continue
         # A ticket's conversation has its own state file; the stage ones share state.json.
-        cards = _open_cards(states.get(key) if _ticket_of(key)[0] or key == "build-spec" else detail.get("state"))
+        cards = open_cards(detail, key)
         if cards:
             out.append({**row, "status": "open", "reason": f"{cards} unanswered decision card{'s' if cards > 1 else ''}"})
             continue

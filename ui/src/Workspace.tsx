@@ -14,6 +14,7 @@ import { QuestionWizard, TicketPanel } from './SessionPanel'
 import { Overview } from './Overview'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
+import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
 import {
   COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
   type Column, type EffortDetail, type PhaseState, type TicketInfo, type Tile,
@@ -62,6 +63,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // right panel is Kiro's own native side panel inside the chat.
   // A ticket's map ("Where it sits") over its conversation.
   const chainSplit = useFitSplit('chain', 100, 0.75)
+  // The conductor's overview band over its chat.
+  const overviewSplit = useFitSplit('overview', 180, 0.6)
 
   const load = useCallback(() => {
     backend.getInitiative(repo, number)
@@ -242,8 +245,13 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // heard (remembered per effort, so changes while the page was closed count
   // too), tell it, unless it's mid-turn; it re-reads the frontier itself.
   const conductorSlot = detail?.sessions.conductor && !isClosed(detail.sessions.conductor) ? detail.sessions.conductor : null
+  // A session turning stuck (backend/kipo/stalls.py: woken twice, no answer) is a change too.
+  const stuckKeys = (detail?.closing ?? []).filter(r => r.stall?.state === 'stuck').map(r => r.key)
   const frontierSig = detail?.frontier
-    ? JSON.stringify({ t: detail.frontier.tiles.map(t => [t.number, t.state]), p: detail.prs.map(p => [p.number, p.state]) })
+    ? JSON.stringify({
+      t: detail.frontier.tiles.map(t => [t.number, t.state]), p: detail.prs.map(p => [p.number, p.state]),
+      ...(stuckKeys.length ? { s: stuckKeys } : {}),
+    })
     : ''
   useEffect(() => {
     if (!frontierSig || !conductorSlot || !active) return
@@ -253,11 +261,12 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     if (prev === null) { localStorage.setItem(sigKey, frontierSig); return } // it read the frontier when it started
     const changes: string[] = []
     try {
-      const was = JSON.parse(prev) as { t: [number, string][]; p: [number, string][] }
+      const was = JSON.parse(prev) as { t: [number, string][]; p: [number, string][]; s?: string[] }
       const now = JSON.parse(frontierSig) as typeof was
       const before = new Map(was.t), prBefore = new Map(was.p)
       for (const [n, s] of now.t) if (before.get(n) !== s) changes.push(`#${n} ${before.get(n) ?? 'new'} → ${s}`)
       for (const [n, s] of now.p) if (prBefore.get(n) !== s) changes.push(`PR #${n} ${(prBefore.get(n) ?? 'new').toLowerCase()} → ${s.toLowerCase()}`)
+      for (const k of now.s ?? []) if (!(was.s ?? []).includes(k)) changes.push(`${k} stuck (woken twice, no answer)`)
     } catch { /* an old shape: just say it changed */ }
     void (async () => {
       try {
@@ -347,6 +356,77 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, detail, active, slotKey])
 
+  // Stalled sessions (backend/kipo/stalls.py). Every 30 s, read what Kiro Crew
+  // says of each open stage session (GET /api/chat/slots/<slot>?limit=1: the
+  // last message's time and author, mid-turn or not) and give it to KiPo, which
+  // decides which have stalled: idle 15 min with work unfinished, or their
+  // blocker cleared.
+  const watchSig = JSON.stringify(watched(detail?.closing ?? []).filter(r => !isClosed(r.slot)).map(r => [r.key, r.slot]))
+  useEffect(() => {
+    const rows = JSON.parse(watchSig) as [string, string][]
+    if (!active || !rows.length) return
+    let live = true
+    const poll = () => {
+      void Promise.all(rows.map(([key, slot]) =>
+        api.get<{ running?: boolean; messages?: { ts?: string; role?: string }[] }>(`/api/chat/slots/${encodeURIComponent(slot)}?limit=1`)
+          .then(info => [key, observation(info)] as const)
+          .catch(() => null),
+      )).then(got => {
+        if (!live) return
+        const activity = Object.fromEntries(got.filter(g => g && g[1]).map(g => [g![0], g![1]!]))
+        if (Object.keys(activity).length) void backend.sessionsActivity(repo, number, activity).catch(() => { /* next poll */ })
+      })
+    }
+    poll()
+    const id = setInterval(poll, 30000)
+    return () => { live = false; clearInterval(id) }
+  }, [api, watchSig, active, repo, number])
+
+  // Wake each stalled session once per stall, through the same chat websocket
+  // as the conductor, unless it's mid-turn or on screen (closing's guards).
+  // KiPo records the wake (.kipo/<n>/wakes.json); after two unanswered it is
+  // stuck, never woken again, and the conductor puts it to the human. The
+  // conductor is told of each wake ("[KiPo] Woke …") when it isn't mid-turn.
+  const wokeKey = `kipo.woke:${repo}#${number}`
+  const notesKey = `kipo.wokeNotes:${repo}#${number}`
+  const wakingRef = useRef(false)
+  useEffect(() => {
+    if (!detail?.closing || !active || wakingRef.current) return
+    let woke: string[] = []
+    try { woke = JSON.parse(localStorage.getItem(wokeKey) || '[]') } catch { woke = [] }
+    let notes: string[] = []
+    try { notes = JSON.parse(localStorage.getItem(notesKey) || '[]') } catch { notes = [] }
+    const due = dueWakes(detail.closing, slotKey, id => woke.includes(id)).filter(r => !isClosed(r.slot))
+    if (!due.length && !(notes.length && conductorSlot)) return
+    wakingRef.current = true
+    void (async () => {
+      for (const r of due) {
+        const s = r.stall!
+        try {
+          const info = await api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(r.slot)}?limit=1`)
+          if (info?.running) continue // mid-turn: not stalled after all
+          await api.post('/api/chat?ws=1', { slot: r.slot, message: wakeMessage(s.why) })
+          woke = [...woke, `${r.key}/${s.id}`].slice(-300)
+          localStorage.setItem(wokeKey, JSON.stringify(woke))
+          notes = [...notes, wokeNote(r.key, s.why)]
+          localStorage.setItem(notesKey, JSON.stringify(notes))
+          await backend.sessionsWoken(repo, number, r.key, s.id ?? '', s.why)
+        } catch { /* try again on the next refresh */ }
+      }
+      if (notes.length && conductorSlot) {
+        try {
+          const info = await api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(conductorSlot)}?limit=1`)
+          if (!info?.running) {
+            await api.post('/api/chat?ws=1', { slot: conductorSlot, message: `${notes.slice(-12).join('\n')}\nRun the frontier and carry on.` })
+            localStorage.setItem(notesKey, '[]')
+          }
+        } catch { /* told on a later refresh */ }
+      }
+      if (due.length) load()
+    })().finally(() => { wakingRef.current = false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, detail, active, slotKey, conductorSlot])
+
   const autoStarted = useRef(false)
   useEffect(() => {
     if (!autoStart || autoStarted.current || !detail) return
@@ -401,7 +481,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // A ticket's "Where it sits" map is shown on demand, not stacked over the chat.
   const [mapOpen, setMapOpen] = useState(false)
   // The conductor's overview panel width (the right side of the conductor screen).
-  const [overviewWidth, setOverviewWidth] = useState(480)
   // A done ticket (or a closed conversation) is settled: its unanswered
   // decisions are history, so the question wizard stays closed on it.
   const settled = focusTile ? focusTile.state === 'done' : !!recorded && isClosed(recorded)
@@ -453,7 +532,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                   <MapIcon size={14} /> Map
                 </button>
               )}
-              {slotKey && focus.kind !== 'column' && (
+              {slotKey && (
                 <button type="button" onClick={toggleKiroPanel}
                   title="Show or hide the side panel — browser, Changes, Terminal, Subagents"
                   aria-label="Show or hide the side panel"
@@ -516,11 +595,26 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // native side panel (browser, +, Changes, Terminal), which lives
           // inside the popout chat with its own show/hide toggle — KiPo adds no
           // right panel of its own. A ticket's map sits over the chat.
+          const isConductor = focus.kind === 'column'
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
               <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
+                {/* The conductor screen: the effort overview as a band across the
+                    top (chain, Needs you, Moving on its own, gates, checks), then
+                    the conductor's chat below — Kiro's native panel (subagents,
+                    Changes, browser, Terminal) opens on its right via the toggle. */}
+                {isConductor && slotKey && (<>
+                  <div ref={overviewSplit.ref} style={{ ...overviewSplit.style, minHeight: 120 }}>
+                    <Overview detail={detail}
+                      onOpenTicket={t => { const tile = t != null ? detail.frontier?.tiles.find(x => x.number === t) : null; if (tile) openTile(tile) }}
+                      onReview={(t) => { if (t != null) setFocus({ kind: 'review', t }) }}
+                      onSignoff={stage => stage === 'plan' ? handover() : runRetro()} />
+                  </div>
+                  <Divider direction="horizontal" label="Resize the overview and the conductor's chat"
+                    onDrag={overviewSplit.onDrag} onReset={overviewSplit.reset} />
+                </>)}
                 {/* The ticket's map, only when toggled on (the Map button). */}
                 {focusTile && chainTiles.length > 1 && mapOpen && (<>
                   <div ref={chainSplit.ref} style={{ ...chainSplit.style }}>
@@ -533,23 +627,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                     onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
                 </>)}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
-                {/* The question wizard: open decisions one at a time, Submit sends them as one message. */}
-                <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
+                {/* The question wizard (ticket sessions only; the conductor answers
+                    via the overview's Needs you). */}
+                {!isConductor && <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />}
               </section>
-              {/* The conductor's right panel is the effort overview: the chain,
-                  the "Needs you" inbox, what's moving on its own, the gates and
-                  the integrity checks. You talk to the conductor on the left;
-                  the overview is how you see the effort and act on it. */}
-              {focus.kind === 'column' && (<>
-                <Divider direction="vertical" label="Resize the conversation and the overview"
-                  onDrag={d => setOverviewWidth(w => w - d)} onReset={() => setOverviewWidth(480)} />
-                <section style={{ flex: `0 0 ${overviewWidth}px`, width: overviewWidth, minWidth: 360, minHeight: 0 }}>
-                  <Overview detail={detail}
-                    onOpenTicket={t => { const tile = t != null ? detail.frontier?.tiles.find(x => x.number === t) : null; if (tile) openTile(tile) }}
-                    onReview={(t) => { if (t != null) setFocus({ kind: 'review', t }) }}
-                    onSignoff={stage => stage === 'plan' ? handover() : runRetro()} />
-                </section>
-              </>)}
             </div>
           )
       })()}

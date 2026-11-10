@@ -18,7 +18,8 @@
 
   python3 kipo_cli.py report OWNER/REPO N --from SESSION --event KIND --text "..." [--item "..."]... [--checkout PATH]
       For stage sessions: tell the effort's conductor what happened. SESSION
-      is t<ticket>, shape, plan, review or done (also intake, grill,
+      is build-t<ticket>, review-t<ticket> or shape-t<ticket> (older seeds:
+      t<ticket>), shape, plan, review or done (also intake, grill,
       build-spec). KIND is one of: started, asked, answered, pr-opened,
       pr-merged, issue-created, issue-closed, finished, nothing-to-do,
       blocked, failed. --item lists things (one per question asked, PR or
@@ -34,12 +35,17 @@
       Every session KiPo opened for the effort, each with its status: open
       (it stays), closable (finished and its thread is settled: the KiPo
       page closes it on its next refresh) or closed (KiPo closed it), and
-      why. The rule is in kipo/closing.py. Read-only.
+      why. The rule is in kipo/closing.py. An open session that has stalled
+      also carries "stall": {state, why}: stalled (idle 15 min or more, or
+      its blocker cleared: the KiPo page wakes it), woken (woken, waiting for
+      it to answer) or stuck (woken twice with no answer: put it to the
+      human). The rule is in kipo/stalls.py. Read-only.
 
 The frontier's JSON also carries "reports" (unread session reports, marked
 seen once printed; --peek keeps them unread), "waiting" (every stage
-session's unanswered decision cards) and "sessionsBlocking" (what each stage
-session says it waits on).
+session's unanswered decision cards, plus one card per stuck session) and
+"sessionsBlocking" (what each stage session says it waits on). A ticket whose
+session stalled has owner "Stalled" and the reason.
 """
 import argparse
 import datetime
@@ -51,6 +57,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from kipo import conductor  # noqa: E402
 from kipo import reports  # noqa: E402
+from kipo import stalls  # noqa: E402
 from kipo import state as col_state  # noqa: E402
 from kipo.gh import Gh  # noqa: E402
 from kipo.initiatives import Initiatives  # noqa: E402
@@ -99,7 +106,7 @@ def main(argv=None):
         out = {"effort": args.number, "repo": args.repo, **conductor.threads(detail)}
         repo_path = detail.get("repoPath")
         out["reports"] = reports.take_unread(repo_path, args.number, mark=not args.peek) if repo_path else []
-        out["waiting"] = reports.open_decisions(detail)
+        out["waiting"] = reports.open_decisions(detail) + stalls.stuck_cards(detail.get("closing"))
         out["sessionsBlocking"] = reports.session_blocking(detail)
         print(json.dumps(out, indent=1))
         return 0
@@ -107,6 +114,8 @@ def main(argv=None):
     if args.cmd == "sessions":
         rows = detail.get("closing") or []
         counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("open", "closable", "closed")}
+        counts.update({k: sum(1 for r in rows if (r.get("stall") or {}).get("state") == k)
+                       for k in stalls.STALL_STATES})
         print(json.dumps({"effort": args.number, "repo": args.repo, **counts, "sessions": rows}, indent=1))
         return 0
 

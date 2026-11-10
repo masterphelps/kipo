@@ -322,6 +322,36 @@ class SessionTests(Columns):
         self.assertEqual(self.post("/sessions/closed", {"keys": ["conductor"]})[0], 400)
         self.assertEqual(self.post("/sessions/closed", {"keys": ["build-t99"]})[0], 400)
 
+    def test_detail_carries_stalls_from_posted_activity_and_records_wakes(self):
+        # The page posts what Kiro Crew says of each session; an idle one with
+        # an unfinished report is stalled; its wake is recorded once in the
+        # checkout, and then it reads woken. The conductor is never woken.
+        import datetime
+        from kipo import reports
+        ini_ = self.app.initiatives
+        ini_.transcript_activity = lambda slots: {}
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        self.post("/session", {"column": "build", "ticket": 20})
+        self.post("/session", {"column": "build", "mode": "conductor"})
+        reports.append(self.checkout, 7, "build-t20", "started", "Building #20.")
+        status, out = self.post("/sessions/activity", {"activity": {
+            "build-t20": {"at": "2026-11-10T12:00:00Z", "running": False, "agent": True},
+            "nobody": {"at": "2026-11-10T12:00:00Z"}}})
+        self.assertEqual((status, out), (200, {"recorded": ["build-t20"]}))
+        seen = datetime.datetime.fromisoformat(self.storage.get_activity(REPO, 7)["build-t20"]["seen"].replace("Z", "+00:00"))
+        # A minute after it was seen (still fresh), the session last moved at 12:00: long idle.
+        ini_.now = lambda: seen + datetime.timedelta(minutes=1)
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "build-t20")
+        self.assertEqual(row["stall"]["state"], "stalled")
+        status, out = self.post("/sessions/woken", {"key": "build-t20", "stall": row["stall"]["id"], "why": row["stall"]["why"]})
+        self.assertEqual(status, 200, out)
+        self.assertTrue(os.path.exists(os.path.join(self.checkout, ".kipo", "7", "wakes.json")))
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "build-t20")
+        self.assertEqual(row["stall"]["state"], "woken")
+        self.assertEqual(self.post("/sessions/woken", {"key": "conductor", "stall": "x"})[0], 400)
+        self.assertEqual(self.post("/sessions/woken", {"key": "build-t20"})[0], 400)
+
     def test_ticket_review_session_beside_its_build(self):
         # A dispatched --ticket 20 --skill kipo-review: its own review conversation,
         # seeded with the ticket and its open PR, not a second build session.
