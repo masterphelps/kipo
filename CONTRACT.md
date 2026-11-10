@@ -195,11 +195,13 @@ the effort's own conversation and never does the work itself.
   **Waiting on you** also lists each session's open cards from `waiting`, grouped by session,
   and each `blocked` or `failed` session; it never copies a session's cards into its own
   `decisions` or answers them, and drops its own card when a session's asks the same thing.
+- **Sessions**: each wake it also runs `kipo_cli.py sessions <repo> <n>` (below, "Closing
+  sessions") and names on its Closed line each session KiPo closed since it last said.
 - **Merge**: through the kipo-review conversation it dispatches (Merge Danger).
 - **Close**: dispatches kipo-done when the retro is the only thread, then closes the effort
   issue once `done` reports `finished`.
 - **Reply**: short, in this order, empty lines left out: Changed, Reports, Dispatched,
-  Waiting on you.
+  Closed, Waiting on you.
 - **Cron**: with Kiro Crew's cron tools it arms one 15-minute `[KiPo] Check the frontier`
   while there are `Agent` or `Running` threads or a dispatched session hasn't reported
   `finished`, `nothing-to-do` or `failed`. That is how it hears reports while the page is closed.
@@ -213,8 +215,9 @@ moment, as it happens:
 python3 <app>/backend/kipo_cli.py report <repo> <n> --from <session> --checkout <path> --event <kind> --text "<one line>" [--item "<…>"]...
 ```
 
-- `--from`: `t<ticket>` (a ticket's conversation, Decide or Deliver), `shape`, `plan`, `review`,
-  `done`, or `intake`, `grill`, `build-spec`.
+- `--from`: the session's key: `build-t<t>`, `review-t<t>` or `shape-t<t>` for a ticket's
+  conversation (older seeds said `t<t>` for all three; still accepted), `shape`, `plan`,
+  `review`, `done`, or `intake`, `grill`, `build-spec`.
 - `--event`: `started`; `asked` (one `--item` per question, `<card id>: <title>`); `answered`
   (`<card id>: <answer>`); `pr-opened`, `pr-merged`; `issue-created`, `issue-closed`;
   `finished`; `nothing-to-do` (and why); `blocked` (what it waits on); `failed` (what broke).
@@ -227,6 +230,48 @@ shown>}`. Its own file, not `conductor.json`, because the conductor agent rewrit
 appends and reads take a lock (`reports.json.lock`) so parallel sessions lose nothing. Ids
 only rise; the file keeps the last 500. Reports persist whether or not the page is open. The
 effort detail carries `reports: {reports: [the last 50], read}` for the page.
+
+## Closing sessions
+
+KiPo closes the stage sessions it opened once they're finished, with one rule
+(`backend/kipo/closing.py`, a pure function of the effort detail and every report). A session
+is **closable** when both hold:
+
+1. **It finished**: it reported `finished` or `nothing-to-do`, or it reported `failed` and a
+   later report on the same thread (`started`, `finished`, `nothing-to-do`, `pr-merged`) shows
+   another try took over. Reports count by session key; an older `t<t>` report counts for every
+   conversation of ticket `t`. A session with no report at all predates reporting and counts
+   as finished.
+2. **Its thread is settled**:
+
+| Session | Settled when |
+|---|---|
+| `shape-t<t>` | `#t` is closed |
+| `build-t<t>` | `#t` is closed, or it has a PR and `review-t<t>` exists (the review owns it now) |
+| `review-t<t>` | `#t` is closed, or every PR for `#t` is merged or closed |
+| `review` | every effort PR its reports name (`#<n>` in text or items) is merged or closed; naming none, the frontier has landed |
+| `shape`, `grill`, `intake` | the Decide half is clear: no open decision ticket, no fog |
+| `plan` | build tickets are cut |
+| `build-spec`, `done` | the frontier has landed |
+
+Never closable: the conductor, and any session whose state file has an unanswered decision
+card (the stage conversations share `state.json`, so a card there holds all of them).
+
+The effort detail carries `closing: [{key, slot, status, reason}]` for every session in
+`sessions`, `status` being `open` (it stays), `closable` or `closed`. On its 5-second effort
+refresh the page closes each `closable` session through Kiro Crew's own close,
+`DELETE /api/chat/slots/<slot>` (what a session's ⋯ menu "Close session" does: the session
+stops, its history is kept, and it can be resumed; Kiro Crew lets an app close only slots it
+created), skipping one that is mid-turn or on screen. It then posts the keys to
+`POST /initiatives/<owner>/<repo>/<n>/sessions/closed` (`{keys}`), which records them in
+`data/closed.json` so they read `closed`; starting a session again clears its record. Each slot
+is closed at most once per browser, so one you reopen by hand stays open. Close effort closes
+every session regardless.
+
+`python3 <app>/backend/kipo_cli.py sessions <repo> <n>` prints
+`{effort, repo, open, closable, closed, sessions: [...]}` for the conductor. Closing happens only
+in the page (Kiro Crew's API is the page's), so `closable` ones close the next time the effort
+is open.
 
 ## Conversations, keys and seeds
 
@@ -248,7 +293,8 @@ message to send into it instead of a new seed, which carries a Report line with
 `--from plan`.
 
 The conductor's seed has, instead of `Stage:`/`Start:`/`Report:`, its `Frontier:`,
-`Dispatch:` and `Reports:` command lines. A conversation whose ticket is done is closed.
+`Dispatch:`, `Reports:` and `Sessions:` command lines. Finished conversations are closed by the
+rule in "Closing sessions".
 
 Seed (the first message):
 
@@ -260,7 +306,7 @@ Start: <start>
 Repo checkout: <repoPath>
 Effort issue: <url>
 State file: <path>
-Report: python3 <app>/backend/kipo_cli.py report <repo> <n> --from <t<t>|key> --checkout <path> --event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...
+Report: python3 <app>/backend/kipo_cli.py report <repo> <n> --from <key> --checkout <path> --event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...
 Ticket: #<t> "<title>"                 (ticket conversations only)
 Blocked by: #a (closed), #b (open)     (when it has blockers)
 Load the skill `kipo-<name>` and follow it. Destination: <destination>

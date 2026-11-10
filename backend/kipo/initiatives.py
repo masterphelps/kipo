@@ -14,6 +14,7 @@ import re
 import shlex
 
 from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
+from . import closing
 from . import docs
 from . import frontier as frontier_mod
 from . import reports as col_reports
@@ -312,7 +313,9 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
         f"State file: {col_state.session_state_path(repo_path, n, state_key) if state_key else col_state.state_path(repo_path, n)}",
-        report_line(effort, repo_path, f"t{ticket['number']}" if ticket is not None else (state_key or column)),
+        # Its own session key (build-t22, review-t22), so the close rule can tell
+        # a ticket's build from its review.
+        report_line(effort, repo_path, state_key or column),
     ]
     if ticket is not None:
         lines.append(f'Ticket: #{ticket["number"]} "{ticket["title"]}"')
@@ -346,6 +349,7 @@ def render_conductor_seed(effort, repo_path):
         f"Reports: python3 {KIPO_CLI} reports {repo} {n}"
         + (f" --checkout {shlex.quote(repo_path)}" if repo_path else "")
         + " (only when the frontier fails: the frontier carries them)",
+        f"Sessions: python3 {KIPO_CLI} sessions {repo} {n} (each session KiPo opened: open, closable or closed)",
         f"Load the skill `kipo-conductor` and follow it. Destination: {effort['destination']}",
         "Start with a wake: run the frontier, then report where the effort stands.",
     ])
@@ -672,6 +676,9 @@ class Initiatives:
             # What stage sessions told the conductor (kipo_cli.py report), and how far it has read.
             "reports": col_reports.read(repo_path, number),
         }
+        # Each session with its close status (kipo/closing.py): the page closes the closable ones.
+        detail["closing"] = closing.sessions(
+            detail, col_reports.all_reports(repo_path, number), self.storage.get_closed(repo, number))
         if tickets_note:
             detail["ticketsNote"] = tickets_note
         if tickets_error:
@@ -875,6 +882,17 @@ class Initiatives:
     def detail(self, repo, number):
         issue, body = self._fetch(repo, number)
         return self._detail(repo, issue, body)
+
+    def record_closed(self, repo, number, keys):
+        """The page closed these sessions (kipo/closing.py's rule): remember them."""
+        sessions = self.storage.get_sessions(repo, number)
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            raise KipoError("keys must be a list of session keys.", "invalid_keys", 400)
+        unknown = [k for k in keys if k not in sessions or k in closing.NEVER]
+        if unknown:
+            raise KipoError(f"Not closable session keys: {', '.join(unknown)}.", "invalid_keys", 400)
+        when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"closed": self.storage.record_closed(repo, number, keys, when)}
 
     # -- advance ----------------------------------------------------------
 

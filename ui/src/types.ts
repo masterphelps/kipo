@@ -237,6 +237,10 @@ export type DispatchEntry = { ticket?: number; stage?: 'shape' | 'plan' | 'revie
 export type SessionReport = { id: number; at: string; from: string; event: string; text: string; items?: string[] }
 export type Reports = { reports: SessionReport[]; read: number }
 
+// Each session KiPo opened, with the close rule's verdict (backend/kipo/closing.py):
+// `closable` ones the page closes; `closed` ones it already did; `open` ones stay.
+export type SessionClose = { key: string; slot: string; status: 'open' | 'closable' | 'closed'; reason: string }
+
 export type TicketInfo = {
   number: number
   title: string
@@ -270,6 +274,7 @@ export type EffortDetail = Effort & {
   // Each ticket conversation's own state file, by session key (build-t22, shape-t24).
   sessionStates?: Record<string, PhaseState>
   reports?: Reports
+  closing?: SessionClose[]
   tickets: TicketInfo[]
   prs: PrInfo[]
   frontier?: Frontier

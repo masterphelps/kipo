@@ -37,8 +37,9 @@ EVENTS = (
     "failed",         # something broke; say what
 )
 
-# Who reports: a ticket's conversation (t<ticket>) or a stage conversation.
-SOURCE_RE = re.compile(r"^(t\d+|intake|shape|grill|plan|build|build-spec|review|done)$")
+# Who reports: a ticket's conversation by its session key (build-t<t>,
+# review-t<t>, shape-t<t>; older seeds said t<t>) or a stage conversation.
+SOURCE_RE = re.compile(r"^((?:build-|review-|shape-)?t\d+|intake|shape|grill|plan|build|build-spec|review|done)$")
 
 KEEP = 500        # reports kept in the file
 SHOWN = 50        # reports the effort detail carries for the page
@@ -88,7 +89,8 @@ def _locked(p):
 def append(repo_path, number, source, event, text, items=(), clock=_now):
     """Append one report and return it (with its id)."""
     if not SOURCE_RE.match(source or ""):
-        raise ValueError(f"{source!r} isn't a session id: t<ticket>, shape, plan, review, done (or intake, grill, build-spec).")
+        raise ValueError(f"{source!r} isn't a session id: build-t<t>, review-t<t>, shape-t<t> (or t<t>), "
+                         "shape, plan, review, done (or intake, grill, build-spec).")
     if event not in EVENTS:
         raise ValueError(f"{event!r} isn't a report event: {', '.join(EVENTS)}.")
     text = (text or "").strip()
@@ -113,6 +115,11 @@ def read(repo_path, number):
         return {"reports": [], "read": 0}
     data = _load(path(repo_path, number))
     return {"reports": data["reports"][-SHOWN:], "read": data["read"]}
+
+
+def all_reports(repo_path, number):
+    """Every report kept in the file, oldest first (for the close rule)."""
+    return _load(path(repo_path, number))["reports"] if repo_path else []
 
 
 def take_unread(repo_path, number, mark=True):

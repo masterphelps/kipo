@@ -37,21 +37,25 @@ function markClosed(slot: string) {
 }
 
 // Close the given sessions unless one is still running (its agent is mid-turn,
-// such as writing its last message) or is the one on screen. Returns how many closed.
-export async function closeFinished(api: Api, slots: string[], onScreen: string | null): Promise<number> {
+// such as writing its last message) or is the one on screen. Kiro Crew's close
+// (DELETE /api/chat/slots/<slot>) is what a session's ⋯ menu "Close session"
+// does: stopped, history kept, resumable. Returns every given slot now known
+// closed (closed here, closed by this browser before, or already gone).
+export async function closeFinished(api: Api, slots: string[], onScreen: string | null): Promise<string[]> {
   const done = closedSet()
-  let closed = 0
+  const closed: string[] = []
   for (const slot of slots) {
-    if (!slot || done.has(slot) || slot === onScreen) continue
+    if (!slot || slot === onScreen) continue
+    if (done.has(slot)) { closed.push(slot); continue }
     try {
       const info = await api.get<{ running?: boolean }>(`/api/chat/slots/${encodeURIComponent(slot)}?limit=1`)
       if (info?.running) continue
       await api.del(`/api/chat/slots/${encodeURIComponent(slot)}`)
       markClosed(slot)
-      closed++
+      closed.push(slot)
     } catch (e) {
       // Already closed or gone: remember it so it isn't tried again.
-      if (/404|not.?found/i.test(String((e as Error)?.message ?? e))) markClosed(slot)
+      if (/404|not.?found/i.test(String((e as Error)?.message ?? e))) { markClosed(slot); closed.push(slot) }
     }
   }
   return closed

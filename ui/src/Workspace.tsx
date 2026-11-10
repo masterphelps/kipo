@@ -326,22 +326,24 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     }
   }
 
-  // Close sessions whose work is done: a ticket's session once the ticket is
-  // closed, and the review and implement-spec sessions once everything landed.
+  // Close the sessions the close rule calls closable (backend/kipo/closing.py:
+  // finished, thread settled, no open cards, never the conductor), on this 5 s
+  // refresh, and tell KiPo which closed so `kipo_cli.py sessions` shows them.
   // Skips one that's still running or on screen; it closes on a later pass.
   const closingRef = useRef(false)
   useEffect(() => {
-    if (!detail?.frontier || !active || closingRef.current) return
-    const slots: string[] = []
-    for (const t of detail.frontier.tiles) {
-      if (t.state === 'done' && t.sessionKey && detail.sessions[t.sessionKey]) slots.push(detail.sessions[t.sessionKey])
-    }
-    if (detail.frontier.landed) {
-      for (const k of ['review', 'build-spec']) if (detail.sessions[k]) slots.push(detail.sessions[k])
-    }
-    if (!slots.length) return
+    if (!detail?.closing || !active || closingRef.current) return
+    const due = detail.closing.filter(s => s.status === 'closable')
+    if (!due.length) return
     closingRef.current = true
-    void closeFinished(api, slots, slotKey).finally(() => { closingRef.current = false })
+    void closeFinished(api, due.map(s => s.slot), slotKey)
+      .then(slots => {
+        const keys = due.filter(s => slots.includes(s.slot)).map(s => s.key)
+        return keys.length ? backend.sessionsClosed(repo, number, keys).then(() => load()) : undefined
+      })
+      .catch(() => { /* try again on the next refresh */ })
+      .finally(() => { closingRef.current = false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, detail, active, slotKey])
 
   const autoStarted = useRef(false)

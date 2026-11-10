@@ -157,3 +157,28 @@ class Storage:
             entry = data.setdefault(self.session_key(repo, number), {})
             entry[key] = slot_name
             self._write("sessions.json", data)
+            # Started again: it's open, whatever KiPo closed before.
+            closed = self._read("closed.json", {})
+            if isinstance(closed, dict) and key in (closed.get(self.session_key(repo, number)) or {}):
+                del closed[self.session_key(repo, number)][key]
+                self._write("closed.json", closed)
+
+    # -- closed sessions ---------------------------------------------------
+    # The stage sessions KiPo's page closed (kipo/closing.py's rule), so the
+    # conductor's `kipo_cli.py sessions` can say what closed.
+
+    def get_closed(self, repo, number):
+        data = self._read("closed.json", {})
+        value = data.get(self.session_key(repo, number)) if isinstance(data, dict) else None
+        return value if isinstance(value, dict) else {}
+
+    def record_closed(self, repo, number, keys, when):
+        with self._lock:
+            data = self._read("closed.json", {})
+            if not isinstance(data, dict):
+                data = {}
+            entry = data.setdefault(self.session_key(repo, number), {})
+            for key in keys:
+                entry.setdefault(key, when)
+            self._write("closed.json", data)
+        return entry

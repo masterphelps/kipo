@@ -30,6 +30,12 @@
       The reports the conductor hasn't seen yet, without GitHub (the
       frontier carries them too). Marks them seen unless --peek.
 
+  python3 kipo_cli.py sessions OWNER/REPO N
+      Every session KiPo opened for the effort, each with its status: open
+      (it stays), closable (finished and its thread is settled: the KiPo
+      page closes it on its next refresh) or closed (KiPo closed it), and
+      why. The rule is in kipo/closing.py. Read-only.
+
 The frontier's JSON also carries "reports" (unread session reports, marked
 seen once printed; --peek keeps them unread), "waiting" (every stage
 session's unanswered decision cards) and "sessionsBlocking" (what each stage
@@ -80,6 +86,9 @@ def main(argv=None):
     g.add_argument("--ticket", type=int)
     g.add_argument("--stage", choices=STAGES)
     d.add_argument("--skill")
+    s = sub.add_parser("sessions")
+    s.add_argument("repo")
+    s.add_argument("number", type=int)
     args = ap.parse_args(argv)
 
     if args.cmd in ("report", "reports"):
@@ -93,6 +102,12 @@ def main(argv=None):
         out["waiting"] = reports.open_decisions(detail)
         out["sessionsBlocking"] = reports.session_blocking(detail)
         print(json.dumps(out, indent=1))
+        return 0
+
+    if args.cmd == "sessions":
+        rows = detail.get("closing") or []
+        counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("open", "closable", "closed")}
+        print(json.dumps({"effort": args.number, "repo": args.repo, **counts, "sessions": rows}, indent=1))
         return 0
 
     repo_path = detail.get("repoPath")

@@ -67,6 +67,9 @@ export const backend = {
   // A column's session; `skill` makes its seed end with that skill's Run line.
   startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | 'conductor' | null }) =>
     call<SessionStart>(`${issuePath(repo, n)}/session`, 'POST', { skill: null, ticket: null, mode: null, ...body }),
+  // The page closed these sessions (the close rule's closable ones): KiPo records them.
+  sessionsClosed: (repo: string, n: number, keys: string[]) =>
+    call<{ closed: Record<string, string> }>(`${issuePath(repo, n)}/sessions/closed`, 'POST', { keys }),
   // The "Run /<skill>: …" line, to send into a session that already exists.
   skillMessage: (repo: string, n: number, skill: string) =>
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),

@@ -295,11 +295,32 @@ class SessionTests(Columns):
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual(out["seed"], self.seed(
             "build", "ticket #20, in the Deliver lane", "Deliver", extra=['Ticket: #20 "Add export"', "Blocked by: #19 (closed)"], run="implement",
-            state="build-t20.json", source="t20",
+            state="build-t20.json", source="build-t20",
         ))
         d = self.get()[1]
         self.assertEqual(d["sessions"]["build-t20"], "kipo-acme-widgets-7-build-t20")
         self.assertEqual({t["number"]: t["sessionKey"] for t in d["tickets"]}, {19: None, 20: "build-t20"})
+
+    def test_detail_carries_the_close_rule_and_records_closed_sessions(self):
+        # A finished build whose ticket closed is closable; the page closes it
+        # and records it; the conductor stays; an unknown key is refused.
+        from kipo import reports
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        self.post("/session", {"column": "build", "ticket": 20})
+        self.post("/session", {"column": "build", "mode": "conductor"})
+        reports.append(self.checkout, 7, "build-t20", "finished", "Built #20; PR #50 open.")
+        rows = {r["key"]: r["status"] for r in self.get()[1]["closing"]}
+        self.assertEqual(rows, {"build-t20": "open", "conductor": "open"})  # #20 is still open
+        self.fake.issues[(REPO, 20)]["state"] = "CLOSED"
+        rows = {r["key"]: r["status"] for r in self.get()[1]["closing"]}
+        self.assertEqual(rows, {"build-t20": "closable", "conductor": "open"})
+        status, out = self.post("/sessions/closed", {"keys": ["build-t20"]})
+        self.assertEqual(status, 200, out)
+        rows = {r["key"]: r["status"] for r in self.get()[1]["closing"]}
+        self.assertEqual(rows, {"build-t20": "closed", "conductor": "open"})
+        self.assertEqual(self.post("/sessions/closed", {"keys": ["conductor"]})[0], 400)
+        self.assertEqual(self.post("/sessions/closed", {"keys": ["build-t99"]})[0], 400)
 
     def test_ticket_review_session_beside_its_build(self):
         # A dispatched --ticket 20 --skill kipo-review: its own review conversation,
@@ -317,7 +338,7 @@ class SessionTests(Columns):
         self.assertIn('Ticket: #20 "Add export"', seed)
         self.assertIn(f"PRs: #50 {self.fake.prs[(REPO, 50)]['url']}".strip(), seed)
         self.assertIn(f"State file: {self.checkout}/.kipo/7/review-t20.json", seed)
-        self.assertIn(self.report("t20"), seed)
+        self.assertIn(self.report("review-t20"), seed)
         self.assertIn("Load the skill `kipo-review` and follow it. Destination: Ship widgets.", seed)
         self.assertNotIn("Run /", out["seed"])  # kipo-review is the column's own skill, loaded above
         self.assertEqual({k: v for k, v in self.get()[1]["sessions"].items() if k.endswith("t20")},
@@ -379,7 +400,7 @@ class SessionTests(Columns):
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-shape-t31")
         self.assertIn('Ticket: #31 "Pick auth"\nLoad the skill `kipo-shape`', out["seed"])
-        self.assertIn(self.report("t31"), out["seed"])
+        self.assertIn(self.report("shape-t31"), out["seed"])
 
     def test_bad_input(self):
         self.make_effort()
