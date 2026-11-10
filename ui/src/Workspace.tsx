@@ -538,10 +538,16 @@ function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React
       if (doc && !doc.getElementById('kipo-popout-css')) {
         const style = doc.createElement('style')
         style.id = 'kipo-popout-css'
+        // Hide, on this embedded surface: the dead "Return to the main window"
+        // / split-view links (there is no main window to return to), and Kiro's
+        // own in-panel collapse — the session's one panel toggle is KiPo's
+        // header button, which drives the panel both ways. Match any element
+        // (the controls are not <button>s); English labels, locale-tolerant via
+        // the substring match on the stable aria-label/title.
         style.textContent = [
-          'button[title*="main window" i]',
-          'button[aria-label*="main window" i]',
-          '[data-ui-location="chat.return-to-main"]',
+          '[title*="main window" i]', '[aria-label*="main window" i]',
+          '[title*="split view" i]', '[aria-label*="split view" i]',
+          '[aria-label="Close panel"]', '[title="Close panel"]',
         ].join(',') + '{display:none !important}'
         doc.head.appendChild(style)
       }
