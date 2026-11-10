@@ -10,7 +10,7 @@ import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
-import { QuestionWizard } from './SessionPanel'
+import { QuestionWizard, TicketPanel } from './SessionPanel'
 import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import {
@@ -461,12 +461,34 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
               )}
             </div>
           )
+          // A ticket you can still start (ready, or HITL) shows a Start button
+          // over its details; done / blocked / in-review ones just show details.
+          const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
           const chatBody = slotKey ? (
             <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef} />
+          ) : focusTile ? (
+            // No live conversation: the ticket's own details fill the centre
+            // (where the chat would be), since there's no chat and no panel.
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', scrollbarWidth: 'thin' }}>
+              {canStartTile && (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', padding: '16px', borderBottom: '1px solid var(--border)' }}>
+                  <Btn primary disabled={starting} onClick={() => start(tileSkill(focusTile))}>
+                    {starting ? 'Starting…' : (TILE_ACTIONS[focusTile.type]?.action ?? 'Start this ticket')}
+                  </Btn>
+                  {startAlternatives(focusTile, null).map(a => (
+                    <button key={a.skill} type="button" disabled={starting} onClick={() => start(a.skill)} title={SKILL_HINTS[a.skill]}
+                      style={{ background: 'transparent', padding: 0, color: 'var(--accent)', cursor: starting ? 'default' : 'pointer', fontSize: T.small }}>
+                      /{a.skill} <span style={muted}>{a.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <TicketPanel detail={detail} tile={focusTile} />
+            </div>
           ) : (
-            <NotStarted detail={detail} focus={focus} ticket={ticket} tile={focusTile} starting={starting}
-              onStart={() => start(focusTile ? tileSkill(focusTile) : null)}
-              alternatives={startAlternatives(focusTile, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
+            <NotStarted detail={detail} focus={focus} ticket={ticket} tile={null} starting={starting}
+              onStart={() => start(null)}
+              alternatives={startAlternatives(null, focus.kind === 'column' ? detail.column : null)} onSkill={s => start(s)} />
           )
           const chainTiles = focusTile && detail.frontier ? chain(detail.frontier.tiles, focusTile.number) : []
 

@@ -1,10 +1,11 @@
 import { useAppApi } from '@kirocrew/app-sdk'
-import { Btn } from '@kirocrew/app-sdk/ui'
-import { useEffect, useRef, useState } from 'react'
-import { errorText } from './api'
-import { T, muted, strong } from './common'
+import { Btn, MarkdownRenderer } from '@kirocrew/app-sdk/ui'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { backend, errorText } from './api'
+import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
-import type { Decision, PhaseState } from './types'
+import { Abbr, STATE_MEANING } from './glossary'
+import type { Decision, EffortDetail, PhaseState, TicketCard, Tile } from './types'
 
 // A docked question bar at the bottom of the conversation: the open decisions
 // the agent recorded, shown ONE AT A TIME with Back / Next, and a single Submit
@@ -126,3 +127,100 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
 }
 
 export type { Decision }
+
+// ---------------------------------------------------------------- the ticket
+
+const TYPE_LABEL: Record<Tile['type'], string> = {
+  grilling: 'Grill', prototype: 'Prototype', research: 'Research', task: 'Task', build: 'Build', issue: 'Issue',
+}
+
+const PR_STATE: Record<string, { label: string; color: string }> = {
+  MERGED: { label: 'merged', color: 'var(--ok, #3fb950)' },
+  OPEN: { label: 'open', color: 'var(--accent)' },
+  CLOSED: { label: 'closed', color: 'var(--muted)' },
+}
+
+function Pill({ color, text, children }: { color: string; text: string; children: ReactNode }) {
+  return (
+    <span style={{ fontSize: T.tiny, padding: '1px 8px', borderRadius: 999, border: `1px solid ${color}`, color: text, whiteSpace: 'nowrap' }}>
+      {children}
+    </span>
+  )
+}
+
+// A ticket with no live conversation (closed, blocked, in review, or not yet
+// started): what it is, its PRs, how it ended, and what it asks — read from
+// GitHub. Shown in the centre, where its chat would be if it had one.
+export function TicketPanel({ detail, tile }: { detail: EffortDetail; tile: Tile }) {
+  const [card, setCard] = useState<TicketCard | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let live = true
+    setCard(null)
+    setError('')
+    backend.ticket(detail.repo, detail.number, tile.number)
+      .then(c => { if (live) setCard(c) })
+      .catch(e => { if (live) setError(errorText(e)) })
+    return () => { live = false }
+  }, [detail.repo, detail.number, tile.number, tile.state])
+
+  const prs = detail.prs.filter(p => tile.prs.includes(p.number))
+  const done = tile.state === 'done'
+  const meta = STATE_META[tile.state]
+
+  let status: ReactNode
+  if (done) status = prs.some(p => p.state === 'MERGED') ? 'Closed: its PR merged.' : 'Closed.'
+  else if (tile.state === 'review') status = 'Its PR is open. The effort\'s Review merges it once it\'s clean.'
+  else if (tile.state === 'blocked') status = `Waiting on ${tile.blockedBy.map(n => `#${n}`).join(', ')}. It can start once those close.`
+  else if (tile.state === 'building') status = 'An agent is working on it.'
+  else if (tile.who === 'you') status = <><Abbr term="HITL">HITL</Abbr>: it needs you. Start it to open its conversation.</>
+  else status = 'An agent can take it on its own.'
+
+  return (
+    <div>
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ ...muted, fontSize: T.small }}>#{tile.number} · {TYPE_LABEL[tile.type]}</span>
+          <span title={STATE_MEANING[tile.state]} style={{ cursor: 'help', display: 'inline-flex' }}>
+            <Pill color={meta.color === 'transparent' ? 'var(--border)' : meta.color} text={meta.text}>{meta.label}</Pill>
+          </span>
+          <span style={{ flex: 1 }} />
+          <a href={tile.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: T.small }}>Open on GitHub</a>
+        </div>
+        <div style={{ ...strong, fontSize: T.title, marginTop: 4, lineHeight: 1.35 }}>{tile.title}</div>
+        <div style={{ fontSize: T.small, marginTop: 5, lineHeight: 1.45 }}>{status}</div>
+      </div>
+
+      {prs.length > 0 && (
+        <Section title={prs.length === 1 ? 'Pull request' : 'Pull requests'}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {prs.map(p => (
+              <a key={p.number} href={p.url} target="_blank" rel="noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', fontSize: T.small, textDecoration: 'none' }}>
+                <Pill color={PR_STATE[p.state]?.color ?? 'var(--border)'} text={PR_STATE[p.state]?.color ?? 'var(--muted)'}>{PR_STATE[p.state]?.label ?? p.state}</Pill>
+                <span style={{ color: 'var(--accent)' }}>#{p.number}</span>
+                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</span>
+              </a>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {done && (
+        <Section title="How it ended" aside={card?.lastComment ? `latest of ${card.comments} comment${card.comments === 1 ? '' : 's'}` : undefined}>
+          {error ? <ErrorLine>{error}</ErrorLine>
+            : !card ? <span style={{ ...muted, fontSize: T.small }}>Loading…</span>
+            : card.lastComment ? <div style={{ fontSize: T.body, lineHeight: 1.55 }}><MarkdownRenderer content={card.lastComment.body} /></div>
+            : <span style={{ ...muted, fontSize: T.small }}>Closed with no comment.</span>}
+        </Section>
+      )}
+
+      <Section title={done ? 'What it asked' : 'What it asks'} defaultOpen={!done}>
+        {error ? <ErrorLine>{error}</ErrorLine>
+          : !card ? <span style={{ ...muted, fontSize: T.small }}>Loading…</span>
+          : card.body.trim() ? <div style={{ fontSize: T.body, lineHeight: 1.55 }}><MarkdownRenderer content={card.body} /></div>
+          : <span style={{ ...muted, fontSize: T.small }}>No description.</span>}
+      </Section>
+    </div>
+  )
+}
