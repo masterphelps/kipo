@@ -7,11 +7,13 @@ import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
 import type { Decision, EffortDetail, PhaseState, TicketCard, Tile } from './types'
 
-// A docked question bar at the bottom of the conversation: the open decisions
-// the agent recorded, shown ONE AT A TIME with Back / Next, and a single Submit
-// that sends every answer as ONE message — so the agent takes them all in one
-// turn, never a queue of single replies (which kills parallel work). You don't
-// have to answer all of them; the unanswered ones stay for later.
+// The question card, floating over the chat box like Kiro's own question card:
+// the open decisions the agent recorded, shown ONE AT A TIME with Back / Next,
+// and a single Submit that sends every answer as ONE message — so the agent
+// takes them all in one turn, never a queue of single replies (which kills
+// parallel work). You don't have to answer all of them; the unanswered ones
+// stay. Submitted answers clear the card at once (the agent records them in
+// its own time); Hide tucks it into a pill so the chat box comes back.
 export function QuestionWizard({ state, slotKey, settled, onError }: {
   state: PhaseState | null
   slotKey: string | null
@@ -19,22 +21,37 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
   onError: (m: string) => void
 }) {
   const api = useAppApi()
-  const open = settled ? [] : (state?.decisions.filter(d => !d.answer) ?? [])
+  // Answers already sent to the chat are gone from the card immediately, even
+  // though the state file only shows them once the agent records each `answer`.
+  const [sent, setSent] = useState<Set<string>>(() => new Set())
+  const open = settled ? [] : (state?.decisions.filter(d => !d.answer && !sent.has(d.id)) ?? [])
   const [picks, setPicks] = useState<Record<string, string>>({})
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
+  const [hidden, setHidden] = useState(false)
 
   // Reset the stepper when the set of open questions changes (new conversation,
-  // or the batch was answered and recorded).
+  // or the batch was answered and recorded), and bring the card back out.
   const sig = open.map(d => d.id).join(',')
   const lastSig = useRef(sig)
   useEffect(() => {
     if (lastSig.current === sig) return
     lastSig.current = sig
     setI(0); setPicks({})
+    if (sig) setHidden(false)
   }, [sig])
 
   if (!open.length || !slotKey) return null
+  if (hidden) return (
+    <button type="button" className="kipo-pulse" onClick={() => setHidden(false)}
+      title="Open the questions waiting on you"
+      style={{ position: 'absolute', right: 16, bottom: 14, zIndex: 6, cursor: 'pointer',
+        borderRadius: 99, padding: '4px 12px', fontSize: T.small, fontWeight: 600,
+        border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.text,
+        background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
+      {open.length} question{open.length === 1 ? '' : 's'} →
+    </button>
+  )
   const idx = Math.min(i, open.length - 1)
   const d = open[idx]
   const answered = open.filter(x => (picks[x.id] ?? '').trim())
@@ -57,6 +74,7 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
     setSending(true)
     try {
       await api.post('/api/chat?ws=1', { slot: slotKey, message })
+      setSent(s => new Set([...s, ...answered.map(x => x.id)]))
       setPicks({}); setI(0)
     } catch (e) {
       onError(`Couldn't send your answers: ${errorText(e)}`)
@@ -86,7 +104,10 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
   )
 
   return (
-    <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)', padding: '9px 16px 11px', flexShrink: 0 }}>
+    <div role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
+      style={{ position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 6,
+        background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
+        boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
         <span style={{ fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: STATE_META.you.text }}>
           Question {idx + 1} of {open.length}
@@ -101,6 +122,12 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
         </span>
         <span style={{ flex: 1 }} />
         <span style={{ ...muted, fontSize: T.tiny }}>{answered.length} of {open.length} answered</span>
+        <button type="button" onClick={() => setHidden(true)}
+          title="Tuck the questions away and get the chat box back"
+          style={{ background: 'transparent', border: 'none', padding: '0 2px', cursor: 'pointer',
+            color: 'var(--muted)', fontSize: T.tiny }}>
+          Hide
+        </button>
       </div>
 
       <div style={{ ...strong, fontSize: T.body, marginBottom: 8, lineHeight: 1.4 }}>{d.title}</div>

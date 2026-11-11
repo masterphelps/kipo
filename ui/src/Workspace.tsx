@@ -641,10 +641,15 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                   <Divider direction="horizontal" label="Resize the ticket's map and its conversation"
                     onDrag={chainSplit.onDrag} onReset={chainSplit.reset} />
                 </>)}
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{chatBody}</div>
-                {/* The question wizard: open decisions one at a time, Submit sends
-                    them as one message. On every conversation, the conductor's too. */}
-                <QuestionWizard state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                  {chatBody}
+                  {/* The question card floats over the chat box, the way Kiro's
+                      own question card replaces the entry box: open decisions
+                      one at a time, Submit sends them as one message, Hide
+                      tucks it into a pill. Keyed by session so one session's
+                      sent answers never hide another's questions. */}
+                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
+                </div>
               </section>
             </div>
           )
