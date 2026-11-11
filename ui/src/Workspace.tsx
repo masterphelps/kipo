@@ -671,6 +671,7 @@ function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React
   // Keep the frame on the session's chat, and hide the popout's dead "Return to
   // the main window" control. Same-origin, so we can read the path and style
   // the frame's own document.
+  const snaps = useRef(0)
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -695,6 +696,26 @@ function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React
       }
     } catch { /* same origin, so never unreadable; just in case */ }
   }
+  // The popout is a single-page app: when its session ends it can navigate
+  // itself back to the stacked main view WITHOUT a load event, so onLoad's
+  // guard never sees it and the centre fills with every session. Watch the
+  // frame's path and snap it back (a few times only — if it keeps leaving,
+  // the session is gone, and the next detail poll swaps this frame out for
+  // the ticket's own panel).
+  useEffect(() => {
+    snaps.current = 0
+    const id = window.setInterval(() => {
+      const frame = frameRef.current
+      try {
+        const path = frame?.contentWindow?.location.pathname
+        if (frame && path && !path.startsWith('/popout/chat') && snaps.current < 5) {
+          snaps.current += 1
+          frame.src = src
+        }
+      } catch { /* same origin */ }
+    }, 2000)
+    return () => window.clearInterval(id)
+  }, [src, frameRef])
   return (
     <iframe ref={frameRef} src={src} title="The session in Kiro's chat" onLoad={onLoad}
       style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />

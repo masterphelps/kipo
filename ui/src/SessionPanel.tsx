@@ -45,7 +45,7 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
   if (hidden) return (
     <button type="button" className="kipo-pulse" onClick={() => setHidden(false)}
       title="Open the questions waiting on you"
-      style={{ position: 'absolute', right: 16, bottom: 14, zIndex: 6, cursor: 'pointer',
+      style={{ position: 'absolute', right: 16, bottom: 126, zIndex: 6, cursor: 'pointer',
         borderRadius: 99, padding: '4px 12px', fontSize: T.small, fontWeight: 600,
         border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.text,
         background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
@@ -105,7 +105,9 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
 
   return (
     <div role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
-      style={{ position: 'absolute', left: 12, right: 12, bottom: 12, zIndex: 6,
+      // Above the chat entry box (the composer is ~120px of the frame's bottom),
+      // where Kiro parks its own trust bar — never over the box itself.
+      style={{ position: 'absolute', left: 12, right: 12, bottom: 122, zIndex: 6,
         background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
         boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 16px 12px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
