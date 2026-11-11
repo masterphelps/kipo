@@ -692,6 +692,17 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
     try {
       const doc = frameRef.current?.contentDocument
       if (!doc) return
+      // While KiPo's question card is up, Kiro's own follow-up answer pills
+      // (class `followup-chip`, above the composer) go away: the card IS the
+      // answer UI, and the pills would sit right under it.
+      let style = doc.getElementById('kipo-qcard-css') as HTMLStyleElement | null
+      if (!style && doc.head) {
+        style = doc.createElement('style')
+        style.id = 'kipo-qcard-css'
+        doc.head.appendChild(style)
+      }
+      const rule = pad.current ? '.followup-chip{display:none !important}' : ''
+      if (style && style.textContent !== rule) style.textContent = rule
       let el = scroller.current
       if (!el || !el.isConnected || el.ownerDocument !== doc) {
         const view = doc.defaultView

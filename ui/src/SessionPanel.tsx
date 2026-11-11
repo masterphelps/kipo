@@ -7,6 +7,19 @@ import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
 import type { Decision, EffortDetail, PhaseState, TicketCard, Tile } from './types'
 
+// Which answers were already sent to which session's chat, kept OUTSIDE the
+// component: the card clears the moment you submit and stays cleared across
+// remounts and conversation switches, until the agent records the `answer` in
+// the state file (which deletes the entry). Entries expire after two hours so
+// a question an agent re-opens without recording can still come back.
+const SENT_TTL = 2 * 60 * 60 * 1000
+const sentAnswers = new Map<string, number>() // `${slot}:${decision id}` → when sent
+const wasSent = (slot: string, id: string) => {
+  const at = sentAnswers.get(`${slot}:${id}`)
+  if (at && Date.now() - at >= SENT_TTL) sentAnswers.delete(`${slot}:${id}`)
+  return !!at && Date.now() - at < SENT_TTL
+}
+
 // The question card, in Kiro Crew's own question style: the question, then its
 // options stacked vertically, one full-width radio row each, the recommended one
 // tagged. Open decisions show ONE AT A TIME with Back / Next, and a single
@@ -26,8 +39,10 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
   const api = useAppApi()
   // Answers already sent to the chat are gone from the card immediately, even
   // though the state file only shows them once the agent records each `answer`.
-  const [sent, setSent] = useState<Set<string>>(() => new Set())
-  const open = settled ? [] : (state?.decisions.filter(d => !d.answer && !sent.has(d.id)) ?? [])
+  // (The memory of what was sent lives outside the component — see sentAnswers —
+  // so a remount can't make an answered question pop back up.)
+  for (const d of state?.decisions ?? []) if (d.answer && slotKey) sentAnswers.delete(`${slotKey}:${d.id}`)
+  const open = settled || !slotKey ? [] : (state?.decisions.filter(d => !d.answer && !wasSent(slotKey, d.id)) ?? [])
   const [picks, setPicks] = useState<Record<string, string>>({})
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
@@ -89,7 +104,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
     setSending(true)
     try {
       await api.post('/api/chat?ws=1', { slot: slotKey, message })
-      setSent(s => new Set([...s, ...answered.map(x => x.id)]))
+      for (const x of answered) sentAnswers.set(`${slotKey}:${x.id}`, Date.now())
       setPicks({}); setI(0)
     } catch (e) {
       onError(`Couldn't send your answers: ${errorText(e)}`)
