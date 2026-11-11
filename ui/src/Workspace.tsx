@@ -510,6 +510,11 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   }
   // A ticket's "Where it sits" map is shown on demand, not stacked over the chat.
   const [mapOpen, setMapOpen] = useState(false)
+  // The question card's height: the chat's transcript is padded by it (inside
+  // the same-origin frame), so the conversation scrolls clear of the card
+  // instead of hiding behind it.
+  const [wizardH, setWizardH] = useState(0)
+  const onWizardSize = useCallback((h: number) => setWizardH(p => (Math.abs(p - h) > 4 ? h : p)), [])
   // The conductor's overview panel width (the right side of the conductor screen).
   // A done ticket (or a closed conversation) is settled: its unanswered
   // decisions are history, so the question wizard stays closed on it.
@@ -579,7 +584,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // over its details; done / blocked / in-review ones just show details.
           const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
           const chatBody = slotKey ? (
-            <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef} />
+            <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef} padBottom={wizardH ? wizardH + 24 : 0} />
           ) : focusTile ? (
             // No live conversation: the ticket's own details fill the centre
             // (where the chat would be), since there's no chat and no panel.
@@ -648,7 +653,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                       one at a time, Submit sends them as one message, Hide
                       tucks it into a pill. Keyed by session so one session's
                       sent answers never hide another's questions. */}
-                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} />
+                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} onSize={onWizardSize} />
                 </div>
               </section>
             </div>
@@ -666,12 +671,44 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 // shows inside it is governed by Kiro's "Keep Side Panel Open" setting, which
 // the popout honors: with it OFF, the panel stays closed and this session has a
 // single right panel — KiPo's, next door. Same origin, shares the login.
-function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React.RefObject<HTMLIFrameElement> }) {
+function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
+  slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
+  // Extra bottom padding for the chat's transcript, the question card's height:
+  // the card overlays the frame, and this keeps the conversation scrolling
+  // clear of it instead of hiding behind it.
+  padBottom?: number
+}) {
   const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
   // Keep the frame on the session's chat, and hide the popout's dead "Return to
   // the main window" control. Same-origin, so we can read the path and style
   // the frame's own document.
   const snaps = useRef(0)
+  // The chat's scroll container, found once and re-found if the page replaces
+  // it; its paddingBottom is ours to keep in step with the card.
+  const scroller = useRef<HTMLElement | null>(null)
+  const pad = useRef(padBottom)
+  pad.current = padBottom
+  const applyPad = useCallback(() => {
+    try {
+      const doc = frameRef.current?.contentDocument
+      if (!doc) return
+      let el = scroller.current
+      if (!el || !el.isConnected || el.ownerDocument !== doc) {
+        const view = doc.defaultView
+        const candidates = [...doc.querySelectorAll('div')].filter(n => {
+          if (n.clientHeight < 200) return false
+          const s = view?.getComputedStyle(n)
+          return !!s && (s.overflowY === 'auto' || s.overflowY === 'scroll')
+        }) as HTMLElement[]
+        el = candidates.sort((a, b) => b.clientHeight - a.clientHeight)[0] ?? null
+        scroller.current = el
+      }
+      if (!el) return
+      const want = pad.current ? `${pad.current}px` : ''
+      if (el.style.paddingBottom !== want) el.style.paddingBottom = want
+    } catch { /* same origin */ }
+  }, [frameRef])
+  useEffect(() => { applyPad() }, [applyPad, padBottom])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -711,11 +748,14 @@ function KiroChatFrame({ slotKey, frameRef }: { slotKey: string; frameRef: React
         if (frame && path && !path.startsWith('/popout/chat') && snaps.current < 5) {
           snaps.current += 1
           frame.src = src
+          return
         }
       } catch { /* same origin */ }
+      // Keep the transcript's padding in step (the page re-renders freely).
+      if (pad.current) applyPad()
     }, 2000)
     return () => window.clearInterval(id)
-  }, [src, frameRef])
+  }, [src, frameRef, applyPad])
   return (
     <iframe ref={frameRef} src={src} title="The session in Kiro's chat" onLoad={onLoad}
       style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />

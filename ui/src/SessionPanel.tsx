@@ -1,24 +1,27 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn, MarkdownRenderer } from '@kirocrew/app-sdk/ui'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { backend, errorText } from './api'
 import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
 import type { Decision, EffortDetail, PhaseState, TicketCard, Tile } from './types'
 
-// The question card, floating over the chat box like Kiro's own question card:
-// the open decisions the agent recorded, shown ONE AT A TIME with Back / Next,
-// and a single Submit that sends every answer as ONE message — so the agent
-// takes them all in one turn, never a queue of single replies (which kills
-// parallel work). You don't have to answer all of them; the unanswered ones
-// stay. Submitted answers clear the card at once (the agent records them in
-// its own time); Hide tucks it into a pill so the chat box comes back.
-export function QuestionWizard({ state, slotKey, settled, onError }: {
+// The question card, in Kiro Crew's own question style: the question, then its
+// options stacked vertically, one full-width radio row each, the recommended one
+// tagged. Open decisions show ONE AT A TIME with Back / Next, and a single
+// Submit sends every answer as ONE message — so the agent takes them all in one
+// turn, never a queue of single replies (which kills parallel work). You don't
+// have to answer all of them; the unanswered ones stay. Submitted answers clear
+// the card at once (the agent records them in its own time); Hide tucks it into
+// a pill. It sits above the chat box; onSize tells the Workspace its height so
+// the conversation can be padded to scroll clear of it, never hidden under it.
+export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
   state: PhaseState | null
   slotKey: string | null
   settled: boolean // a done ticket's unanswered entries are history, not questions
   onError: (m: string) => void
+  onSize?: (h: number) => void
 }) {
   const api = useAppApi()
   // Answers already sent to the chat are gone from the card immediately, even
@@ -40,6 +43,18 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
     setI(0); setPicks({})
     if (sig) setHidden(false)
   }, [sig])
+  // Report the card's height (it changes as options and questions change), so
+  // the conversation behind it gets padded instead of covered.
+  const ro = useRef<ResizeObserver | null>(null)
+  const sizeRef = useCallback((el: HTMLDivElement | null) => {
+    ro.current?.disconnect()
+    ro.current = null
+    if (!el) { onSize?.(0); return }
+    const report = () => onSize?.(el.offsetHeight)
+    report()
+    ro.current = new ResizeObserver(report)
+    ro.current.observe(el)
+  }, [onSize])
 
   if (!open.length || !slotKey) return null
   if (hidden) return (
@@ -83,18 +98,33 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
     }
   }
 
-  const pillBtn = (label: string, on: boolean, onClick: () => void, extra?: React.ReactNode) => (
-    <button key={label} type="button" role="radio" aria-checked={on} disabled={sending} onClick={onClick}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 99, cursor: 'pointer',
-        fontSize: T.small, whiteSpace: 'nowrap',
-        border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
-        background: on ? 'var(--accent)' : 'transparent', color: on ? 'var(--accent-fg, #fff)' : 'var(--text)' }}>
-      <span aria-hidden style={{ width: 10, height: 10, borderRadius: 99, flexShrink: 0,
-        border: `1.5px solid ${on ? 'var(--accent-fg, #fff)' : 'var(--muted)'}`,
-        background: on ? 'var(--accent-fg, #fff)' : 'transparent' }} />
-      {label}{extra}
-    </button>
+  const radio = (on: boolean) => (
+    <span aria-hidden style={{ width: 13, height: 13, borderRadius: 99, flexShrink: 0, marginTop: 2,
+      border: `1.5px solid ${on ? 'var(--accent)' : 'var(--muted)'}`,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+      {on && <span style={{ width: 7, height: 7, borderRadius: 99, background: 'var(--accent)' }} />}
+    </span>
   )
+
+  const optionRow = (o: string) => {
+    const on = picks[d.id] === o
+    return (
+      <button key={o} type="button" role="radio" aria-checked={on} disabled={sending} onClick={() => pick(o)}
+        onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))' }}
+        onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent' }}
+        style={{ display: 'flex', alignItems: 'flex-start', gap: 9, width: '100%', textAlign: 'left',
+          padding: '7px 10px', borderRadius: 8, cursor: 'pointer', fontSize: T.small, lineHeight: 1.4,
+          border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+          background: on ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'transparent',
+          color: 'var(--text)' }}>
+        {radio(on)}
+        <span style={{ flex: 1, minWidth: 0 }}>{o}</span>
+        {o === d.recommended && (
+          <span style={{ ...muted, fontSize: T.tiny, flexShrink: 0, marginTop: 1 }}>Recommended</span>
+        )}
+      </button>
+    )
+  }
 
   const navBtn = (label: string, disabled: boolean, onClick: () => void) => (
     <button type="button" disabled={disabled} onClick={onClick}
@@ -104,26 +134,29 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
   )
 
   return (
-    <div role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
+    <div ref={sizeRef} role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
       // Above the chat entry box (the composer is ~120px of the frame's bottom),
-      // where Kiro parks its own trust bar — never over the box itself.
-      style={{ position: 'absolute', left: 12, right: 12, bottom: 122, zIndex: 6,
+      // centred like Kiro's own question card — never over the box itself, and
+      // the conversation is padded (onSize) so nothing hides behind it.
+      style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: 122, zIndex: 6,
+        width: 'min(680px, calc(100% - 24px))',
         background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
-        boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+        boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 14px 11px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 5 }}>
         <span style={{ fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: STATE_META.you.text }}>
-          Question {idx + 1} of {open.length}
+          {open.length === 1 ? 'Question' : `Question ${idx + 1} of ${open.length}`}
         </span>
-        {/* The dots show which of the batch are answered. */}
-        <span style={{ display: 'flex', gap: 3 }} aria-hidden>
-          {open.map((x, n) => (
-            <span key={x.id} title={x.title} onClick={() => setI(n)}
-              style={{ width: 7, height: 7, borderRadius: 99, cursor: 'pointer',
-                background: (picks[x.id] ?? '').trim() ? STATE_META.you.color : n === idx ? 'var(--text)' : 'var(--border)' }} />
-          ))}
-        </span>
+        {open.length > 1 && (
+          // The dots show which of the batch are answered.
+          <span style={{ display: 'flex', gap: 3 }} aria-hidden>
+            {open.map((x, n) => (
+              <span key={x.id} title={x.title} onClick={() => setI(n)}
+                style={{ width: 7, height: 7, borderRadius: 99, cursor: 'pointer',
+                  background: (picks[x.id] ?? '').trim() ? STATE_META.you.color : n === idx ? 'var(--text)' : 'var(--border)' }} />
+            ))}
+          </span>
+        )}
         <span style={{ flex: 1 }} />
-        <span style={{ ...muted, fontSize: T.tiny }}>{answered.length} of {open.length} answered</span>
         <button type="button" onClick={() => setHidden(true)}
           title="Tuck the questions away and get the chat box back"
           style={{ background: 'transparent', border: 'none', padding: '0 2px', cursor: 'pointer',
@@ -133,22 +166,24 @@ export function QuestionWizard({ state, slotKey, settled, onError }: {
       </div>
 
       <div style={{ ...strong, fontSize: T.body, marginBottom: 8, lineHeight: 1.4 }}>{d.title}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 9, alignItems: 'center' }}>
-        {d.options.map(o => pillBtn(o, picks[d.id] === o, () => pick(o),
-          o === d.recommended ? <span style={{ fontSize: T.tiny, opacity: 0.8 }}> · rec</span> : undefined))}
-        <input value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)} disabled={sending}
-          placeholder="Something else…" aria-label={`Another answer to: ${d.title}`}
-          style={{ flex: '1 1 140px', minWidth: 120, background: 'var(--bg)', color: 'var(--text)', fontSize: T.small,
-            border: `1px solid ${custom ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 99, padding: '4px 11px', outline: 'none' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 9 }}>
+        {d.options.map(optionRow)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 10px' }}>
+          {radio(custom)}
+          <input value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)} disabled={sending}
+            placeholder="Something else…" aria-label={`Another answer to: ${d.title}`}
+            style={{ flex: 1, minWidth: 0, background: 'var(--bg)', color: 'var(--text)', fontSize: T.small,
+              border: `1px solid ${custom ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 10px', outline: 'none' }} />
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {navBtn('‹ Back', atFirst, () => setI(idx - 1))}
+        {open.length > 1 && navBtn('‹ Back', atFirst, () => setI(idx - 1))}
         {!atLast && navBtn('Next ›', false, () => setI(idx + 1))}
-        {d.recommended && picks[d.id] !== d.recommended && navBtn('Use recommended', false, () => pick(d.recommended!))}
         <span style={{ flex: 1 }} />
+        {open.length > 1 && <span style={{ ...muted, fontSize: T.tiny }}>{answered.length} of {open.length} answered</span>}
         <Btn primary disabled={!answered.length || sending} onClick={() => void submit()}>
-          {sending ? 'Sending…' : `Submit ${answered.length} answer${answered.length === 1 ? '' : 's'}`}
+          {sending ? 'Sending…' : answered.length > 1 ? `Submit ${answered.length} answers` : 'Submit'}
         </Btn>
       </div>
     </div>
