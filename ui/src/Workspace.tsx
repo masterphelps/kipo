@@ -682,7 +682,6 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   // Keep the frame on the session's chat, and hide the popout's dead "Return to
   // the main window" control. Same-origin, so we can read the path and style
   // the frame's own document.
-  const snaps = useRef(0)
   // The chat's scroll container, found once and re-found if the page replaces
   // it; its paddingBottom is ours to keep in step with the card.
   const scroller = useRef<HTMLElement | null>(null)
@@ -744,21 +743,31 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
       }
     } catch { /* same origin, so never unreadable; just in case */ }
   }
-  // The popout is a single-page app: when its session ends it can navigate
-  // itself back to the stacked main view WITHOUT a load event, so onLoad's
-  // guard never sees it and the centre fills with every session. Watch the
-  // frame's path and snap it back (a few times only — if it keeps leaving,
-  // the session is gone, and the next detail poll swaps this frame out for
-  // the ticket's own panel).
+  // The popout is a single-page app, and it gives its sid session 5 seconds to
+  // exist: a session mid-recycle (the watchdog) or renamed makes it UNPIN —
+  // "session not found" — and render the stacked all-sessions view with the
+  // URL unchanged, so neither a load event nor the path shows the drift. The
+  // tell is the DOM: a pinned popout has exactly one composer, the stacked
+  // view has one per session. Watch for either sign and snap the frame back —
+  // at most five times per ten minutes, so a session that is truly gone can't
+  // reload-loop (the popout re-pins by itself when its session returns, and
+  // the detail poll swaps this frame out once the backend drops the slot).
   useEffect(() => {
-    snaps.current = 0
+    const snapTimes: number[] = []
     const id = window.setInterval(() => {
       const frame = frameRef.current
       try {
         const path = frame?.contentWindow?.location.pathname
-        if (frame && path && !path.startsWith('/popout/chat') && snaps.current < 5) {
-          snaps.current += 1
-          frame.src = src
+        const doc = frame?.contentDocument
+        const drifted = (path && !path.startsWith('/popout/chat'))
+          || (!!doc && doc.querySelectorAll('textarea[placeholder]').length > 1)
+        if (frame && drifted) {
+          const now = Date.now()
+          while (snapTimes.length && now - snapTimes[0] > 600_000) snapTimes.shift()
+          if (snapTimes.length < 5) {
+            snapTimes.push(now)
+            frame.src = src
+          }
           return
         }
       } catch { /* same origin */ }
