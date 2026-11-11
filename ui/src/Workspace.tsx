@@ -760,7 +760,7 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
         const path = frame?.contentWindow?.location.pathname
         const doc = frame?.contentDocument
         const drifted = (path && !path.startsWith('/popout/chat'))
-          || (!!doc && doc.querySelectorAll('textarea[placeholder]').length > 1)
+          || (!!doc && doc.querySelectorAll('[data-composer-input], textarea[placeholder]').length > 1)
         if (frame && drifted) {
           const now = Date.now()
           while (snapTimes.length && now - snapTimes[0] > 600_000) snapTimes.shift()
