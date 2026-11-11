@@ -385,6 +385,7 @@ class App:
                 self.storage.unhide(repo, number)
             else:
                 self.storage.close_map(repo, number)
+                self.storage.hide(repo, number)
         elif on:
             self.storage.unhide(repo, number)
         else:

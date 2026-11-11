@@ -1,6 +1,6 @@
 // Client for the KiPo backend, reached through the gateway's reverse proxy.
 import type {
-  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoTree, SessionObservation, SessionStart, Start, Ticket, TicketCard,
+  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoMeta, RepoTree, SessionObservation, SessionStart, Start, Ticket, TicketCard,
 } from './types'
 
 const BASE = '/apps/kipo/api'
@@ -56,7 +56,7 @@ export const backend = {
   removeRepo: (slug: string) => call<Config>('/repos/remove', 'POST', { slug }),
   browse: (path?: string) =>
     call<BrowseResult>(path ? `/browse?path=${encodeURIComponent(path)}` : '/browse'),
-  listInitiatives: () => call<{ initiatives: Effort[] }>('/initiatives'),
+  listInitiatives: () => call<{ initiatives: Effort[]; repos?: RepoMeta[] }>('/initiatives'),
   startInitiative: (start: { path: string; description: string; start: Start; worktree: boolean; sourceIssue: number | null }) =>
     call<Effort>('/initiatives', 'POST', start),
   getInitiative: (repo: string, n: number) =>

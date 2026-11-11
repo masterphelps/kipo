@@ -83,6 +83,9 @@ export const STARTS = ['idea', 'small', 'huge', 'issue', 'bug'] as const
 export type Start = typeof STARTS[number]
 
 export type RepoConfig = { slug: string; path: string }
+// A repo as the sidebar groups it: its slug, checkout, and the map or
+// effort numbers you removed from the sidebar (restorable from its group).
+export type RepoMeta = { slug: string; path: string; hidden: number[] }
 export type Config = { repos: RepoConfig[] }
 
 export type FoundRepo = {

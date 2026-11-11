@@ -713,12 +713,13 @@ class Initiatives:
                     wrapped.add(self._map_of(repo, issue["number"], body))
                     if issue["number"] not in hidden:
                         found.append(self._summary(repo, issue, body))
-                # The maps you opened, unless an effort already points at them.
-                opened = self.storage.opened_maps(repo) - wrapped - hidden
-                if opened:
-                    for issue in self.gh.list_issues(repo, MAP_LABEL):
-                        if is_map(issue) and issue["number"] in opened:
-                            found.append(self._summary(repo, issue, map_body(issue)))
+                # Every open map in the repo, unless an effort already wraps
+                # it or you hid it: an added repo lists all its maps.
+                listed = {i["number"] for i in found}
+                for issue in self.gh.list_issues(repo, MAP_LABEL):
+                    n = issue["number"]
+                    if is_map(issue) and n not in wrapped and n not in hidden and n not in listed:
+                        found.append(self._summary(repo, issue, map_body(issue)))
             except KipoError as e:
                 errors.append({"repo": repo, "error": e.message, "code": e.code})
                 continue
@@ -735,7 +736,14 @@ class Initiatives:
                     i["stage"] = (i["frontier"] or {}).get("stage") or frontier_mod.LEGACY_STAGE.get(i["column"], "intake")
             efforts += found
         efforts.sort(key=lambda i: i["updatedAt"], reverse=True)
-        result = {"initiatives": efforts}
+        # The configured repos themselves, so the sidebar can group by repo,
+        # show an added repo even before it has maps, and restore hidden ones.
+        repos = [
+            {"slug": r["slug"], "path": r.get("path", ""), "hidden": sorted(self.storage.hidden(r["slug"]))}
+            for r in self.storage.get_config()["repos"]
+            if r.get("slug") and not r.get("worktree")
+        ]
+        result = {"initiatives": efforts, "repos": repos}
         if errors:
             result["errors"] = errors
         return result
@@ -795,13 +803,13 @@ class Initiatives:
         return out
 
     def hide(self, repo, number):
-        """Take an effort off the sidebar. A map is simply closed in KiPo; an
-        effort KiPo made is hidden and can be restored. GitHub isn't touched."""
+        """Take an effort or a map off the sidebar; GitHub isn't touched.
+        Every added repo lists all its maps, so a map is hidden the same way
+        an effort is — restorable from its repo's "removed" line."""
         validate_repo_slug(repo)
         if number in self.storage.opened_maps(repo):
             self.storage.close_map(repo, number)
-        else:
-            self.storage.hide(repo, number)
+        self.storage.hide(repo, number)
         return {"hidden": True, "repo": repo, "number": number}
 
     def unhide(self, repo, number):

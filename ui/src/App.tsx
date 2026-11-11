@@ -1,18 +1,17 @@
 import { useAppApi, useAppInfo } from '@kirocrew/app-sdk'
 import { useCallback, useEffect, useState } from 'react'
+import { AddRepoModal } from './AddRepo'
 import { backend, errorText } from './api'
 import { Divider, useStoredSize } from './layout'
 import { cached, remember } from './cache'
 import { fileExistingSessions } from './folder'
 import { Rail, RailStrip } from './Rail'
-import { ReposPage } from './ReposPage'
 import { StartPlan } from './StartPlan'
-import type { Effort } from './types'
+import type { Effort, RepoMeta } from './types'
 import { Workspace } from './Workspace'
 
 type Main =
   | { kind: 'new' }
-  | { kind: 'maps' }
   | { kind: 'initiative'; repo: string; number: number; autoStart?: boolean }
 
 // The page, after Spec Builder: a rail of initiatives on the left, and the
@@ -23,11 +22,14 @@ export default function KiPo() {
   const api = useAppApi()
   // Start from the last answer and the last open view, then refresh.
   const [items, setItems] = useState<Effort[] | null>(() => cached<Effort[]>('initiatives'))
+  // The added repos: the sidebar's groups, every map and effort under its own.
+  const [repos, setRepos] = useState<RepoMeta[] | null>(() => cached<RepoMeta[]>('repos'))
+  const [addingRepo, setAddingRepo] = useState(false)
   const [error, setError] = useState('')
   const [main, setMain] = useState<Main | null>(() => {
     const m = cached<Main>('main')
     // Board and Repos pages are gone; a remembered one falls back to the first effort.
-    if (!m || !['new', 'maps', 'initiative'].includes(m.kind)) return null
+    if (!m || !['new', 'initiative'].includes(m.kind)) return null
     return m.kind === 'initiative' ? { ...m, autoStart: undefined } : m
   })
   useEffect(() => { if (main) remember('main', main) }, [main])
@@ -44,7 +46,11 @@ export default function KiPo() {
 
   const load = useCallback(() => {
     backend.listInitiatives()
-      .then(r => { setItems(r.initiatives); remember('initiatives', r.initiatives); setError('') })
+      .then(r => {
+        setItems(r.initiatives); remember('initiatives', r.initiatives)
+        setRepos(r.repos ?? []); remember('repos', r.repos ?? [])
+        setError('')
+      })
       .catch(e => setError(errorText(e)))
   }, [])
 
@@ -78,6 +84,16 @@ export default function KiPo() {
     setItems(list => (list ?? []).filter(x => !(x.repo === i.repo && x.number === i.number)))
     backend.removeInitiative(i.repo, i.number).then(load).catch(e => { setError(errorText(e)); load() })
   }
+  // A repo leaves KiPo (confirmed in its group's menu); GitHub isn't touched.
+  const removeRepo = (slug: string) => {
+    setRepos(list => (list ?? []).filter(r => r.slug !== slug))
+    setItems(list => (list ?? []).filter(x => x.repo !== slug))
+    backend.removeRepo(slug).then(load).catch(e => { setError(errorText(e)); load() })
+  }
+  // Bring back what was removed from a repo's list ("N removed · restore").
+  const restore = (slug: string, numbers: number[]) => {
+    void Promise.allSettled(numbers.map(n => backend.unhide(slug, n))).then(load)
+  }
 
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null
 
@@ -88,12 +104,14 @@ export default function KiPo() {
         width={railWidth}
         onCollapse={() => setRailOpen(false)}
         items={items}
+        repos={repos}
         error={error}
         selected={selected}
         spineSlot={setSpineHost}
-        view={main?.kind === 'maps' ? 'maps' : null}
         onNew={() => setMain({ kind: 'new' })}
-        onMaps={() => setMain({ kind: 'maps' })}
+        onAddRepo={() => setAddingRepo(true)}
+        onRemoveRepo={removeRepo}
+        onRestore={restore}
         onSelect={i => open(i)}
         onHide={hide}
         onRemove={remove}
@@ -112,9 +130,6 @@ export default function KiPo() {
             />
           </div>
         )}
-        {main?.kind === 'maps' && (
-          <ReposPage onChanged={load} onOpen={(repo, number) => { load(); setMain({ kind: 'initiative', repo, number }) }} />
-        )}
         {main?.kind === 'initiative' && (
           <Workspace
             key={`${main.repo}#${main.number}`}
@@ -129,6 +144,7 @@ export default function KiPo() {
           />
         )}
       </main>
+      {addingRepo && <AddRepoModal onAdded={load} onClose={() => setAddingRepo(false)} />}
     </div>
   )
 }

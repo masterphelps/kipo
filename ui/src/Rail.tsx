@@ -1,19 +1,21 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
-import { ChevronRight, ExternalLink, EyeOff, FolderGit2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, ExternalLink, EyeOff, FolderGit2, FolderPlus, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Confirm, Menu } from './Menu'
 import { MapTag, T, fieldStyle, muted, strong, timeAgo } from './common'
 import { TERM } from './glossary'
 import { stationGlance, StationGlanceBar } from './Stations'
-import { STAGE_LABELS, stageOfColumn, type Effort, type Stage } from './types'
+import { STAGE_LABELS, stageOfColumn, type Effort, type RepoMeta, type Stage } from './types'
 
-// The left rail: one place to start something new, filter, and jump between
-// efforts. Each row is an effort's header line — its name, its seven stations as
-// a tiny segment row (the same stations as the conductor's panel), and its front:
-// the furthest station with open work, with what's open. Before an effort has
-// tickets, its stage tag stands in.
+// The left rail: every repo added to KiPo, with all its wayfinder maps and
+// efforts under it — the sidebar IS the repo tree. Each effort row is its name,
+// its seven stations as a tiny segment row, and its front. Add repo opens a
+// modal (like Kiro's add-session-folder); a repo's own menu removes it.
 
-export type RailView = 'maps'
+const REPO_OPEN_KEY = 'kipo.rail.repoOpen'
+const readRepoOpen = (): Record<string, boolean> => {
+  try { return JSON.parse(localStorage.getItem(REPO_OPEN_KEY) || '{}') } catch { return {} }
+}
 
 function StageTag({ stage }: { stage: Stage }) {
   return (
@@ -26,18 +28,20 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, onSelect, onHide, onRemove, onCollapse }: {
+export function Rail({ width, items, repos, error, selected, spineSlot, onNew, onAddRepo, onRemoveRepo, onRestore, onSelect, onHide, onRemove, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
+  repos: RepoMeta[] | null // the added repos, in config order; the groups
   error: string
   selected: string | null
   // The open effort's stations render here, under its row: the Workspace
   // portals its spine (conductor + seven stations) into this element.
   spineSlot?: (el: HTMLElement | null) => void
-  view: RailView | null
   onNew: () => void
-  onMaps: () => void
+  onAddRepo: () => void
+  onRemoveRepo: (slug: string) => void
+  onRestore: (slug: string, numbers: number[]) => void // unhide what was removed
   onSelect: (i: Effort) => void
   onHide: (i: Effort) => void
   onRemove: (i: Effort) => void // closes a KiPo effort's issue as not planned
@@ -51,10 +55,33 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
   // The open row menu, or its confirmation step.
   const [menu, setMenu] = useState<{ key: string; item: Effort; x: number; y: number; confirm: false | 'hide' | 'remove' } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
-  const shown = useMemo(() => {
-    const q = filter.trim().toLowerCase()
-    return (items ?? []).filter(i => !q || i.title.toLowerCase().includes(q) || i.repo.toLowerCase().includes(q))
-  }, [items, filter])
+  // A repo's own menu (Open on GitHub, Remove repo), or its confirmation.
+  const [repoMenu, setRepoMenu] = useState<{ slug: string; x: number; y: number; confirm: boolean } | null>(null)
+  // Each repo folds open and shut, remembered per browser.
+  const [repoOpen, setRepoOpen] = useState<Record<string, boolean>>(readRepoOpen)
+  useEffect(() => { localStorage.setItem(REPO_OPEN_KEY, JSON.stringify(repoOpen)) }, [repoOpen])
+  const isRepoOpen = (slug: string) => repoOpen[slug] !== false
+
+  const q = filter.trim().toLowerCase()
+  // The repos in config order, each with its efforts and maps; a repo whose
+  // name matches the filter keeps everything, otherwise its rows are filtered.
+  const groups = useMemo(() => {
+    const bySlug = new Map<string, Effort[]>()
+    for (const i of items ?? []) {
+      const list = bySlug.get(i.repo) ?? []
+      list.push(i)
+      bySlug.set(i.repo, list)
+    }
+    const slugs = (repos ?? []).map(r => r.slug)
+    for (const slug of bySlug.keys()) if (!slugs.includes(slug)) slugs.push(slug)
+    return slugs.map(slug => {
+      const meta = (repos ?? []).find(r => r.slug === slug) ?? { slug, path: '', hidden: [] }
+      const own = bySlug.get(slug) ?? []
+      const nameHit = !q || slug.toLowerCase().includes(q)
+      const rows = nameHit ? own : own.filter(i => i.title.toLowerCase().includes(q))
+      return { meta, rows, show: !q || nameHit || rows.length > 0 }
+    }).filter(g => g.show)
+  }, [items, repos, q])
 
   return (
     <nav
@@ -73,8 +100,8 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
         {/* Kiro's own buttons, so the sidebar matches the rest of the app. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
           <Btn primary onClick={onNew}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={14} />New effort</span></Btn>
-          <span title="Your repos, with their efforts and wayfinder maps: choose what's on this sidebar">
-            <Btn onClick={onMaps}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderGit2 size={14} />Repos</span></Btn>
+          <span title="Add a repo: it joins this sidebar with all its maps and efforts under it">
+            <Btn onClick={onAddRepo}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderPlus size={14} />Add repo</span></Btn>
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -95,15 +122,51 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 6px 8px' }}>
         {error && <div style={{ color: 'var(--danger-text)', fontSize: T.small, padding: '4px 6px' }}>{error}</div>}
         {items === null && !error && <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Loading…</div>}
-        {items !== null && items.length === 0 && (
-          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>No efforts yet.</div>
+        {items !== null && !groups.length && (
+          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>
+            {q ? 'Nothing matches.' : 'No repos yet. Add one; its maps and efforts show up under it.'}
+          </div>
         )}
-        {items !== null && items.length > 0 && !shown.length && (
-          <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Nothing matches.</div>
-        )}
-        {shown.length > 0 && (
-            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {shown.map(i => {
+        {groups.map(g => {
+          const open = isRepoOpen(g.meta.slug) || !!q
+          const name = g.meta.slug.split('/').pop() ?? g.meta.slug
+          return (
+            <div key={g.meta.slug} style={{ marginTop: 4 }}>
+              {/* The repo's own row, in Kiro's folder style: fold, name, ⋯. */}
+              <div
+                onContextMenu={e => { e.preventDefault(); setRepoMenu({ slug: g.meta.slug, x: e.clientX, y: e.clientY, confirm: false }) }}
+                onPointerEnter={() => setHover(`repo:${g.meta.slug}`)} onPointerLeave={() => setHover(h => (h === `repo:${g.meta.slug}` ? null : h))}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '3px 4px',
+                  background: hover === `repo:${g.meta.slug}` ? 'var(--bg-hover, rgba(255,255,255,0.05))' : 'transparent' }}>
+                <button type="button" onClick={() => setRepoOpen(o => ({ ...o, [g.meta.slug]: !open }))}
+                  aria-expanded={open} title={g.meta.path || g.meta.slug}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0, background: 'transparent',
+                    color: 'var(--text)', cursor: 'pointer', padding: 0, textAlign: 'left' }}>
+                  <ChevronRight size={11} aria-hidden style={{ flexShrink: 0, color: 'var(--muted)', transition: 'transform .12s',
+                    transform: open ? 'rotate(90deg)' : undefined }} />
+                  <FolderGit2 size={13} aria-hidden style={{ flexShrink: 0, color: 'var(--muted)' }} />
+                  <span style={{ fontSize: T.small, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                    {name}
+                  </span>
+                  <span style={{ ...muted, fontSize: T.tiny, flexShrink: 0 }}>
+                    {g.rows.length || (open ? '' : '0')}
+                  </span>
+                </button>
+                {(hover === `repo:${g.meta.slug}` || repoMenu?.slug === g.meta.slug) && (
+                  <button type="button" aria-label={`More for ${g.meta.slug}`} aria-haspopup="menu" title="More"
+                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setRepoMenu({ slug: g.meta.slug, x: r.left, y: r.bottom + 2, confirm: false }) }}
+                    style={{ width: 22, height: 18, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'transparent', color: 'var(--muted)', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+                    <MoreHorizontal size={13} />
+                  </button>
+                )}
+              </div>
+              {open && !g.rows.length && (
+                <div style={{ ...muted, fontSize: T.tiny, padding: '2px 6px 4px 24px' }}>No maps or efforts yet.</div>
+              )}
+              {open && g.rows.length > 0 && (
+            <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {g.rows.map(i => {
                 const key = `${i.repo}#${i.number}`
                 const on = key === selected
                 const unfolded = on && !!spineSlot && expanded
@@ -186,7 +249,19 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
                 )
               })}
             </div>
-        )}
+              )}
+              {/* What you removed from this repo's list, one click from coming back. */}
+              {open && g.meta.hidden.length > 0 && (
+                <button type="button" onClick={() => onRestore(g.meta.slug, g.meta.hidden)}
+                  title={`Removed from the sidebar: #${g.meta.hidden.join(', #')}. Click to restore them.`}
+                  style={{ ...muted, fontSize: T.tiny, background: 'transparent', cursor: 'pointer',
+                    padding: '3px 6px 2px 24px', textAlign: 'left' }}>
+                  {g.meta.hidden.length} removed · restore
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {menu && !menu.confirm && (
@@ -204,8 +279,8 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
           title={`Remove "${menu.item.title}" from the sidebar?`}
           onConfirm={() => onHide(menu.item)}>
           {menu.item.kind === 'map'
-            ? 'The map stays open on GitHub. Put it back from Repos.'
-            : 'Its issue stays open on GitHub. Put it back from Repos.'}
+            ? 'The map stays open on GitHub. Its repo\'s "removed · restore" line brings it back.'
+            : 'Its issue stays open on GitHub. Its repo\'s "removed · restore" line brings it back.'}
         </Confirm>
       )}
       {menu?.confirm === 'remove' && (
@@ -213,6 +288,20 @@ export function Rail({ width, items, error, selected, spineSlot, onNew, onMaps, 
           title={`Close "${menu.item.title}" as not planned?`}
           onConfirm={() => onRemove(menu.item)}>
           Its issue closes on GitHub as not planned and it leaves the sidebar.
+        </Confirm>
+      )}
+      {repoMenu && !repoMenu.confirm && (
+        <Menu x={repoMenu.x} y={repoMenu.y} onClose={() => setRepoMenu(null)} items={[
+          { label: 'Open on GitHub', icon: ExternalLink, onSelect: () => window.open(`https://github.com/${repoMenu.slug}`, '_blank', 'noreferrer') },
+          { separator: true },
+          { label: 'Remove repo…', icon: Trash2, danger: true, onSelect: () => setRepoMenu({ ...repoMenu, confirm: true }) },
+        ]} />
+      )}
+      {repoMenu?.confirm && (
+        <Confirm x={repoMenu.x} y={repoMenu.y} onClose={() => setRepoMenu(null)} action="Remove"
+          title={`Remove ${repoMenu.slug} from KiPo?`}
+          onConfirm={() => onRemoveRepo(repoMenu.slug)}>
+          Its efforts and maps leave the sidebar. Nothing on GitHub or on disk changes, and adding it again brings them back.
         </Confirm>
       )}
     </nav>

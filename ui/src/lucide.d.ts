@@ -16,4 +16,5 @@ declare module 'lucide-react' {
   export const Target: Icon
   export const Trash2: Icon
   export const Search: Icon
+  export const X: Icon
 }

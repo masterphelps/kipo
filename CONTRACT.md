@@ -72,10 +72,11 @@ the one-line meta comment:
 `sourceIssue` is the issue an `issue` start was opened from. Agents never edit the labels or
 the meta comment.
 
-**A wayfinder map is an effort too.** On the Repos page, an open `wayfinder:map` issue in a
-watched repo can be put on the sidebar as it stands: its Destination is the map's own, its
-tickets are the map's children, and KiPo never writes to it. A map an effort already points at
-shows only as that effort.
+**A wayfinder map is an effort too.** Every open `wayfinder:map` issue in a watched repo is
+on the sidebar as it stands, under its repo: its Destination is the map's own, its tickets
+are the map's children, and KiPo never writes to it. A map an effort already points at shows
+only as that effort. A row's menu can remove one from the sidebar; its repo's "removed ·
+restore" line brings it back.
 
 ## The frontier
 
@@ -104,13 +105,16 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
 
 ## What the page shows
 
-- **Left**: the efforts on the sidebar, each row an effort's header line: its name, its seven
-  stations as a tiny segment row (from the saved `stations` summary), and its **front** (the
-  furthest station with open work) with what's open (HITL, in agents, fog). A row's ⋯ menu
-  (or right-click) opens it on GitHub, removes it from the sidebar (nothing changes on
-  GitHub), or — efforts only, behind a confirm — closes its issue as not planned. **Repos**
-  shows each watched repo as a tree of its efforts and open maps; a green dot means it's on
-  the sidebar, and clicking the dot adds or removes it. Repos are added there.
+- **Left**: every repo added to KiPo, with all its maps and efforts under it — the sidebar
+  IS the repo tree (there is no separate Repos page). Each repo is a fold-open group in Kiro's
+  folder style with its own ⋯ menu (Open on GitHub, Remove repo). Under it, each effort's
+  header line: its name, its seven stations as a tiny segment row (from the saved `stations`
+  summary), and its **front** (the furthest station with open work) with what's open (HITL,
+  in agents, fog). An effort row's ⋯ menu (or right-click) opens it on GitHub, removes it
+  from the sidebar (nothing changes on GitHub; the repo's "removed · restore" line brings it
+  back), or — efforts only, behind a confirm — closes its issue as not planned. **Add repo**
+  is a modal, like Kiro adding a session folder: the un-added checkouts on this Mac (those
+  with open maps first), plus a folder browser.
 - **The conductor screen** (the effort's own conversation): just the conductor's chat — the
   one place you type. The **sidebar spine is the overview**: counts, question badges, the
   amber roll-up, the station queues. There is no separate overview panel.
@@ -419,7 +423,7 @@ handlers read the query string.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/initiatives` | | `{"initiatives":[Effort]}`: the sidebar (watched repos' efforts and opened maps, minus hidden ones) |
+| GET | `/initiatives` | | `{"initiatives":[Effort],"repos":[{slug,path,hidden}]}`: the sidebar (every watched repo's efforts and open maps, minus hidden ones, plus the repos themselves for grouping) |
 | POST | `/initiatives` | `{"path","description","start","worktree":bool,"sourceIssue":n\|null}` | `Effort` |
 | GET | `/initiatives/{o}/{r}/{n}` | | `EffortDetail` (with `reports: {reports, read}`) |
 | POST | `…/{n}/sessions/closed` | `{"keys":[…]}` | the page closed these (closable) sessions: recorded in `data/closed.json` |

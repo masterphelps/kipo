@@ -736,10 +736,8 @@ class MapAsEffortTests(Columns):
         self.assertEqual(status, 200, out)
         return {i["number"]: i for i in out["initiatives"]}
 
-    def test_a_map_is_listed_only_once_you_open_it(self):
+    def test_an_added_repos_maps_are_listed_without_opening_them(self):
         self.add_map()
-        self.assertNotIn(50, self.listed())
-        self.open_map()
         m = self.listed()[50]
         self.assertEqual((m["kind"], m["column"], m["destination"]), ("map", "shape", "A spec for the thing."))
 
