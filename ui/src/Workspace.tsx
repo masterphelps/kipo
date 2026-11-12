@@ -682,28 +682,41 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 // list-shaped values that mention kipo sessions are touched, and only their
 // kipo entries are dropped — other tabs, drafts and settings are left alone.
 function pruneKipoTabs(keep: string) {
-  try {
-    const isKipoSlot = (s: unknown): s is string => typeof s === 'string' && /(^|_)kipo-/.test(s)
-    const ours = (key: string) => key === keep || key.endsWith(`_${keep}`)
-    for (const k of Object.keys(window.localStorage)) {
-      const v = window.localStorage.getItem(k)
-      if (!v || !v.includes('kipo-') || v[0] !== '[') continue
-      let parsed: unknown
-      try { parsed = JSON.parse(v) } catch { continue }
-      if (!Array.isArray(parsed) || !parsed.length) continue
-      let changed = false
-      const next = parsed.filter(item => {
-        const key = isKipoSlot(item) ? item
-          : item && typeof item === 'object' && isKipoSlot((item as { key?: unknown }).key) ? (item as { key: string }).key
-          : null
-        if (key === null) return true // not a kipo session entry: none of ours
-        if (ours(key)) return true
-        changed = true
-        return false
-      })
-      if (changed) window.localStorage.setItem(k, JSON.stringify(next))
+  const isKipoSlot = (s: unknown): s is string => typeof s === 'string' && /(^|_)kipo-/.test(s)
+  const ours = (key: string) => key === keep || key.endsWith(`_${keep}`)
+  const slotOf = (item: unknown): string | null =>
+    isKipoSlot(item) ? item
+      : item && typeof item === 'object' && isKipoSlot((item as { key?: unknown }).key) ? (item as { key: string }).key
+      : null
+  // Inside every array found at any depth, drop entries for other kipo
+  // sessions. Object keys and plain values stay (drafts etc. live there).
+  const walk = (node: unknown): boolean => {
+    let changed = false
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i--) {
+        const key = slotOf(node[i])
+        if (key !== null && !ours(key)) { node.splice(i, 1); changed = true }
+        else if (walk(node[i])) changed = true
+      }
+    } else if (node && typeof node === 'object') {
+      for (const v of Object.values(node)) if (walk(v)) changed = true
     }
-  } catch { /* storage unavailable: nothing to prune */ }
+    return changed
+  }
+  // BOTH storages: sessionStorage is shared by same-origin frames in this
+  // dashboard tab and survives every frame swap — per-tab UI state (like an
+  // open-sessions list) usually lives there, not in localStorage.
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    try {
+      for (const k of Object.keys(store)) {
+        const v = store.getItem(k)
+        if (!v || !v.includes('kipo-') || (v[0] !== '[' && v[0] !== '{')) continue
+        let parsed: unknown
+        try { parsed = JSON.parse(v) } catch { continue }
+        if (walk(parsed)) store.setItem(k, JSON.stringify(parsed))
+      }
+    } catch { /* storage unavailable: nothing to prune */ }
+  }
 }
 
 function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
