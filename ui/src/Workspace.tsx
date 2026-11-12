@@ -719,6 +719,36 @@ function pruneKipoTabs(keep: string) {
   }
 }
 
+// The pane list the chat page stacks from lives in memory out of KiPo's
+// reach (clearing both web storages didn't stop the tiling), so the fix is
+// presentation: when the frame shows more than one pane, keep only the one
+// for the session KiPo just opened and hide the rest. Panes append in open
+// order — the session you clicked is always the bottom one — so the pane
+// whose composer is last in document order is ours.
+function isolatePane(doc: Document): boolean {
+  const composers = [...doc.querySelectorAll('[data-composer-input], textarea[placeholder]')] as HTMLElement[]
+  if (composers.length < 2) return false
+  // A composer's pane root: its highest ancestor that contains no OTHER
+  // composer — the subtree that is just this one session's pane.
+  const paneRoot = (c: HTMLElement): HTMLElement => {
+    let el: HTMLElement = c
+    while (el.parentElement && el.parentElement !== doc.body) {
+      const p = el.parentElement
+      if (composers.some(x => x !== c && p.contains(x))) return el
+      el = p
+    }
+    return el
+  }
+  const roots = composers.map(paneRoot)
+  const keep = roots[roots.length - 1]
+  let changed = false
+  for (const r of roots) {
+    if (r === keep || r.contains(keep) || keep.contains(r)) continue
+    if (r.style.display !== 'none') { r.style.display = 'none'; changed = true }
+  }
+  return changed
+}
+
 function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
   // Extra bottom padding for the chat's transcript, the question card's height:
@@ -810,21 +840,20 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
       const frame = frameRef.current
       try {
         const path = frame?.contentWindow?.location.pathname
-        const doc = frame?.contentDocument
-        const drifted = (path && !path.startsWith('/popout/chat'))
-          || (!!doc && doc.querySelectorAll('[data-composer-input], textarea[placeholder]').length > 1)
-        if (frame && drifted) {
+        if (frame && path && !path.startsWith('/popout/chat')) {
           const now = Date.now()
           while (snapTimes.length && now - snapTimes[0] > 600_000) snapTimes.shift()
           if (snapTimes.length < 5) {
             snapTimes.push(now)
-            // Prune first: reloading with the stacked tab list intact just
-            // brought the same stack back.
             pruneKipoTabs(slotKey)
             frame.src = src
           }
           return
         }
+        // Extra panes are hidden in place: reloading never shrank the stack
+        // (its list is in memory and comes right back), hiding always does.
+        const doc = frame?.contentDocument
+        if (doc) isolatePane(doc)
       } catch { /* same origin */ }
       // Keep the transcript's padding in step (the page re-renders freely).
       if (pad.current) applyPad()
