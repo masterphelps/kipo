@@ -671,6 +671,41 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
 // shows inside it is governed by Kiro's "Keep Side Panel Open" setting, which
 // the popout honors: with it OFF, the panel stays closed and this session has a
 // single right panel — KiPo's, next door. Same origin, shares the login.
+
+// Why the centre kept stacking: the chat page keeps an OPEN-TABS list persisted
+// per origin, every fresh iframe reads it, and each ?sid= KiPo opens ADDS that
+// session as another tab — so switching conductor ↔ ticket grew the stack one
+// pane per click, and it survived closing the session (the list isn't the
+// session). KiPo runs on the same origin, so before a frame opens (and before
+// any snap-back) it prunes every kipo-* session except the one being opened
+// from any persisted session-list entries. Conservative on purpose: only
+// list-shaped values that mention kipo sessions are touched, and only their
+// kipo entries are dropped — other tabs, drafts and settings are left alone.
+function pruneKipoTabs(keep: string) {
+  try {
+    const isKipoSlot = (s: unknown): s is string => typeof s === 'string' && /(^|_)kipo-/.test(s)
+    const ours = (key: string) => key === keep || key.endsWith(`_${keep}`)
+    for (const k of Object.keys(window.localStorage)) {
+      const v = window.localStorage.getItem(k)
+      if (!v || !v.includes('kipo-') || v[0] !== '[') continue
+      let parsed: unknown
+      try { parsed = JSON.parse(v) } catch { continue }
+      if (!Array.isArray(parsed) || !parsed.length) continue
+      let changed = false
+      const next = parsed.filter(item => {
+        const key = isKipoSlot(item) ? item
+          : item && typeof item === 'object' && isKipoSlot((item as { key?: unknown }).key) ? (item as { key: string }).key
+          : null
+        if (key === null) return true // not a kipo session entry: none of ours
+        if (ours(key)) return true
+        changed = true
+        return false
+      })
+      if (changed) window.localStorage.setItem(k, JSON.stringify(next))
+    }
+  } catch { /* storage unavailable: nothing to prune */ }
+}
+
 function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
   // Extra bottom padding for the chat's transcript, the question card's height:
@@ -719,6 +754,10 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
     } catch { /* same origin */ }
   }, [frameRef])
   useEffect(() => { applyPad() }, [applyPad, padBottom])
+  // Before this slot's page spins up (the iframe is still fetching when this
+  // runs), drop every other kipo session from the persisted tab list, so the
+  // frame opens with ONE pane instead of one per session ever clicked.
+  useEffect(() => { pruneKipoTabs(slotKey) }, [slotKey])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -766,6 +805,9 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
           while (snapTimes.length && now - snapTimes[0] > 600_000) snapTimes.shift()
           if (snapTimes.length < 5) {
             snapTimes.push(now)
+            // Prune first: reloading with the stacked tab list intact just
+            // brought the same stack back.
+            pruneKipoTabs(slotKey)
             frame.src = src
           }
           return
@@ -775,7 +817,7 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
       if (pad.current) applyPad()
     }, 2000)
     return () => window.clearInterval(id)
-  }, [src, frameRef, applyPad])
+  }, [src, slotKey, frameRef, applyPad])
   return (
     <iframe ref={frameRef} src={src} title="The session in Kiro's chat" onLoad={onLoad}
       style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />
