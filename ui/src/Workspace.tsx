@@ -754,6 +754,11 @@ function isolatePane(doc: Document): boolean {
 // have missed; this reads it instead. Element counts, the session-window
 // wrappers, and the composer's real ancestry — enough to write the exact
 // selector the isolation needs. Temporary; removed once the tiling is fixed.
+// How many KiroChatFrame instances are alive right now, by slot. The probe
+// reports this: tiles with clean single-session documents mean multiple
+// frames, and this says whose they are.
+const liveFrames = new Map<string, number>()
+
 function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record<string, unknown> | null {
   try {
     const doc = frame?.contentDocument
@@ -783,6 +788,15 @@ function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record
         input: !!w.querySelector('textarea, [contenteditable]'),
       })),
       inputChain: chain,
+      // KiPo's side of the fence: which frame components think they're
+      // mounted, and every tagged iframe actually in the dashboard page —
+      // whose it is, whether it's visible, and how tall it stands.
+      mounted: [...liveFrames.entries()].map(([k, n]) => (n > 1 ? `${k} x${n}` : k)),
+      kipoFrames: [...document.querySelectorAll('iframe[data-kipo-frame]')].slice(0, 8).map(f => ({
+        slot: f.getAttribute('data-kipo-frame'),
+        visible: !!(f as HTMLElement).offsetParent,
+        h: Math.round(f.getBoundingClientRect().height),
+      })),
     }
   } catch { return null }
 }
@@ -842,6 +856,15 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   // runs), drop every other kipo session from the persisted tab list, so the
   // frame opens with ONE pane instead of one per session ever clicked.
   useEffect(() => { pruneKipoTabs(slotKey) }, [slotKey])
+  // Count this instance among the living, for the probe.
+  useEffect(() => {
+    liveFrames.set(slotKey, (liveFrames.get(slotKey) ?? 0) + 1)
+    return () => {
+      const n = (liveFrames.get(slotKey) ?? 1) - 1
+      if (n <= 0) liveFrames.delete(slotKey)
+      else liveFrames.set(slotKey, n)
+    }
+  }, [slotKey])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -914,6 +937,7 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   }, [src, slotKey, frameRef, applyPad])
   return (
     <iframe ref={frameRef} src={src} title="The session in Kiro's chat" onLoad={onLoad}
+      data-kipo-frame={slotKey}
       style={{ flex: 1, minHeight: 0, width: '100%', border: 0, background: 'var(--bg)' }} />
   )
 }
