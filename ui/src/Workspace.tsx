@@ -792,11 +792,29 @@ function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record
       // mounted, and every tagged iframe actually in the dashboard page —
       // whose it is, whether it's visible, and how tall it stands.
       mounted: [...liveFrames.entries()].map(([k, n]) => (n > 1 ? `${k} x${n}` : k)),
-      kipoFrames: [...document.querySelectorAll('iframe[data-kipo-frame]')].slice(0, 8).map(f => ({
-        slot: f.getAttribute('data-kipo-frame'),
-        visible: !!(f as HTMLElement).offsetParent,
-        h: Math.round(f.getBoundingClientRect().height),
-      })),
+      kipoFrames: [...document.querySelectorAll('iframe[data-kipo-frame]')].slice(0, 8).map(f => {
+        // Walk up to body, noting each ancestor's tag + any app/testid marker:
+        // two frames under separate app roots means the host mounted KiPo
+        // twice; sharing a root means one tree rendered two.
+        const anc: string[] = []
+        let el: HTMLElement | null = f as HTMLElement
+        for (let i = 0; el && el !== document.body && i < 25; i++) {
+          const mk = el.getAttribute('data-testid') || el.getAttribute('data-app-id')
+            || el.getAttribute('id') || (el.getAttribute('class') || '').split(' ').find(c => /app|mount|page|frame|embed/i.test(c)) || ''
+          anc.push(mk ? `${el.tagName.toLowerCase()}#${mk}` : el.tagName.toLowerCase())
+          el = el.parentElement
+        }
+        return {
+          slot: f.getAttribute('data-kipo-frame'),
+          visible: !!(f as HTMLElement).offsetParent,
+          h: Math.round(f.getBoundingClientRect().height),
+          anc: anc.join(' < '),
+        }
+      }),
+      appRoots: {
+        main: document.querySelectorAll('main').length,
+        kipoApp: document.querySelectorAll('[data-kipo-app]').length,
+      },
     }
   } catch { return null }
 }
