@@ -749,6 +749,44 @@ function isolatePane(doc: Document): boolean {
   return changed
 }
 
+// The probe: what this frame actually contains, recorded through the backend
+// to /tmp/kipo-frame-debug.jsonl. Four guesses at the tiled view's structure
+// have missed; this reads it instead. Element counts, the session-window
+// wrappers, and the composer's real ancestry — enough to write the exact
+// selector the isolation needs. Temporary; removed once the tiling is fixed.
+function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record<string, unknown> | null {
+  try {
+    const doc = frame?.contentDocument
+    if (!doc || !doc.body) return null
+    const q = (s: string) => doc.querySelectorAll(s).length
+    const chain: string[] = []
+    let cur: Element | null =
+      doc.querySelector('[data-composer-input]') ?? doc.querySelector('textarea') ?? doc.querySelector('[contenteditable]')
+    for (let i = 0; cur && i < 10; i++) {
+      const attrs = [...cur.attributes]
+        .map(a => (a.value && a.value.length <= 48 ? `${a.name}=${a.value}` : a.name))
+        .join(' ')
+      chain.push(`${cur.tagName.toLowerCase()} ${attrs}`.trim().slice(0, 200))
+      cur = cur.parentElement
+    }
+    return {
+      slot: slotKey,
+      path: frame?.contentWindow?.location.pathname ?? null,
+      counts: {
+        textarea: q('textarea'), placeholder: q('textarea[placeholder]'), composer: q('[data-composer-input]'),
+        editable: q('[contenteditable]'), window: q('[data-session-window]'), slotkey: q('[data-slot-key]'),
+        row: q('[data-session-row]'),
+      },
+      windows: [...doc.querySelectorAll('[data-session-window]')].slice(0, 8).map(w => ({
+        kind: w.getAttribute('data-session-window'),
+        slot: w.querySelector('[data-slot-key]')?.getAttribute('data-slot-key') ?? null,
+        input: !!w.querySelector('textarea, [contenteditable]'),
+      })),
+      inputChain: chain,
+    }
+  } catch { return null }
+}
+
 function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
   // Extra bottom padding for the chat's transcript, the question card's height:
@@ -765,6 +803,9 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   const scroller = useRef<HTMLElement | null>(null)
   const pad = useRef(padBottom)
   pad.current = padBottom
+  // The probe's dedupe: the last snapshot sent, and when.
+  const lastSnap = useRef('')
+  const lastSnapAt = useRef(0)
   const applyPad = useCallback(() => {
     try {
       const doc = frameRef.current?.contentDocument
@@ -854,6 +895,17 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
         // (its list is in memory and comes right back), hiding always does.
         const doc = frame?.contentDocument
         if (doc) isolatePane(doc)
+        // The probe: record what the frame holds when it changes (≤ one
+        // record per 10s), so the tiling can be fixed from facts.
+        const s = frameSnapshot(frame ?? null, slotKey)
+        if (s) {
+          const j = JSON.stringify(s)
+          if (j !== lastSnap.current && Date.now() - lastSnapAt.current > 10_000) {
+            lastSnap.current = j
+            lastSnapAt.current = Date.now()
+            void backend.debugFrame(s).catch(() => undefined)
+          }
+        }
       } catch { /* same origin */ }
       // Keep the transcript's padding in step (the page re-renders freely).
       if (pad.current) applyPad()

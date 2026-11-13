@@ -82,6 +82,9 @@ export const backend = {
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
   tree: (completed = false) => call<RepoTree>(completed ? '/tree?completed=1' : '/tree'),
+  // Temporary diagnostic: what the UI sees inside the embedded chat frame,
+  // appended to a local file so the tiled-panes bug can be read, not guessed.
+  debugFrame: (snap: unknown) => call<{ ok: boolean }>('/debug/frame', 'POST', snap),
   // The green dot: on the sidebar or off. Nothing changes on GitHub.
   setOnSidebar: (repo: string, number: number, kind: 'effort' | 'map', on: boolean) =>
     call<{ onSidebar: boolean }>('/sidebar', 'POST', { repo, number, kind, on }),

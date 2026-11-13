@@ -89,6 +89,7 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/unhide$"), "unhide"),
     ("GET", re.compile(r"^/tree$"), "tree"),
     ("POST", re.compile(r"^/sidebar$"), "sidebar"),
+    ("POST", re.compile(r"^/debug/frame$"), "debug_frame"),
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
     ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
@@ -367,6 +368,18 @@ class App:
         if search_error:
             result["searchError"] = search_error
         return result
+
+    def debug_frame(self, body):
+        """Appends what the UI sees inside the embedded chat frame to a local
+        file, so the frame's real structure can be read when the embedding
+        misbehaves (the tiled-panes bug). Temporary diagnostic plumbing."""
+        line = json.dumps({
+            "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            **(body if isinstance(body, dict) else {"raw": str(body)[:2000]}),
+        })[:8000]
+        with open("/tmp/kipo-frame-debug.jsonl", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return {"ok": True}
 
     def sidebar(self, body):
         """Put an effort or a map on the sidebar, or take it off. Local to KiPo."""
