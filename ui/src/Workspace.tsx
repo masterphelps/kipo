@@ -515,6 +515,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // instead of hiding behind it.
   const [wizardH, setWizardH] = useState(0)
   const onWizardSize = useCallback((h: number) => setWizardH(p => (Math.abs(p - h) > 4 ? h : p)), [])
+  // The composer dock's measured height inside the frame: the question card
+  // sits just above it (never over the box or its pills), whatever its height.
+  const [composerH, setComposerH] = useState(128)
+  const onComposerH = useCallback((h: number) => setComposerH(p => (Math.abs(p - h) > 4 ? h : p)), [])
   // The conductor's overview panel width (the right side of the conductor screen).
   // A done ticket (or a closed conversation) is settled: its unanswered
   // decisions are history, so the question wizard stays closed on it.
@@ -584,7 +588,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // over its details; done / blocked / in-review ones just show details.
           const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
           const chatBody = slotKey ? (
-            <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef} padBottom={wizardH ? wizardH + 24 : 0} />
+            // The card sits `composerH` up, so the transcript must clear the
+            // composer, the card, and a gap above it.
+            <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef}
+              padBottom={wizardH ? composerH + wizardH + 24 : 0} onComposerH={onComposerH} />
           ) : focusTile ? (
             // No live conversation: the ticket's own details fill the centre
             // (where the chat would be), since there's no chat and no panel.
@@ -653,7 +660,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                       one at a time, Submit sends them as one message, Hide
                       tucks it into a pill. Keyed by session so one session's
                       sent answers never hide another's questions. */}
-                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} onSize={onWizardSize} />
+                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} onSize={onWizardSize} bottomOffset={composerH + 10} />
                 </div>
               </section>
             </div>
@@ -783,12 +790,14 @@ function sweepFrames() {
 }
 
 
-function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
+function KiroChatFrame({ slotKey, frameRef, padBottom = 0, onComposerH }: {
   slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
   // Extra bottom padding for the chat's transcript, the question card's height:
   // the card overlays the frame, and this keeps the conversation scrolling
   // clear of it instead of hiding behind it.
   padBottom?: number
+  // Reports the composer dock's height, so the card can sit just above it.
+  onComposerH?: (h: number) => void
 }) {
   const src = `/popout/chat?sid=${encodeURIComponent(slotKey)}`
   // Keep the frame on the session's chat, and hide the popout's dead "Return to
@@ -814,6 +823,14 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
       }
       const rule = pad.current ? '.followup-chip{display:none !important}' : ''
       if (style && style.textContent !== rule) style.textContent = rule
+      // Measure the composer dock so the card can sit exactly above it. With
+      // the pills hidden (rule above) this is just the box; report its height.
+      if (onComposerH) {
+        const dock = doc.querySelector('[data-testid="composer-dock-root"]')
+          ?? doc.querySelector('[data-testid="composer-dock"]')
+        const h = dock ? Math.round((dock as HTMLElement).getBoundingClientRect().height) : 0
+        if (h > 0) onComposerH(h)
+      }
       let el = scroller.current
       if (!el || !el.isConnected || el.ownerDocument !== doc) {
         const view = doc.defaultView

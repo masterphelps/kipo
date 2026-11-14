@@ -29,12 +29,13 @@ const wasSent = (slot: string, id: string) => {
 // the card at once (the agent records them in its own time); Hide tucks it into
 // a pill. It sits above the chat box; onSize tells the Workspace its height so
 // the conversation can be padded to scroll clear of it, never hidden under it.
-export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
+export function QuestionWizard({ state, slotKey, settled, onError, onSize, bottomOffset = 122 }: {
   state: PhaseState | null
   slotKey: string | null
   settled: boolean // a done ticket's unanswered entries are history, not questions
   onError: (m: string) => void
   onSize?: (h: number) => void
+  bottomOffset?: number // px above the frame bottom: clears the composer + pills
 }) {
   const api = useAppApi()
   // Answers already sent to the chat are gone from the card immediately, even
@@ -75,7 +76,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
   if (hidden) return (
     <button type="button" className="kipo-pulse" onClick={() => setHidden(false)}
       title="Open the questions waiting on you"
-      style={{ position: 'absolute', right: 16, bottom: 126, zIndex: 6, cursor: 'pointer',
+      style={{ position: 'absolute', right: 16, bottom: bottomOffset + 4, zIndex: 6, cursor: 'pointer',
         borderRadius: 99, padding: '4px 12px', fontSize: T.small, fontWeight: 600,
         border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.text,
         background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
@@ -89,13 +90,16 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
   const atLast = idx === open.length - 1
   const custom = (picks[d.id] ?? '') !== '' && !d.options.includes(picks[d.id] ?? '')
 
+  // Every open question that carries a recommendation — the Accept-all target.
+  const recommendable = open.filter(x => x.recommended)
   const pick = (a: string) => setPicks(p => ({ ...p, [d.id]: a }))
-  const submit = async () => {
-    if (!answered.length) return
-    const left = open.filter(x => !(picks[x.id] ?? '').trim())
-    const lines = answered.map((x, n) => `${n + 1}. ${x.title} (${x.id}): ${picks[x.id].trim()}`)
+  const submit = async (usePicks: Record<string, string> = picks) => {
+    const ans = open.filter(x => (usePicks[x.id] ?? '').trim())
+    if (!ans.length) return
+    const left = open.filter(x => !(usePicks[x.id] ?? '').trim())
+    const lines = ans.map((x, n) => `${n + 1}. ${x.title} (${x.id}): ${usePicks[x.id].trim()}`)
     const message = [
-      `My answers to your ${answered.length === 1 ? 'question' : `${answered.length} questions`}:`, '',
+      `My answers to your ${ans.length === 1 ? 'question' : `${ans.length} questions`}:`, '',
       ...lines, '',
       left.length
         ? `Still open, I'll answer later: ${left.map(x => x.title).join('; ')}.`
@@ -104,13 +108,20 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
     setSending(true)
     try {
       await api.post('/api/chat?ws=1', { slot: slotKey, message })
-      for (const x of answered) sentAnswers.set(`${slotKey}:${x.id}`, Date.now())
+      for (const x of ans) sentAnswers.set(`${slotKey}:${x.id}`, Date.now())
       setPicks({}); setI(0)
     } catch (e) {
       onError(`Couldn't send your answers: ${errorText(e)}`)
     } finally {
       setSending(false)
     }
+  }
+  // Fill every recommended answer across all open questions and send at once.
+  const acceptAll = () => {
+    const rec = { ...picks }
+    for (const x of recommendable) rec[x.id] = x.recommended!
+    setPicks(rec)
+    void submit(rec)
   }
 
   const radio = (on: boolean) => (
@@ -150,10 +161,11 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
 
   return (
     <div ref={sizeRef} role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
-      // Above the chat entry box (the composer is ~120px of the frame's bottom),
-      // centred like Kiro's own question card — never over the box itself, and
-      // the conversation is padded (onSize) so nothing hides behind it.
-      style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: 122, zIndex: 6,
+      // Just above the chat entry box (bottomOffset is the composer's measured
+      // height), centred like Kiro's own question card — never over the box or
+      // its pills, and the conversation is padded (onSize) so nothing hides
+      // behind it.
+      style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: bottomOffset, zIndex: 6,
         width: 'min(680px, calc(100% - 24px))',
         background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
         boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 14px 11px' }}>
@@ -197,6 +209,18 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize }: {
         {!atLast && navBtn('Next ›', false, () => setI(idx + 1))}
         <span style={{ flex: 1 }} />
         {open.length > 1 && <span style={{ ...muted, fontSize: T.tiny }}>{answered.length} of {open.length} answered</span>}
+        {/* One click: take every recommendation and send. */}
+        {recommendable.length > 0 && (
+          <button type="button" disabled={sending} onClick={acceptAll}
+            title={open.length > 1
+              ? `Answer all ${recommendable.length} with their recommendation and send`
+              : 'Take the recommendation and send'}
+            style={{ background: 'transparent', border: `1px solid ${STATE_META.you.color}`, borderRadius: 6,
+              padding: '3px 10px', color: STATE_META.you.text, cursor: sending ? 'default' : 'pointer',
+              fontSize: T.small, whiteSpace: 'nowrap', opacity: sending ? 0.5 : 1 }}>
+            {open.length > 1 ? 'Accept all recommendations' : 'Accept recommendation'}
+          </button>
+        )}
         <Btn primary disabled={!answered.length || sending} onClick={() => void submit()}>
           {sending ? 'Sending…' : answered.length > 1 ? `Submit ${answered.length} answers` : 'Submit'}
         </Btn>
