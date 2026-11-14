@@ -759,6 +759,39 @@ function isolatePane(doc: Document): boolean {
 // frames, and this says whose they are.
 const liveFrames = new Map<string, number>()
 
+// The tiling, finally understood: the host mounts the KiPo app page more than
+// once (the duplicates share this module scope — one `liveFrames` map sees
+// them all — and share the cached `focus`, so each renders the same session's
+// frame), and the frames stack as flex siblings. KiPo can't stop the host
+// double-mounting, but from the shared scope it can keep only ONE frame shown.
+// Each frame takes a rising generation on mount; the sweeper leaves the newest
+// (always the one the last click created) visible and hides the rest. Hiding,
+// not removing: the frames are React-owned, and a hidden one is only ever
+// superseded by a newer one, never shown again, so it stays hidden until its
+// tree unmounts.
+let frameGen = 0
+const nextFrameGen = () => ++frameGen
+function sweepFrames() {
+  try {
+    const frames = [...document.querySelectorAll('iframe[data-kipo-frame]')] as HTMLElement[]
+    if (frames.length < 2) {
+      // Nothing to hide; make sure a lone frame is never left hidden.
+      for (const f of frames) if (f.style.display === 'none') f.style.display = ''
+      return
+    }
+    let top: HTMLElement | null = null
+    let topGen = -1
+    for (const f of frames) {
+      const g = Number(f.getAttribute('data-kipo-gen') ?? '0')
+      if (g >= topGen) { topGen = g; top = f }
+    }
+    for (const f of frames) {
+      const want = f === top ? '' : 'none'
+      if (f.style.display !== want) f.style.display = want
+    }
+  } catch { /* defensive: never let the sweep throw into the watch */ }
+}
+
 function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record<string, unknown> | null {
   try {
     const doc = frame?.contentDocument
@@ -881,8 +914,17 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
       const n = (liveFrames.get(slotKey) ?? 1) - 1
       if (n <= 0) liveFrames.delete(slotKey)
       else liveFrames.set(slotKey, n)
+      // This frame is leaving: re-sweep so the newest survivor shows.
+      requestAnimationFrame(sweepFrames)
     }
   }, [slotKey])
+  // Stamp this frame with its generation (newest wins the single visible slot)
+  // and sweep, so a freshly mounted frame immediately claims the view.
+  useEffect(() => {
+    const f = frameRef.current
+    if (f) f.setAttribute('data-kipo-gen', String(nextFrameGen()))
+    sweepFrames()
+  }, [slotKey, frameRef])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -932,8 +974,9 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
           }
           return
         }
-        // Extra panes are hidden in place: reloading never shrank the stack
-        // (its list is in memory and comes right back), hiding always does.
+        // Keep exactly one frame visible: the host double-mounts the app and
+        // the extra frames stack. Cheap and idempotent, so safe every tick.
+        sweepFrames()
         const doc = frame?.contentDocument
         if (doc) isolatePane(doc)
         // The probe: record what the frame holds when it changes (≤ one
