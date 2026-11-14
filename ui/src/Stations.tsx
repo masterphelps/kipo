@@ -172,6 +172,11 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
     const st = statuses[t.number]
     const needs = st === 'attention' ? activity?.[t.number]?.needs ?? null : null
     const busy_ = st === 'running' || st === 'attention'
+    // Needs the human: a live trust prompt or ask, a recorded question, or the
+    // ticket simply sitting in HITL — all of it the amber, pulsing treatment,
+    // the same attention cue the rest of the UI uses. Blocked waits on another
+    // ticket, not on you, so it stays its quiet red.
+    const needsHuman = st === 'attention' || q > 0 || t.state === 'you'
     return {
       key: `t${t.number}`,
       number: t.number,
@@ -183,9 +188,10 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
         : needs === 'approval' ? { label: 'trust prompt', color: STATE_META.you.color }
         : needs === 'input' ? { label: 'asking', color: STATE_META.you.color }
         : { label: STATE_META[t.state].label, color: t.state === 'done' ? STATE_META.done.text : STATE_META[t.state].color, solid: t.state === 'you' || t.state === 'afk' },
-      pulse: busy_,
-      // Needing the human pulses amber (chip and dot), not the quiet blue.
-      attention: st === 'attention' || q > 0,
+      // A pulsing dot shows for a busy session (blue) or a ticket that needs
+      // you (amber), so an idle HITL ticket still draws the eye.
+      pulse: busy_ || needsHuman,
+      attention: needsHuman,
       // Only a busy row carries its live line; idle ones stay one line tall.
       live: busy_ ? activity?.[t.number] : undefined,
       questions: q,
