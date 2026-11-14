@@ -1,7 +1,9 @@
 """What the conductor reads: an effort's frontier as open threads.
 
 A thread is one thing still open: a ticket, a PR, the fog, a closed map's
-leftovers, the hand-over, the retro. Each says which KiPo stage handles it,
+leftovers, the hand-over, the retro, or, before an effort has any ticket,
+spec or map, its own first stage (an idea's grill, an issue's intake, a huge
+effort's shape). Each says which KiPo stage handles it,
 who holds it (HITL, Agent, Running, Stalled, Blocked) and the one next action.
 A ticket whose session has stalled (kipo/stalls.py: idle, or its blocker
 cleared, and not woken back) is ``Stalled`` instead of ``Running`` or ``Agent``,
@@ -65,6 +67,52 @@ def _ticket_thread(t, stalled=None):
     return {**base, "owner": "Agent", "action": f"dispatch {STAGE_SKILL[stage]}"}
 
 
+# An effort's own first stage, while it has no ticket, spec or map yet: the
+# work is the stage's conversation (--stage <stage>), not a ticket.
+_EARLY_ACTION = {
+    "grill": "dispatch kipo-grill: grill the idea with the human",
+    "intake": "dispatch kipo-intake: read the issue in, then cut its tickets",
+    "shape": "dispatch kipo-shape: map the effort with the human",
+}
+_EARLY_LABEL = {"grill": "Grill the idea", "intake": "Intake the issue", "shape": "Shape the effort"}
+
+_HANDOVER = {"id": "handover", "kind": "handover", "stage": "plan", "skill": "kipo-plan",
+             "label": "Every decision is made", "owner": "HITL",
+             "action": "the hand-over: write the spec (/to-spec), then the tickets (/to-tickets)"}
+
+
+def _early_threads(detail):
+    """The threads of an effort with no ticket, spec, map or open PR yet: its column's own
+    stage conversation, by whether that session exists, runs or finished.
+    ``None`` once the effort has any of them (the ticket rules apply)."""
+    front = detail.get("frontier") or {}
+    if (front.get("tiles") or front.get("fogItems") or front.get("fogLeft")
+            or detail.get("specPath") or detail.get("mapIssue")
+            or any(p.get("state") == "OPEN" for p in detail.get("prs") or [])):
+        return None
+    column = detail.get("column") or (detail.get("path") or [None])[0]
+    if column == "plan":
+        return [dict(_HANDOVER, label="Nothing is specified yet")]
+    if column not in _EARLY_ACTION:
+        return None
+    base = {"id": column, "kind": "stage", "stage": column, "skill": STAGE_SKILL[column],
+            "label": _EARLY_LABEL[column]}
+    if not (detail.get("sessions") or {}).get(column):
+        return [{**base, "owner": "Agent", "action": _EARLY_ACTION[column]}]
+    row = next((r for r in detail.get("closing") or [] if r.get("key") == column), {})
+    if row.get("status") in ("closable", "closed"):
+        if column == "grill" and "plan" in (detail.get("path") or []):
+            return [dict(_HANDOVER, label="Nothing is specified yet")]
+        return [{**base, "owner": "HITL",
+                 "action": f"the {column} conversation finished with no tickets; ask the human what's next"}]
+    s = row.get("stall")
+    if s:
+        return [{**base, "owner": "Stalled", "session": column, "stall": s["state"], "why": s["why"],
+                 "action": _STALL_ACTION[s["state"]].format(key=column, why=s["why"])}]
+    return [{**base, "owner": "Running", "session": column,
+             "action": f"the {column} conversation is running; wait for its report"}]
+
+
 def threads(detail):
     """``{"where": str, "threads": [...], "done": {...}}`` for one effort's detail."""
     front = detail.get("frontier") or {}
@@ -73,6 +121,12 @@ def threads(detail):
     fog_items = front.get("fogItems") or []
     fog_left = front.get("fogLeft") or []
     known = {t["number"] for t in tiles}
+
+    early = _early_threads(detail)
+    if early is not None:
+        # No ticket yet: nothing is done, so no retro either.
+        return {"where": where(early, 0, 0), "threads": early,
+                "done": {"tickets": 0, "of": 0, "prsMerged": sum(1 for p in prs if p.get("state") == "MERGED")}}
 
     stalled = stalls.stalled_by_ticket(detail.get("closing"))
     out = [_ticket_thread(t, stalled.get(t["number"])) for t in tiles if t["state"] != "done"]
@@ -98,9 +152,7 @@ def threads(detail):
     delivering = [t for t in tiles if t["type"] == "build" or t.get("lane") == "deliver"]
     if (decide and not delivering and not fog_items and not fog_left
             and all(t["state"] == "done" for t in decide) and not detail.get("specPath")):
-        out.append({"id": "handover", "kind": "handover", "stage": "plan", "skill": "kipo-plan",
-                    "label": "Every decision is made", "owner": "HITL",
-                    "action": "the hand-over: write the spec (/to-spec), then the tickets (/to-tickets)"})
+        out.append(dict(_HANDOVER))
 
     open_count = len(out)
     out.append({"id": "retro", "kind": "retro", "stage": "done", "skill": "kipo-done",
@@ -119,6 +171,8 @@ def where(out, done, total):
     """One sentence: where the effort stands."""
     live = [t for t in out if t["id"] != "retro"]
     if not live:
+        if not total:  # zero tickets is never "every ticket is done"
+            return "No tickets in this effort. Next: the retro, then close the effort."
         return f"Every ticket is done ({done}/{total}). Next: the retro, then close the effort."
     hitl = [t for t in live if t["owner"] == "HITL"]
     agent = [t for t in live if t["owner"] == "Agent"]
@@ -136,4 +190,5 @@ def where(out, done, total):
         bits.append(f"{len(stalled)} stalled")
     if blocked:
         bits.append(f"{len(blocked)} blocked")
-    return f"{done}/{total} tickets done. Open: " + ", ".join(bits) + "."
+    head = f"{done}/{total} tickets done." if total else "No tickets yet."
+    return f"{head} Open: " + ", ".join(bits) + "."

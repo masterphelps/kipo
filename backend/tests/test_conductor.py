@@ -10,9 +10,15 @@ def tile(n, state, type_="task", lane="decide", blocked_by=(), source=False):
             "blockedBy": list(blocked_by), "source": source}
 
 
-def detail(tiles, prs=(), fog=(), left=(), spec=None):
-    return {"frontier": {"tiles": list(tiles), "fogItems": list(fog), "fogLeft": list(left)},
-            "prs": list(prs), "specPath": spec}
+def detail(tiles, prs=(), fog=(), left=(), spec=None, column=None, path=None, sessions=None, closing=None):
+    d = {"frontier": {"tiles": list(tiles), "fogItems": list(fog), "fogLeft": list(left)},
+         "prs": list(prs), "specPath": spec}
+    if column:
+        d.update(column=column, path=list(path or ()), sessions=dict(sessions or {}), closing=list(closing or ()))
+    return d
+
+
+IDEA = ("grill", "plan", "build", "review", "done")
 
 
 class Threads(unittest.TestCase):
@@ -69,6 +75,60 @@ class Threads(unittest.TestCase):
     def test_pr_with_a_ticket_is_not_a_stray(self):
         d = detail([tile(4, "review", "build", "deliver")], prs=[{"number": 9, "state": "OPEN", "tickets": [4]}])
         self.assertNotIn("pr9", [t["id"] for t in conductor.threads(d)["threads"]])
+
+
+
+class NoTicketsYet(unittest.TestCase):
+    """Zero tickets is never "every ticket is done": #1054, an idea just created."""
+
+    def test_new_idea_gets_a_grill_thread_and_no_retro(self):
+        r = conductor.threads(detail([], column="grill", path=IDEA))
+        self.assertEqual([t["id"] for t in r["threads"]], ["grill"])
+        g = r["threads"][0]
+        self.assertEqual((g["kind"], g["stage"], g["skill"], g["owner"]), ("stage", "grill", "kipo-grill", "Agent"))
+        self.assertEqual(g["action"], "dispatch kipo-grill: grill the idea with the human")
+        self.assertNotIn("Every ticket is done", r["where"])
+        self.assertIn("1 ready for an agent", r["where"])
+        self.assertEqual(r["done"], {"tickets": 0, "of": 0, "prsMerged": 0})
+
+    def test_new_issue_gets_an_intake_thread(self):
+        r = conductor.threads(detail([], column="intake", path=("intake", "build", "review", "done")))
+        self.assertEqual([(t["id"], t["skill"], t["owner"]) for t in r["threads"]],
+                         [("intake", "kipo-intake", "Agent")])
+        self.assertNotIn("Every ticket is done", r["where"])
+
+    def test_huge_effort_without_a_map_gets_a_shape_thread(self):
+        r = conductor.threads(detail([], column="shape", path=("shape", "plan", "build", "review", "done")))
+        self.assertEqual([(t["id"], t["skill"]) for t in r["threads"]], [("shape", "kipo-shape")])
+
+    def test_grill_running_is_not_dispatched_again(self):
+        r = conductor.threads(detail([], column="grill", path=IDEA, sessions={"grill": "slot"},
+                                     closing=[{"key": "grill", "status": "open"}]))
+        self.assertEqual([(t["id"], t["owner"]) for t in r["threads"]], [("grill", "Running")])
+
+    def test_grill_stalled_says_so(self):
+        row = {"key": "grill", "status": "open", "stall": {"state": "stalled", "why": "idle 20 min"}}
+        r = conductor.threads(detail([], column="grill", path=IDEA, sessions={"grill": "slot"}, closing=[row]))
+        g = r["threads"][0]
+        self.assertEqual((g["owner"], g["session"], g["stall"]), ("Stalled", "grill", "stalled"))
+
+    def test_grill_finished_means_the_handover(self):
+        r = conductor.threads(detail([], column="grill", path=IDEA, sessions={"grill": "slot"},
+                                     closing=[{"key": "grill", "status": "closable"}]))
+        self.assertEqual([(t["id"], t["stage"], t["owner"]) for t in r["threads"]], [("handover", "plan", "HITL")])
+
+    def test_plan_without_spec_or_tickets_is_the_handover(self):
+        r = conductor.threads(detail([], column="plan", path=IDEA))
+        self.assertEqual([t["id"] for t in r["threads"]], ["handover"])
+        self.assertNotIn("Every ticket is done", r["where"])
+
+    def test_no_tickets_past_planning_still_never_all_done(self):
+        r = conductor.threads(detail([], column="build", path=IDEA))
+        self.assertNotIn("Every ticket is done", r["where"])
+
+    def test_with_a_map_or_spec_the_old_rules_hold(self):
+        r = conductor.threads(detail([], column="grill", path=IDEA, fog=["Offline activation"]))
+        self.assertEqual([t["id"] for t in r["threads"]], ["fog", "retro"])
 
 
 if __name__ == "__main__":
