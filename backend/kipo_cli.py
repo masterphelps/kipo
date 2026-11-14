@@ -6,10 +6,11 @@
       Blocked) and next action. Read-only. Run it on every wake; never
       work from memory.
 
-  python3 kipo_cli.py dispatch OWNER/REPO N (--ticket T | --stage shape|plan|review|done) [--skill S]
+  python3 kipo_cli.py dispatch OWNER/REPO N (--ticket T | --stage grill|intake|shape|plan|review|done) [--skill S]
       Ask KiPo to start a stage-skill session: a ticket's conversation, or
-      the effort's Shape (chart the fog), Plan (hand-over), Review or Done
-      (retro) conversation. --skill names the KiPo skill when it isn't the
+      the effort's Grill (an idea grilled, before any ticket), Intake (an
+      issue read in), Shape (chart the fog, or map a new effort), Plan
+      (hand-over), Review or Done (retro) conversation. --skill names the KiPo skill when it isn't the
       ticket's build: --ticket T --skill kipo-review opens the ticket's
       review conversation (its PR reviewed, fixed, merged). One entry per
       (ticket or stage, skill): the same again is "already queued".
@@ -63,7 +64,7 @@ from kipo.gh import Gh  # noqa: E402
 from kipo.initiatives import Initiatives  # noqa: E402
 from kipo.storage import Storage  # noqa: E402
 
-STAGES = ("shape", "plan", "review", "done")
+STAGES = ("grill", "intake", "shape", "plan", "review", "done")
 
 
 def main(argv=None):

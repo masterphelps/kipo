@@ -346,7 +346,7 @@ def render_conductor_seed(effort, repo_path):
         f"Effort issue: {effort['url']}",
         f"State file: {col_state.session_state_path(repo_path, n, 'conductor')}",
         f"Frontier: python3 {KIPO_CLI} frontier {repo} {n}",
-        f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage shape|plan|review|done)"
+        f"Dispatch: python3 {KIPO_CLI} dispatch {repo} {n} (--ticket <t> | --stage grill|intake|shape|plan|review|done)"
         " [--skill <thread's skill>: always when a ticket thread's skill isn't kipo-build]",
         f"Reports: python3 {KIPO_CLI} reports {repo} {n}"
         + (f" --checkout {shlex.quote(repo_path)}" if repo_path else "")

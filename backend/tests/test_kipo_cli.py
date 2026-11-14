@@ -84,6 +84,12 @@ class Cli(unittest.TestCase):
         self.assertFalse(json.loads(self.run_cli("dispatch", "acme/widgets", "7", "--stage", "review")[1])["queued"])
         self.assertEqual(len(self.queue()), 2)
 
+    def test_dispatch_grill_queues_the_effort_grill(self):
+        code, out, _ = self.run_cli("dispatch", "acme/widgets", "7", "--stage", "grill")
+        self.assertEqual((code, json.loads(out)["queued"]), (0, True))
+        self.assertFalse(json.loads(self.run_cli("dispatch", "acme/widgets", "7", "--stage", "grill")[1])["queued"])
+        self.assertEqual([(e.get("ticket"), e.get("stage")) for e in self.queue()], [(None, "grill")])
+
     def test_dispatch_refuses_blocked_or_unknown(self):
         self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "5")[0], 2)
         self.assertEqual(self.run_cli("dispatch", "acme/widgets", "7", "--ticket", "99")[0], 2)

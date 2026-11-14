@@ -47,3 +47,10 @@ test('a stage entry naming its own skill runs no extra skill', () => {
   const { starts } = dispatchStarts([{ stage: 'review', skill: 'kipo-review', at: 'x' }], () => false, [], {})
   assert.deepEqual(starts, [{ id: 'review/kipo-review@x', kind: 'stage', column: 'review', skill: null }])
 })
+
+test('a grill entry starts the effort grill conversation once', () => {
+  const grill: DispatchEntry = { stage: 'grill', at: 'g' }
+  assert.deepEqual(dispatchStarts([grill], () => false, [], {}).starts,
+    [{ id: 'grill@g', kind: 'stage', column: 'grill', skill: null }])
+  assert.deepEqual(dispatchStarts([grill], () => false, [], { grill: 'kipo-x-1054-grill' }).starts, [])
+})

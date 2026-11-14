@@ -188,7 +188,7 @@ the effort's own conversation and never does the work itself.
   the browser, and a report the conductor has already read is never sent), and when the page
   woke a stalled session (`[KiPo] Woke <session>: <why>`, held until it's not mid-turn) or one
   turned stuck (in `[KiPo] Frontier changed: <session> stuck …`).
-- **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage shape|plan|review|done) [--skill <s>]`
+- **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage grill|intake|shape|plan|review|done) [--skill <s>]`
   appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`). A ticket thread whose
   skill is `kipo-build` is `--ticket <t>`; whenever the thread's skill differs from `kipo-build`,
   it is `--ticket <t> --skill <thread's skill>`. A ticket in review (action "dispatch

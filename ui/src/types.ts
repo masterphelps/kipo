@@ -233,7 +233,7 @@ export type PhaseState = {
   dispatch?: DispatchEntry[]
 }
 
-export type DispatchEntry = { ticket?: number; stage?: 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string }
+export type DispatchEntry = { ticket?: number; stage?: 'grill' | 'intake' | 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string }
 
 // What a stage session told the conductor (kipo_cli.py report), in .kipo/<n>/reports.json.
 // `read` is the highest id the conductor has been shown by its frontier.
