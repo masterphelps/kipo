@@ -749,21 +749,11 @@ function isolatePane(doc: Document): boolean {
   return changed
 }
 
-// The probe: what this frame actually contains, recorded through the backend
-// to /tmp/kipo-frame-debug.jsonl. Four guesses at the tiled view's structure
-// have missed; this reads it instead. Element counts, the session-window
-// wrappers, and the composer's real ancestry — enough to write the exact
-// selector the isolation needs. Temporary; removed once the tiling is fixed.
-// How many KiroChatFrame instances are alive right now, by slot. The probe
-// reports this: tiles with clean single-session documents mean multiple
-// frames, and this says whose they are.
-const liveFrames = new Map<string, number>()
-
 // The tiling, finally understood: the host mounts the KiPo app page more than
-// once (the duplicates share this module scope — one `liveFrames` map sees
-// them all — and share the cached `focus`, so each renders the same session's
-// frame), and the frames stack as flex siblings. KiPo can't stop the host
-// double-mounting, but from the shared scope it can keep only ONE frame shown.
+// once (the duplicates share this bundle's module scope, and share the cached
+// `focus`, so each renders the same session's frame), and the frames stack as
+// flex siblings. KiPo can't stop the host double-mounting, but from the shared
+// module scope it can keep only ONE frame shown.
 // Each frame takes a rising generation on mount; the sweeper leaves the newest
 // (always the one the last click created) visible and hides the rest. Hiding,
 // not removing: the frames are React-owned, and a hidden one is only ever
@@ -792,65 +782,6 @@ function sweepFrames() {
   } catch { /* defensive: never let the sweep throw into the watch */ }
 }
 
-function frameSnapshot(frame: HTMLIFrameElement | null, slotKey: string): Record<string, unknown> | null {
-  try {
-    const doc = frame?.contentDocument
-    if (!doc || !doc.body) return null
-    const q = (s: string) => doc.querySelectorAll(s).length
-    const chain: string[] = []
-    let cur: Element | null =
-      doc.querySelector('[data-composer-input]') ?? doc.querySelector('textarea') ?? doc.querySelector('[contenteditable]')
-    for (let i = 0; cur && i < 10; i++) {
-      const attrs = [...cur.attributes]
-        .map(a => (a.value && a.value.length <= 48 ? `${a.name}=${a.value}` : a.name))
-        .join(' ')
-      chain.push(`${cur.tagName.toLowerCase()} ${attrs}`.trim().slice(0, 200))
-      cur = cur.parentElement
-    }
-    return {
-      slot: slotKey,
-      path: frame?.contentWindow?.location.pathname ?? null,
-      counts: {
-        textarea: q('textarea'), placeholder: q('textarea[placeholder]'), composer: q('[data-composer-input]'),
-        editable: q('[contenteditable]'), window: q('[data-session-window]'), slotkey: q('[data-slot-key]'),
-        row: q('[data-session-row]'),
-      },
-      windows: [...doc.querySelectorAll('[data-session-window]')].slice(0, 8).map(w => ({
-        kind: w.getAttribute('data-session-window'),
-        slot: w.querySelector('[data-slot-key]')?.getAttribute('data-slot-key') ?? null,
-        input: !!w.querySelector('textarea, [contenteditable]'),
-      })),
-      inputChain: chain,
-      // KiPo's side of the fence: which frame components think they're
-      // mounted, and every tagged iframe actually in the dashboard page —
-      // whose it is, whether it's visible, and how tall it stands.
-      mounted: [...liveFrames.entries()].map(([k, n]) => (n > 1 ? `${k} x${n}` : k)),
-      kipoFrames: [...document.querySelectorAll('iframe[data-kipo-frame]')].slice(0, 8).map(f => {
-        // Walk up to body, noting each ancestor's tag + any app/testid marker:
-        // two frames under separate app roots means the host mounted KiPo
-        // twice; sharing a root means one tree rendered two.
-        const anc: string[] = []
-        let el: HTMLElement | null = f as HTMLElement
-        for (let i = 0; el && el !== document.body && i < 25; i++) {
-          const mk = el.getAttribute('data-testid') || el.getAttribute('data-app-id')
-            || el.getAttribute('id') || (el.getAttribute('class') || '').split(' ').find(c => /app|mount|page|frame|embed/i.test(c)) || ''
-          anc.push(mk ? `${el.tagName.toLowerCase()}#${mk}` : el.tagName.toLowerCase())
-          el = el.parentElement
-        }
-        return {
-          slot: f.getAttribute('data-kipo-frame'),
-          visible: !!(f as HTMLElement).offsetParent,
-          h: Math.round(f.getBoundingClientRect().height),
-          anc: anc.join(' < '),
-        }
-      }),
-      appRoots: {
-        main: document.querySelectorAll('main').length,
-        kipoApp: document.querySelectorAll('[data-kipo-app]').length,
-      },
-    }
-  } catch { return null }
-}
 
 function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   slotKey: string; frameRef: React.RefObject<HTMLIFrameElement>
@@ -868,9 +799,6 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   const scroller = useRef<HTMLElement | null>(null)
   const pad = useRef(padBottom)
   pad.current = padBottom
-  // The probe's dedupe: the last snapshot sent, and when.
-  const lastSnap = useRef('')
-  const lastSnapAt = useRef(0)
   const applyPad = useCallback(() => {
     try {
       const doc = frameRef.current?.contentDocument
@@ -907,17 +835,8 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
   // runs), drop every other kipo session from the persisted tab list, so the
   // frame opens with ONE pane instead of one per session ever clicked.
   useEffect(() => { pruneKipoTabs(slotKey) }, [slotKey])
-  // Count this instance among the living, for the probe.
-  useEffect(() => {
-    liveFrames.set(slotKey, (liveFrames.get(slotKey) ?? 0) + 1)
-    return () => {
-      const n = (liveFrames.get(slotKey) ?? 1) - 1
-      if (n <= 0) liveFrames.delete(slotKey)
-      else liveFrames.set(slotKey, n)
-      // This frame is leaving: re-sweep so the newest survivor shows.
-      requestAnimationFrame(sweepFrames)
-    }
-  }, [slotKey])
+  // When this frame leaves, re-sweep so the newest survivor becomes visible.
+  useEffect(() => () => { requestAnimationFrame(sweepFrames) }, [])
   // Stamp this frame with its generation (newest wins the single visible slot)
   // and sweep, so a freshly mounted frame immediately claims the view.
   useEffect(() => {
@@ -979,17 +898,6 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0 }: {
         sweepFrames()
         const doc = frame?.contentDocument
         if (doc) isolatePane(doc)
-        // The probe: record what the frame holds when it changes (≤ one
-        // record per 10s), so the tiling can be fixed from facts.
-        const s = frameSnapshot(frame ?? null, slotKey)
-        if (s) {
-          const j = JSON.stringify(s)
-          if (j !== lastSnap.current && Date.now() - lastSnapAt.current > 10_000) {
-            lastSnap.current = j
-            lastSnapAt.current = Date.now()
-            void backend.debugFrame(s).catch(() => undefined)
-          }
-        }
       } catch { /* same origin */ }
       // Keep the transcript's padding in step (the page re-renders freely).
       if (pad.current) applyPad()
