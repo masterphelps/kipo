@@ -121,6 +121,79 @@ class OpenDecisions(unittest.TestCase):
         self.assertEqual(reports.open_decisions({"state": {"decisions": [card("q")]}})[0]["from"], "effort")
 
 
+def rep(id_, source, event, items=None):
+    r = {"id": id_, "at": f"2026-11-15T09:{id_:02d}:00Z", "from": source, "event": event, "text": "x"}
+    if items:
+        r["items"] = items
+    return r
+
+
+class StageDecisionsInTheEffortFile(unittest.TestCase):
+    """Stage sessions seeded before each had its own file share state.json.
+    Read-time only, its cards go to the session that asked them (its `asked`
+    report lists `<id>: <title>`), else to the latest stage session still
+    working; the file stays as written. Effort #1054: grill asked 20 and
+    finished, the hand-over (plan) asked `seams` in the same file, review is open."""
+
+    SESSIONS = {"conductor": "c", "grill": "g", "plan": "g", "review": "r"}
+
+    def state(self):
+        return {"summary": "Hand-over: writing the spec", "blocking": "the test seams",
+                "decisions": [card("audience", "Assessor"), card("mockup-verdict", "Yes"), card("seams")],
+                "artifacts": [{"label": "ADR", "href": "docs/adr/1.md"}], "skillsUsed": ["grilling", "to-spec"]}
+
+    def reports(self):
+        return [rep(1, "grill", "started"), rep(2, "grill", "asked", ["audience: Q audience"]),
+                rep(3, "grill", "answered", ["audience: Assessor"]),
+                rep(10, "grill", "asked", ["mockup-verdict: Q mockup-verdict"]), rep(13, "grill", "finished"),
+                rep(14, "plan", "started"), rep(15, "plan", "asked", ["seams: Q seams"])]
+
+    def test_cards_go_to_the_session_that_asked_them(self):
+        state, states = st.route_stage_decisions(self.state(), {}, self.SESSIONS, self.reports())
+        self.assertEqual([d["id"] for d in states["grill"]["decisions"]], ["audience", "mockup-verdict"])
+        self.assertEqual([d["id"] for d in states["plan"]["decisions"]], ["seams"])
+        self.assertNotIn("review", states)
+        self.assertEqual(state["decisions"], [])
+
+    def test_the_rest_goes_to_the_latest_stage_session_still_working(self):
+        # No asked report names `seams`: plan started after grill finished, and
+        # review never reported, so plan is the file's current writer.
+        rs = [r for r in self.reports() if r["id"] != 15]
+        state, states = st.route_stage_decisions(self.state(), {}, self.SESSIONS, rs)
+        self.assertEqual([d["id"] for d in states["plan"]["decisions"]], ["seams"])
+        self.assertEqual(states["plan"]["blocking"], "the test seams")
+        self.assertEqual(states["plan"]["skillsUsed"], ["grilling", "to-spec"])
+        self.assertNotIn("blocking", state)
+        self.assertEqual(state["artifacts"], [{"label": "ADR", "href": "docs/adr/1.md"}])
+
+    def test_a_session_with_its_own_file_keeps_it_first(self):
+        own = {"plan": {"decisions": [card("own")], "blocking": "its own", "skillsUsed": []}}
+        _, states = st.route_stage_decisions(self.state(), own, self.SESSIONS, self.reports())
+        self.assertEqual([d["id"] for d in states["plan"]["decisions"]], ["own", "seams"])
+        self.assertEqual(states["plan"]["blocking"], "its own")
+        self.assertEqual(own["plan"]["decisions"], [card("own")])  # inputs unchanged
+
+    def test_closed_sessions_dont_own_the_file(self):
+        rs = [r for r in self.reports() if r["id"] != 15]
+        _, states = st.route_stage_decisions(self.state(), {}, self.SESSIONS, rs, closed={"plan": "2026-11-15T10:00:00Z"})
+        self.assertNotIn("seams", [d["id"] for d in (states.get("plan") or {}).get("decisions") or []])
+
+    def test_without_reports_the_latest_stage_owns_it(self):
+        _, states = st.route_stage_decisions(self.state(), {}, {"shape": "s", "plan": "p"}, [])
+        self.assertEqual(len(states["plan"]["decisions"]), 3)
+
+    def test_without_a_stage_session_the_file_stays_the_efforts(self):
+        state, states = st.route_stage_decisions(self.state(), {}, {"conductor": "c"}, self.reports())
+        self.assertEqual(len(state["decisions"]), 3)
+        self.assertEqual(states, {})
+
+    def test_frontier_waiting_names_plan(self):
+        state, states = st.route_stage_decisions(self.state(), {}, self.SESSIONS, self.reports())
+        d = {"sessions": self.SESSIONS, "state": state, "sessionStates": states, "frontier": {"tiles": []}}
+        self.assertEqual([(x["from"], x["id"]) for x in reports.open_decisions(d)], [("plan", "seams")])
+        self.assertEqual(reports.session_blocking(d), [{"from": "plan", "blocking": "the test seams"}])
+
+
 class Cli(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

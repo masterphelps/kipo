@@ -136,9 +136,10 @@ def take_unread(repo_path, number, mark=True):
     return unread
 
 
-# The effort's own state.json is shared by its stage conversations; it is named
-# by the latest of them that exists.
-_STAGE_ORDER = ("done", "review", "plan", "shape", "grill", "intake", "build")
+# Every conversation has its own state file (sessionStates). What's left in the
+# effort's older state.json once the detail attributed it (only when no stage
+# session exists) is named by the latest stage that exists, else "effort".
+_STAGE_ORDER = col_state.STAGE_ORDER
 _KEY_RE = re.compile(r"^(?:shape|build|review)-t(\d+)$")
 
 

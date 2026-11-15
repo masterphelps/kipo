@@ -282,8 +282,11 @@ is **closable** when both hold:
 | `plan` | build tickets are cut |
 | `build-spec`, `done` | the frontier has landed |
 
-Never closable: the conductor, and any session whose state file has an unanswered decision
-card (the stage conversations share `state.json`, so a card there holds all of them).
+Never closable: the conductor; any session whose own state file has an unanswered decision
+card (each conversation has its own, so a card holds only the session that asked it); and a
+session sharing its slot with another that stays open (the hand-over continues the grilling's
+conversation, so a finished `grill` stays open, "its conversation carries on as plan", until
+`plan` is closable too; then both close).
 
 The effort detail carries `closing: [{key, slot, status, reason}]` for every session in
 `sessions`, `status` being `open` (it stays), `closable` or `closed`. On its 5-second effort
@@ -363,19 +366,20 @@ stalled, woken or stuck is owned by `Stalled` with that session, its state and w
 | Conversation | Key | Skill | State file |
 |---|---|---|---|
 | The effort's own: the conductor | `conductor` (agent `kipo-conductor`) | `kipo-conductor` | `.kipo/<n>/conductor.json` |
-| An earlier effort conversation | its legacy label (`intake`, `grill`, `shape`, `build`) | `kipo-<label>` | `.kipo/<n>/state.json` |
+| An effort stage conversation | its stage (`intake`, `grill`, `shape`, `build`) | `kipo-<stage>` | `.kipo/<n>/<stage>.json` |
 | A Decide ticket | `shape-t<t>` | `kipo-shape`, plus its type's skill | `.kipo/<n>/shape-t<t>.json` |
 | A Deliver ticket | `build-t<t>` | `kipo-build` + `implement` | `.kipo/<n>/build-t<t>.json` |
 | Every ready ticket | `build-spec` | `kipo-build` + `implement-spec` | `.kipo/<n>/build-spec.json` |
-| The hand-over | `plan` | `kipo-plan` + `to-spec` | `.kipo/<n>/state.json` |
-| Review the PRs | `review` | `kipo-review` | `.kipo/<n>/state.json` |
-| The retro | `done` | `kipo-done` + `retro` | `.kipo/<n>/state.json` |
+| The hand-over | `plan` | `kipo-plan` + `to-spec` | `.kipo/<n>/plan.json` |
+| Review the PRs | `review` | `kipo-review` | `.kipo/<n>/review.json` |
+| The retro | `done` | `kipo-done` + `retro` | `.kipo/<n>/done.json` |
 
 Session names are `kipo-<owner>-<repo>-<n>-<key>`, filed in the sidebar folder
 `KiPo / <repo name>`. The hand-over continues the grilling's conversation when there is one
 (Matt: keep grill → spec → tickets in one context); the backend then returns a short hand-over
-message to send into it instead of a new seed, which carries a Report line with
-`--from plan`.
+message to send into it instead of a new seed, which carries the hand-over's own
+`State file: .kipo/<n>/plan.json` line (it replaces the grill's from then on) and a Report
+line with `--from plan`. So `grill` and `plan` are two sessions on one slot.
 
 The conductor's seed has, instead of `Stage:`/`Start:`/`Report:`, its `Frontier:`,
 `Dispatch:`, `Reports:` and `Sessions:` command lines. Finished conversations are closed by the
@@ -400,12 +404,23 @@ Run /<skill>: …                         (when started for a particular skill)
 
 ## State file (written by the agent, read by the backend)
 
-One per conversation, at the seed's `State file:` path:
+One per conversation, at the seed's `State file:` path, `.kipo/<n>/<key>.json` (`conductor`,
+`grill`, `plan`, `review`, `done`, `build-t<t>`, `shape-t<t>`, `review-t<t>`, `build-spec`…):
 `{summary, blocking, decisions: [{id, title, options, recommended, answer}], artifacts: [{label, href}], skillsUsed}`.
-The detail returns the effort's own as `state` and each ticket conversation's as
-`sessionStates: {key: state}`, and merges their artifacts into `artifacts`. Decisions whose
-id starts `t<N>-` in the effort's file are shown under ticket N's conversation (from
-conversations seeded before each had its own file).
+The detail returns each conversation's as `sessionStates: {key: state}`, and merges their
+artifacts into `artifacts`; the frontier's `waiting` and `sessionsBlocking`, the close and
+stall rules and the page's cards all read a session's cards from its own entry.
+
+`state` is the effort's older shared `.kipo/<n>/state.json`, which conversations seeded before
+each had its own file wrote. KiPo never moves or edits it (a live conversation may still be
+writing it); at read time (`state.route_ticket_decisions`, `state.route_stage_decisions`) it
+shows its decisions under the session that wrote them: an id starting `t<N>-` under ticket N's
+conversation; any other under the stage session whose `asked` report listed it (`--item
+"<id>: <title>"`); the rest, and the file's `blocking`, `summary` and `skillsUsed`, under the
+file's current writer: of the stage sessions KiPo hasn't closed, the one that reported last
+while still working (last report not `finished`/`nothing-to-do`), else the one that reported
+last, else the latest stage that exists. With no stage session the file stays `state`. Its
+artifacts and `gate` stay the effort's.
 
 The UI shows the open conversation's `skillsUsed` as "Running …". Decisions are asked **in
 the chat** in full (numbered, with options and a recommendation) and recorded in the state

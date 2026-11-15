@@ -1,7 +1,12 @@
-"""The column state file the agent writes: <repoPath>/.kipo/<n>/state.json."""
+"""The state files the agents write, one per conversation: <repoPath>/.kipo/<n>/<key>.json
+(``conductor``, ``grill``, ``plan``, ``review``, ``build-t22``…). state.json is the
+effort's older shared file: stage conversations seeded before each had its own
+wrote there, and ``route_stage_decisions`` attributes what's in it."""
 import json
 import os
 import re
+
+from . import COLUMNS
 
 
 def state_dir(repo_path, number):
@@ -13,10 +18,11 @@ def state_path(repo_path, number):
 
 
 def session_state_path(repo_path, number, key):
-    """A ticket conversation's own state file: <repoPath>/.kipo/<n>/<key>.json
-    (``build-t22``, ``shape-t24``, ``build-spec``). The effort's own conversation
-    keeps state.json, so conversations running side by side don't overwrite
-    each other's decisions or skills."""
+    """A conversation's own state file: <repoPath>/.kipo/<n>/<key>.json
+    (``build-t22``, ``shape-t24``, ``build-spec``, ``conductor``, and the stage
+    conversations ``grill``, ``plan``, ``review``, ``done``…), so conversations
+    running side by side don't overwrite each other's decisions or skills, and
+    each card holds only the conversation that asked it."""
     return os.path.join(state_dir(repo_path, number), f"{key}.json")
 
 
@@ -67,6 +73,83 @@ def route_ticket_decisions(state, session_states, sessions):
     return {**state, "decisions": kept}, states
 
 
+# The latest stage first: with nothing else to go on, state.json is named by
+# the latest stage conversation that exists.
+STAGE_ORDER = ("done", "review", "plan", "shape", "grill", "intake", "build")
+_FINISHED = ("finished", "nothing-to-do")
+_ITEM_ID_RE = re.compile(r"^\s*([A-Za-z0-9][\w.-]*)\s*:")
+
+
+def _legacy_owner(stages, reports, closed):
+    """The stage conversation now writing the shared state.json: of those
+    KiPo hasn't closed, the one that reported last while still working (its
+    last report isn't finished/nothing-to-do); else the one that reported
+    last; else the latest stage that exists."""
+    last = {}
+    for r in reports:
+        if r.get("from") in stages:
+            last[r["from"]] = r
+    live = [k for k in stages if k not in closed]
+    for pool in ([k for k in live if k in last and last[k].get("event") not in _FINISHED],
+                 [k for k in live if k in last]):
+        if pool:
+            return max(pool, key=lambda k: last[k].get("id") or 0)
+    return next((k for k in STAGE_ORDER if k in live), None) or next((k for k in STAGE_ORDER if k in stages), None)
+
+
+def _askers(stages, reports):
+    """``{decision id: stage key}`` from the stage sessions' ``asked`` reports,
+    whose items read ``<id>: <title>`` (the latest asker wins)."""
+    out = {}
+    for r in reports:
+        if r.get("from") in stages and r.get("event") == "asked":
+            for item in r.get("items") or []:
+                m = _ITEM_ID_RE.match(str(item))
+                if m:
+                    out[m.group(1)] = r["from"]
+    return out
+
+
+def route_stage_decisions(state, session_states, sessions, reports=(), closed=None):
+    """Attribute the shared state.json to the stage conversations that wrote it.
+
+    Stage conversations (``grill``, ``plan``, ``review``…) seeded before each
+    had its own file all wrote state.json. Each decision goes to the stage
+    session whose ``asked`` report listed its id; any other decision, and the
+    file's ``blocking``, ``summary`` and ``skillsUsed``, go to the file's
+    current writer (``_legacy_owner``). A session's own file keeps its fields
+    and its decisions first. Read-time only: the file stays as written, since
+    such a conversation may still be writing to it. Without a stage session
+    the file stays the effort's.
+
+    Returns ``(state, session_states)`` without changing the inputs."""
+    stages = [k for k in (sessions or {}) if k in COLUMNS]
+    if not state or not stages:
+        return state, session_states
+    reports = [r for r in reports or () if isinstance(r, dict)]
+    owner = _legacy_owner(stages, reports, closed or {})
+    askers = _askers(stages, reports)
+    moved = {}
+    for d in state.get("decisions") or []:
+        key = askers.get(str(d.get("id") or "")) if isinstance(d, dict) else None
+        moved.setdefault(key or owner, []).append(d)
+    states = dict(session_states)
+    blank = {"summary": None, "blocking": None, "decisions": [], "artifacts": [], "skillsUsed": []}
+    for key in set(moved) | {owner}:
+        own = dict(states.get(key) or blank)
+        seen = {x.get("id") for x in own.get("decisions") or [] if isinstance(x, dict)}
+        own["decisions"] = list(own.get("decisions") or []) + [
+            d for d in moved.get(key, []) if not (isinstance(d, dict) and d.get("id") in seen)]
+        if key == owner:
+            for field in ("summary", "blocking", "skillsUsed"):
+                if not own.get(field) and state.get(field):
+                    own[field] = state[field]
+        states[key] = own
+    rest = {k: v for k, v in state.items() if k != "blocking"}
+    rest["decisions"] = []
+    return rest, states
+
+
 def read_state(repo_path, number):
     """The parsed state.json, or None when it is missing or unreadable."""
     if not repo_path:
@@ -77,6 +160,15 @@ def read_state(repo_path, number):
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def effort_artifacts(repo_path, number):
+    """The documents in state.json and every stage conversation's own file
+    (a map charted by the shape conversation is in shape.json)."""
+    out = state_artifacts(read_state(repo_path, number))
+    for key in COLUMNS:
+        out += state_artifacts(read_session_state(repo_path, number, key))
+    return out
 
 
 def gate_passed(state):

@@ -119,9 +119,24 @@ class Guards(unittest.TestCase):
         d = detail(["build-t4"], tickets=[(4, "CLOSED")], states={"build-t4": {"decisions": [card("A")]}})
         self.assertEqual(verdict(d, [rep("build-t4", "finished")]), {"build-t4": "closable"})
 
-    def test_unanswered_card_in_state_json_keeps_stage_sessions_open(self):
-        d = detail(["review"], prs=[(40, "MERGED", [])], landed=True, state={"decisions": [card()]})
+    def test_unanswered_card_in_a_stage_sessions_own_file_keeps_it_open(self):
+        d = detail(["review"], prs=[(40, "MERGED", [])], landed=True, states={"review": {"decisions": [card()]}})
         self.assertEqual(verdict(d, [rep("review", "finished")]), {"review": "open"})
+
+    def test_a_card_holds_only_the_stage_session_whose_file_has_it(self):
+        # Each stage session has its own state file (CONTRACT.md): plan's card
+        # doesn't hold review or done open.
+        d = detail(["plan", "review", "done"], prs=[(40, "MERGED", [])], landed=True,
+                   states={"plan": {"decisions": [card()]}})
+        rows = {r["key"]: r for r in closing.sessions(d, [rep(k, "finished") for k in ("plan", "review", "done")])}
+        self.assertEqual(rows["plan"]["reason"], "1 unanswered decision card")
+        self.assertEqual((rows["review"]["status"], rows["done"]["status"]), ("closable", "closable"))
+
+    def test_the_effort_files_leftovers_hold_no_stage_session(self):
+        # state.json's cards reach a stage session only once routed to it
+        # (state.route_stage_decisions, in the detail).
+        d = detail(["review"], prs=[(40, "MERGED", [])], landed=True, state={"decisions": [card()]})
+        self.assertEqual(verdict(d, [rep("review", "finished")]), {"review": "closable"})
 
     def test_closed_ones_say_so(self):
         d = detail(["build-t4"], tickets=[(4, "CLOSED")])
@@ -167,6 +182,29 @@ class StageSessions(unittest.TestCase):
                          {"done": "closable", "build-spec": "closable"})
         d = detail(["done"], landed=False)
         self.assertEqual(verdict(d, [rep("done", "finished")]), {"done": "open"})
+
+
+class SharedConversation(unittest.TestCase):
+    """The hand-over continues the grilling's conversation: grill and plan are
+    two keys on one slot. Closing grill's slot would close plan."""
+
+    def shared(self, **kw):
+        d = detail(["grill", "plan"], **kw)
+        d["sessions"]["plan"] = d["sessions"]["grill"]
+        return d
+
+    def test_finished_grill_stays_open_while_plan_carries_on_in_its_conversation(self):
+        d = self.shared(states={"plan": {"decisions": [card()]}})
+        rows = {r["key"]: r for r in closing.sessions(d, [rep("grill", "finished"), rep("plan", "asked")])}
+        self.assertEqual(rows["grill"]["status"], "open")
+        self.assertIn("reported finished; every decision made", rows["grill"]["reason"])
+        self.assertIn("its conversation carries on as plan", rows["grill"]["reason"])
+        self.assertEqual(rows["plan"]["reason"], "1 unanswered decision card")
+
+    def test_both_close_together_once_plan_is_done(self):
+        d = self.shared(deliver=3)
+        self.assertEqual(verdict(d, [rep("grill", "finished"), rep("plan", "finished")]),
+                         {"grill": "closable", "plan": "closable"})
 
 
 class Storage_(unittest.TestCase):

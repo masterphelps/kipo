@@ -303,8 +303,9 @@ def report_line(effort, repo_path, source):
 
 def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=None, stage=None):
     """The first message of a KiPo conversation: which conversation this is,
-    the effort's stage, and the skill to load. ``state_key`` gives a ticket's
-    conversation its own state file; the effort's own conversation uses state.json."""
+    the effort's stage, and the skill to load. Every conversation has its own
+    state file, named by its key: ``state_key`` (a ticket's, ``build-spec``),
+    else the stage's ``column``."""
     n = effort["number"]
     stage = stage or frontier_mod.LEGACY_STAGE.get(column, "intake")
     lines = [
@@ -314,7 +315,7 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         f"Start: {effort['start']}",
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
-        f"State file: {col_state.session_state_path(repo_path, n, state_key) if state_key else col_state.state_path(repo_path, n)}",
+        f"State file: {col_state.session_state_path(repo_path, n, state_key or column)}",
         # Its own session key (build-t22, review-t22), so the close rule can tell
         # a ticket's build from its review.
         report_line(effort, repo_path, state_key or column),
@@ -360,7 +361,9 @@ def render_conductor_seed(effort, repo_path):
 def render_plan_handoff(effort, skill=None, repo_path=None):
     """What goes into the grilling conversation when the human chooses to write the spec."""
     text = ("The hand-over: write the spec, then the tickets, from what this conversation decided. "
-            "Load the skill `kipo-plan` and follow it. From now on report as the hand-over:\n"
+            "Load the skill `kipo-plan` and follow it. From now on keep the hand-over's own state file "
+            "and report as the hand-over:\n"
+            f"State file: {col_state.session_state_path(repo_path, effort['number'], 'plan')}\n"
             + report_line(effort, repo_path, "plan"))
     if skill:
         text += "\n" + run_line(skill)
@@ -602,18 +605,25 @@ class Initiatives:
         repo_path = self._repo_path(repo, meta)
         st = col_state.read_state(repo_path, number)
         artifacts = merge_artifacts(body["artifacts"], col_state.state_artifacts(st))
-        meta = derive_meta(meta, artifacts)
+        # The effort's map, spec and source issue: from state.json and the stage files.
+        meta = derive_meta(meta, merge_artifacts(artifacts, col_state.effort_artifacts(repo_path, number)))
         sessions = self.storage.get_sessions(repo, number)
-        # Each ticket conversation's own state: its skills, decisions and documents.
+        # Each conversation's own state (a ticket's, a stage's): its skills,
+        # decisions and documents.
         session_states = {}
         for key in sessions:
-            if key not in COLUMNS:
-                ss = col_state.read_session_state(repo_path, number, key)
-                if ss:
-                    session_states[key] = ss
-                    artifacts = merge_artifacts(artifacts, col_state.state_artifacts(ss))
+            ss = col_state.read_session_state(repo_path, number, key)
+            if ss:
+                session_states[key] = ss
+                artifacts = merge_artifacts(artifacts, col_state.state_artifacts(ss))
 
+        # state.json, from conversations seeded before each had its own file:
+        # a ticket's decisions to its conversation, the rest to the stage
+        # conversation that asked them (read-time only).
+        all_reports = col_reports.all_reports(repo_path, number)
         st, session_states = col_state.route_ticket_decisions(st, session_states, sessions)
+        st, session_states = col_state.route_stage_decisions(
+            st, session_states, sessions, all_reports, self.storage.get_closed(repo, number))
 
         nodes, tickets_note, tickets_error = [], None, None
         try:
@@ -689,7 +699,7 @@ class Initiatives:
         activity = col_activity.merge(
             self.storage.get_activity(repo, number), self.transcript_activity(live), now)
         detail["closing"] = stalls.sessions(
-            detail, col_reports.all_reports(repo_path, number), self.storage.get_closed(repo, number),
+            detail, all_reports, self.storage.get_closed(repo, number),
             activity, col_activity.read_wakes(repo_path, number), now)
         if tickets_note:
             detail["ticketsNote"] = tickets_note
@@ -823,7 +833,7 @@ class Initiatives:
         if meta.get("mapIssue"):
             return int(meta["mapIssue"])
         path = self._repo_path(repo, meta)
-        artifacts = merge_artifacts(body["artifacts"], col_state.state_artifacts(col_state.read_state(path, number)) if path else [])
+        artifacts = merge_artifacts(body["artifacts"], col_state.effort_artifacts(path, number) if path else [])
         found = derive_meta(meta, artifacts).get("mapIssue")
         return int(found) if found else None
 
@@ -985,7 +995,7 @@ class Initiatives:
             remove += [l for l in labels if l.startswith(COL_PREFIX) and l != f"{COL_PREFIX}{target}"]
 
         meta["start"], meta["path"] = start, path
-        body["artifacts"] = merge_artifacts(body["artifacts"], col_state.state_artifacts(st))
+        body["artifacts"] = merge_artifacts(body["artifacts"], col_state.effort_artifacts(repo_path, number))
         meta.update(derive_meta(meta, body["artifacts"]))
         body["phaseLog"].append(f"{self.clock()} {column} → {target or 'closed'}")
 
@@ -1081,7 +1091,7 @@ class Initiatives:
         return {
             "slotName": slot,
             "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill,
-                                state_key=None if key in COLUMNS else key,
+                                state_key=key,
                                 stage=(self.storage.get_frontier(repo, number) or {}).get("stage")),
             "existing": False,
         }
@@ -1096,7 +1106,7 @@ class Initiatives:
             meta = body["meta"]
             artifacts = merge_artifacts(
                 body["artifacts"],
-                col_state.state_artifacts(col_state.read_state(self._repo_path(repo, meta), number)),
+                col_state.effort_artifacts(self._repo_path(repo, meta), number),
             )
             meta = derive_meta(meta, artifacts)
             if meta.get("mapIssue"):
@@ -1160,7 +1170,7 @@ class Initiatives:
         # the meta comment, so read it through the same derivation the detail uses.
         artifacts = merge_artifacts(
             body["artifacts"],
-            col_state.state_artifacts(col_state.read_state(self._repo_path(repo, body["meta"]), number)),
+            col_state.effort_artifacts(self._repo_path(repo, body["meta"]), number),
         )
         map_issue = derive_meta(body["meta"], artifacts).get("mapIssue")
         if map_issue:

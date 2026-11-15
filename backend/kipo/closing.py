@@ -19,8 +19,12 @@ A session is **closable** when both hold:
    - ``plan`` (the hand-over): build tickets are cut.
    - ``build-spec`` and ``done``: everything delivered is merged or closed.
 
-It is never closable while its state file has an unanswered decision card, and
-the conductor (the effort's own conversation) is never closed. The page closes
+It is never closable while its own state file has an unanswered decision card
+(every conversation has its own; the effort's older shared state.json is
+attributed to its stage sessions in the detail, ``state.route_stage_decisions``),
+nor while another session on the same slot stays open: the hand-over (``plan``)
+continues the grilling's conversation, so closing a finished ``grill`` would
+close ``plan`` too. The conductor (the effort's own conversation) is never closed. The page closes
 closable sessions through Kiro Crew (``DELETE /api/chat/slots/<slot>``: stopped,
 history kept, resumable) and records them here as ``closed``.
 
@@ -106,12 +110,10 @@ def _open_cards(state):
 
 
 def open_cards(detail, key):
-    """How many unanswered decision cards hold this session. A ticket's
-    conversation (and build-spec) has its own state file; the stage ones share
-    state.json."""
-    states = detail.get("sessionStates") or {}
-    own = _ticket_of(key)[0] or key == "build-spec"
-    return _open_cards(states.get(key) if own else detail.get("state"))
+    """How many unanswered decision cards hold this session: those in its own
+    state (``sessionStates[key]``: its own file, plus what the detail
+    attributed to it from the older shared state.json)."""
+    return _open_cards((detail.get("sessionStates") or {}).get(key))
 
 
 def settled(key, detail, rs, closed_tickets, prs):
@@ -178,7 +180,6 @@ def sessions(detail, reports, closed=None):
         if key in closed:
             out.append({**row, "status": "closed", "reason": f"closed by KiPo {closed[key]}"})
             continue
-        # A ticket's conversation has its own state file; the stage ones share state.json.
         cards = open_cards(detail, key)
         if cards:
             out.append({**row, "status": "open", "reason": f"{cards} unanswered decision card{'s' if cards > 1 else ''}"})
@@ -188,4 +189,13 @@ def sessions(detail, reports, closed=None):
         ok, why_settled = settled(key, detail, rs, closed_tickets, prs)
         status = "closable" if done and ok else "open"
         out.append({**row, "status": status, "reason": f"{why_done}; {why_settled}"})
+    # One conversation, two keys (grill, then plan in the same slot): close the
+    # slot only once every key on it is closable.
+    for row in out:
+        if row["status"] != "closable":
+            continue
+        holding = [r["key"] for r in out if r is not row and r["slot"] == row["slot"] and r["status"] == "open"]
+        if holding:
+            row["status"] = "open"
+            row["reason"] += f"; its conversation carries on as {', '.join(holding)}"
     return out

@@ -15,7 +15,7 @@ import { closeFinished, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
 import {
-  COLUMNS, COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
+  COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
   type Column, type EffortDetail, type PhaseState, type SessionActivity, type TicketInfo, type Tile,
 } from './types'
 
@@ -474,8 +474,9 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   }
 
   // The open conversation's own state (CONTRACT.md: one state file per
-  // conversation): the effort's own uses state.json, a ticket's its own file.
-  const convState: PhaseState | null = key && !isColumn(key) ? detail.sessionStates?.[key] ?? null : detail.state
+  // conversation): a ticket's or a stage's (plan, review…) own file, plus what
+  // the backend attributed to it from the effort's older shared state.json.
+  const convState: PhaseState | null = key ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
   // Every conversation with open questions, in spine order: the conductor,
   // then the tickets, then the stage conversations. The spine's amber chip
@@ -1035,8 +1036,6 @@ function NotStarted({ detail, focus, ticket, tile, starting, onStart, alternativ
     </div>
   )
 }
-
-const isColumn = (key: string) => (COLUMNS as readonly string[]).includes(key)
 
 // The one real choice when starting: how to start it. Only where Matt's skills
 // offer a genuine alternative; everywhere else Start runs the right skill.

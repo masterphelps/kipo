@@ -7,6 +7,7 @@ from test_backend import REPO, Base, write_state
 
 from kipo import COLUMNS, PATHS, SKILLS, run_line
 from kipo import initiatives as ini
+from kipo import reports as col_reports
 from kipo import state as st
 
 DONE = {"gate": [{"id": "g", "label": "Done", "done": True}]}
@@ -232,7 +233,7 @@ class SessionTests(Columns):
         return (f"Report: python3 {ini.KIPO_CLI} report {REPO} {n} --from {source} --checkout {self.checkout} "
                 '--event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...')
 
-    def seed(self, column, conversation, stage, extra=(), run=None, n=7, state="state.json", source=None):
+    def seed(self, column, conversation, stage, extra=(), run=None, n=7, state=None, source=None):
         lines = [
             f'[KiPo] Effort #{n} "Widgets" in {REPO}',
             f"Conversation: {conversation}",
@@ -240,7 +241,7 @@ class SessionTests(Columns):
             "Start: idea",
             f"Repo checkout: {self.checkout}",
             f"Effort issue: https://github.com/{REPO}/issues/{n}",
-            f"State file: {self.checkout}/.kipo/{n}/{state}",
+            f"State file: {self.checkout}/.kipo/{n}/{state or (source or column) + '.json'}",
             self.report(source or column, n),
             *extra,
             f"Load the skill `kipo-{column}` and follow it. Destination: Ship widgets.",
@@ -270,7 +271,9 @@ class SessionTests(Columns):
         self.assertEqual(
             out["seed"],
             "The hand-over: write the spec, then the tickets, from what this conversation decided. "
-            "Load the skill `kipo-plan` and follow it. From now on report as the hand-over:\n"
+            "Load the skill `kipo-plan` and follow it. From now on keep the hand-over's own state file "
+            "and report as the hand-over:\n"
+            f"State file: {self.checkout}/.kipo/7/plan.json\n"
             + self.report("plan") + "\n" + RUN.format(s="to-spec"),
         )
         self.assertEqual(self.get()[1]["sessions"], {"grill": "kipo-acme-widgets-7-grill", "plan": "kipo-acme-widgets-7-grill"})
@@ -679,9 +682,24 @@ class SessionStateTests(Columns):
         d = self.get()[1]
         self.assertEqual(d["sessionStates"]["build-t20"]["skillsUsed"], ["implement", "tdd"])
         self.assertIn("docs/notes.md", [a["href"] for a in d["artifacts"]])
-        # The effort's own conversation still uses state.json.
+        # A stage conversation has its own file too, named by its key.
         main = self.post("/session", {"column": "build"})[1]
-        self.assertIn(f"State file: {self.checkout}/.kipo/7/state.json", main["seed"])
+        self.assertIn(f"State file: {self.checkout}/.kipo/7/build.json", main["seed"])
+
+    def test_stage_state_is_its_own_and_read_back(self):
+        self.make_effort(column="review")
+        out = self.post("/session", {"column": "review"})[1]
+        path = f"{self.checkout}/.kipo/7/review.json"
+        self.assertIn(f"State file: {path}", out["seed"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"skillsUsed": ["kipo-review"], "decisions": [{"id": "merge", "title": "Merge?", "options": ["Yes"], "answer": None}],
+                       "artifacts": [{"label": "Notes", "href": "docs/review.md"}]}, f)
+        d = self.get()[1]
+        self.assertEqual([x["id"] for x in d["sessionStates"]["review"]["decisions"]], ["merge"])
+        self.assertIn("docs/review.md", [a["href"] for a in d["artifacts"]])
+        row = next(r for r in d["closing"] if r["key"] == "review")
+        self.assertEqual(row["reason"], "1 unanswered decision card")
 
 
 class TicketDecisionsInTheEffortFileTests(Columns):
@@ -711,6 +729,36 @@ class TicketDecisionsInTheEffortFileTests(Columns):
         s = self.get()[1]["sessionStates"]["shape-t30"]
         self.assertEqual([x["id"] for x in s["decisions"]], ["own", "t30-a"])
         self.assertEqual(s["skillsUsed"], ["grilling"])
+
+
+class StageDecisionsInTheEffortFileTests(Columns):
+    """Stage conversations seeded before each had its own file share state.json
+    (effort #1054: the grill, the hand-over in the grill's conversation, and
+    the review). Each card shows under the session that asked it."""
+
+    def test_a_card_is_attributed_to_the_session_that_asked_it(self):
+        self.make_effort(column="plan")
+        for key, slot in (("grill", "slot-g"), ("plan", "slot-g"), ("review", "slot-r")):
+            self.storage.record_session(REPO, 7, key, slot)
+        write_state(self.checkout, 7, {"blocking": "the seams", "decisions": [
+            {"id": "audience", "title": "Who?", "options": ["A"], "answer": "A"},
+            {"id": "seams", "title": "Two seams?", "options": ["Yes"], "answer": None},
+        ], "gate": [], "artifacts": []})
+        for source, event, items in (("grill", "asked", ["audience: Who?"]), ("grill", "finished", []),
+                                     ("plan", "started", []), ("plan", "asked", ["seams: Two seams?"])):
+            col_reports.append(self.checkout, 7, source, event, "x", items)
+        with open(st.state_path(self.checkout, 7)) as f:
+            before = f.read()
+        d = self.get()[1]
+        self.assertEqual([x["id"] for x in d["sessionStates"]["plan"]["decisions"]], ["seams"])
+        self.assertEqual([x["id"] for x in d["sessionStates"]["grill"]["decisions"]], ["audience"])
+        self.assertNotIn("review", d["sessionStates"])
+        rows = {r["key"]: r for r in d["closing"]}
+        self.assertEqual(rows["plan"]["reason"], "1 unanswered decision card")
+        self.assertNotIn("decision card", rows["review"]["reason"])
+        self.assertNotIn("decision card", rows["grill"]["reason"])
+        with open(st.state_path(self.checkout, 7)) as f:
+            self.assertEqual(f.read(), before)  # read-time only
 
 
 class MapAsEffortTests(Columns):
