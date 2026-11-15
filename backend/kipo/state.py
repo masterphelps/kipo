@@ -116,9 +116,11 @@ def route_stage_decisions(state, session_states, sessions, reports=(), closed=No
     Stage conversations (``grill``, ``plan``, ``review``…) seeded before each
     had its own file all wrote state.json. Each decision goes to the stage
     session whose ``asked`` report listed its id; any other decision, and the
-    file's ``blocking``, ``summary`` and ``skillsUsed``, go to the file's
-    current writer (``_legacy_owner``). A session's own file keeps its fields
-    and its decisions first. Read-time only: the file stays as written, since
+    file's ``skillsUsed``, go to the file's current writer (``_legacy_owner``).
+    Its ``blocking`` and ``summary`` go with its open cards when they are all
+    one session's (a blocking line beside open cards is waiting on their
+    answers), else to the current writer too. A session's own file keeps its
+    fields and its decisions first. Read-time only: the file stays as written, since
     such a conversation may still be writing to it. Without a stage session
     the file stays the effort's.
 
@@ -133,17 +135,21 @@ def route_stage_decisions(state, session_states, sessions, reports=(), closed=No
     for d in state.get("decisions") or []:
         key = askers.get(str(d.get("id") or "")) if isinstance(d, dict) else None
         moved.setdefault(key or owner, []).append(d)
+    asking = {k for k, ds in moved.items()
+              if any(isinstance(d, dict) and d.get("answer") in (None, "") for d in ds)}
+    waiter = next(iter(asking)) if len(asking) == 1 else owner
+    fields = {owner: ("skillsUsed",)}
+    fields[waiter] = fields.get(waiter, ()) + ("summary", "blocking")
     states = dict(session_states)
     blank = {"summary": None, "blocking": None, "decisions": [], "artifacts": [], "skillsUsed": []}
-    for key in set(moved) | {owner}:
+    for key in set(moved) | {owner, waiter}:
         own = dict(states.get(key) or blank)
         seen = {x.get("id") for x in own.get("decisions") or [] if isinstance(x, dict)}
         own["decisions"] = list(own.get("decisions") or []) + [
             d for d in moved.get(key, []) if not (isinstance(d, dict) and d.get("id") in seen)]
-        if key == owner:
-            for field in ("summary", "blocking", "skillsUsed"):
-                if not own.get(field) and state.get(field):
-                    own[field] = state[field]
+        for field in fields.get(key, ()):
+            if not own.get(field) and state.get(field):
+                own[field] = state[field]
         states[key] = own
     rest = {k: v for k, v in state.items() if k != "blocking"}
     rest["decisions"] = []

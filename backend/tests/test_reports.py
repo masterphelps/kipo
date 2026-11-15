@@ -166,6 +166,23 @@ class StageDecisionsInTheEffortFile(unittest.TestCase):
         self.assertNotIn("blocking", state)
         self.assertEqual(state["artifacts"], [{"label": "ADR", "href": "docs/adr/1.md"}])
 
+    def test_blocking_goes_with_the_files_open_cards(self):
+        # Review started after plan asked (and writes the same file), but the
+        # file's blocking line is about plan's open card.
+        rs = self.reports() + [rep(16, "review", "started", ["#1060 https://x/pull/1060"])]
+        state, states = st.route_stage_decisions(self.state(), {}, self.SESSIONS, rs)
+        self.assertEqual(states["plan"]["blocking"], "the test seams")
+        self.assertEqual(states["plan"]["summary"], "Hand-over: writing the spec")
+        self.assertFalse((states.get("review") or {}).get("blocking"))
+        self.assertEqual(states["review"]["skillsUsed"], ["grilling", "to-spec"])
+
+    def test_with_no_open_card_blocking_goes_to_the_current_writer(self):
+        s = self.state()
+        s["decisions"][-1]["answer"] = "Yes"
+        rs = self.reports() + [rep(16, "review", "started")]
+        _, states = st.route_stage_decisions(s, {}, self.SESSIONS, rs)
+        self.assertEqual(states["review"]["blocking"], "the test seams")
+
     def test_a_session_with_its_own_file_keeps_it_first(self):
         own = {"plan": {"decisions": [card("own")], "blocking": "its own", "skillsUsed": []}}
         _, states = st.route_stage_decisions(self.state(), own, self.SESSIONS, self.reports())

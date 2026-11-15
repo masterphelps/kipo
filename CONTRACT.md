@@ -416,11 +416,13 @@ each had its own file wrote. KiPo never moves or edits it (a live conversation m
 writing it); at read time (`state.route_ticket_decisions`, `state.route_stage_decisions`) it
 shows its decisions under the session that wrote them: an id starting `t<N>-` under ticket N's
 conversation; any other under the stage session whose `asked` report listed it (`--item
-"<id>: <title>"`); the rest, and the file's `blocking`, `summary` and `skillsUsed`, under the
-file's current writer: of the stage sessions KiPo hasn't closed, the one that reported last
-while still working (last report not `finished`/`nothing-to-do`), else the one that reported
-last, else the latest stage that exists. With no stage session the file stays `state`. Its
-artifacts and `gate` stay the effort's.
+"<id>: <title>"`); the rest, and the file's `skillsUsed`, under the file's current writer: of
+the stage sessions KiPo hasn't closed, the one that reported last while still working (last
+report not `finished`/`nothing-to-do`), else the one that reported last, else the latest stage
+that exists. The file's `blocking` and `summary` go with its unanswered cards when those are
+all one session's (a blocking line beside open cards waits on their answers), else to the
+current writer. With no stage session the file stays `state`. Its artifacts and `gate` stay
+the effort's.
 
 The UI shows the open conversation's `skillsUsed` as "Running …". Decisions are asked **in
 the chat** in full (numbered, with options and a recommendation) and recorded in the state
