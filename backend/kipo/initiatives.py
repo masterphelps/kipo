@@ -247,6 +247,19 @@ def closed_issues(body, repo):
     return found
 
 
+_NAMED_RE = re.compile(r"(?<![\w/.#-])#(\d+)\b")
+
+
+def named_issues(text):
+    """Issue numbers named in ``text`` as ``#n`` (not ``other/repo#n``), in order."""
+    found = []
+    for m in _NAMED_RE.finditer(text or ""):
+        n = int(m.group(1))
+        if n not in found:
+            found.append(n)
+    return found
+
+
 def on_effort_branch(head, number):
     head = head or ""
     prefix = f"kipo/{number}"
@@ -387,6 +400,23 @@ def source_issue_of(repo, meta, artifacts):
     return None
 
 
+def spec_issues(repo, nodes, artifacts):
+    """The effort's spec issues among its tickets: a spec is a parent, not
+    work. Each ticket that is the native sub-issue parent of another of the
+    effort's tickets (``to-tickets`` makes each ticket the spec's sub-issue),
+    plus each issue a "Spec" artifact names in this repo (plan.json and the
+    older state.json may each carry one)."""
+    numbers = {n["number"] for n in nodes}
+    out = {n.get("parent") for n in nodes if n.get("parent") in numbers}
+    for a in artifacts or []:
+        if (a.get("label") or "").strip().lower() == "spec":
+            href = a.get("href") or ""
+            m = _ISSUE_URL_RE.search(href)
+            if m and f"github.com/{repo.lower()}/issues/" in href.lower():
+                out.add(int(m.group(1)))
+    return sorted(n for n in out if n in numbers)
+
+
 def derive_meta(meta, artifacts):
     """Fill mapIssue and specPath from the "Wayfinder map" and "Spec" artifacts
     when the meta comment doesn't carry them yet."""
@@ -453,6 +483,9 @@ class Initiatives:
         # The stall rule's inputs that aren't GitHub's (kipo/activity.py).
         self.now = lambda: datetime.datetime.now(datetime.timezone.utc)
         self.transcript_activity = col_activity.transcript_activity
+        # The slots Kiro Crew created (None: unknown), to tell a recorded
+        # session that never started.
+        self.known_slots = col_activity.known_slots
 
     # -- helpers ----------------------------------------------------------
 
@@ -511,13 +544,23 @@ class Initiatives:
         owner, name = repo.split("/", 1)
         query = _TICKETS_QUERY.replace("LABELS", json.dumps([f"kipo:{number}"]))
         note = None
-        try:
-            data = self.gh.graphql(query.replace("BLOCKED", _TICKET_BLOCKED_FIELD), owner=owner, name=name)
-        except KipoError as e:
-            if "blockedBy" not in e.message:
-                raise
-            data = self.gh.graphql(query.replace("BLOCKED", ""), owner=owner, name=name)
-            note = "Issue dependencies are unavailable, so blocking was not checked."
+        fields = {"BLOCKED": _TICKET_BLOCKED_FIELD, "PARENT": _TICKET_PARENT_FIELD}
+        while True:
+            q = query
+            for k, v in fields.items():
+                q = q.replace(k, v)
+            try:
+                data = self.gh.graphql(q, owner=owner, name=name)
+                break
+            except KipoError as e:
+                # A tracker without issue dependencies or sub-issues: drop that field.
+                if fields["BLOCKED"] and "blockedBy" in e.message:
+                    fields["BLOCKED"] = ""
+                    note = "Issue dependencies are unavailable, so blocking was not checked."
+                elif fields["PARENT"] and "parent" in e.message:
+                    fields["PARENT"] = ""
+                else:
+                    raise
         issues = ((((data or {}).get("data") or {}).get("repository") or {}).get("issues") or {})
         nodes = []
         for node in issues.get("nodes") or []:
@@ -531,6 +574,7 @@ class Initiatives:
                 "blockers": [
                     {"number": b["number"], "state": b.get("state") or "OPEN"} for b in blockers if "number" in b
                 ],
+                "parent": ((node.get("parent") or {}).get("number")),
             })
         nodes.sort(key=lambda n: n["number"])
         return nodes, note
@@ -563,14 +607,21 @@ class Initiatives:
 
     def _prs(self, repo, number, ticket_numbers_):
         """The repo's PRs that belong to this effort, each with the tickets it closes."""
+        return self._pr_lists(repo, number, ticket_numbers_)[0]
+
+    def _pr_lists(self, repo, number, ticket_numbers_, named=None):
+        """``(prs, ref_prs)`` from one ``gh pr list``: the effort's PRs (closing
+        one of ``ticket_numbers_`` or the effort, or on its branch), and the
+        open PRs that only name one of ``named`` (default: the same tickets),
+        ``#n`` in the title or body with no closing keyword, each with
+        ``refs``, the tickets it names."""
         mine = set(ticket_numbers_)
-        prs = []
+        named = set(named if named is not None else ticket_numbers_)
+        prs, refs = [], []
         for pr in self.gh.list_prs(repo):
             closes = closed_issues(pr.get("body"), repo)
             tickets = [t for t in closes if t in mine]
-            if not (tickets or number in closes or on_effort_branch(pr.get("headRefName"), number)):
-                continue
-            prs.append({
+            row = {
                 "number": pr["number"],
                 "title": pr.get("title") or "",
                 "url": pr.get("url") or "",
@@ -578,9 +629,16 @@ class Initiatives:
                 "isDraft": bool(pr.get("isDraft")),
                 "headRefName": pr.get("headRefName") or "",
                 "tickets": tickets,
-            })
+            }
+            if tickets or number in closes or on_effort_branch(pr.get("headRefName"), number):
+                prs.append(row)
+                continue
+            names = [n for n in named_issues(f"{pr.get('title') or ''}\n{pr.get('body') or ''}") if n in named]
+            if names and row["state"] == "OPEN":
+                refs.append({**row, "refs": names})
         prs.sort(key=lambda p: p["number"])
-        return prs
+        refs.sort(key=lambda p: p["number"])
+        return prs, refs
 
     @staticmethod
     def _ticket_detail(node, prs, sessions):
@@ -630,15 +688,10 @@ class Initiatives:
             nodes, tickets_note = self._ticket_nodes(repo, number)
         except KipoError as e:
             tickets_error = e.message
-        prs, prs_error = [], None
-        try:
-            # A PR that closes the issue the effort started from is the effort's PR too.
-            source = source_issue_of(repo, meta, artifacts)
-            prs = self._prs(repo, number, [n["number"] for n in nodes] + ([source] if source else []))
-        except KipoError as e:
-            prs_error = e.message
-        tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
-
+        # The spec issue is the tickets' parent, not a ticket: no tile, no build.
+        specs = spec_issues(repo, nodes, artifacts)
+        spec_nodes = [n for n in nodes if n["number"] in specs]
+        nodes = [n for n in nodes if n["number"] not in specs]
         # The frontier: build tickets and the map's children, each in its real state.
         map_nodes, map_body, map_closed = [], None, False
         if meta.get("mapIssue"):
@@ -646,6 +699,16 @@ class Initiatives:
                 map_nodes, map_body, map_closed = self._map_children(repo, int(meta["mapIssue"]))
             except KipoError:
                 map_nodes, map_body, map_closed = [], None, False
+        prs, ref_prs, prs_error = [], [], None
+        try:
+            # A PR that closes the issue the effort started from is the effort's PR too.
+            source = source_issue_of(repo, meta, artifacts)
+            closers = [n["number"] for n in nodes + spec_nodes] + ([source] if source else [])
+            # An open PR naming any of its tickets (a map child too) without closing it: refPrs.
+            prs, ref_prs = self._pr_lists(repo, number, closers, closers + [n["number"] for n in map_nodes])
+        except KipoError as e:
+            prs_error = e.message
+        tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
         source_node = None
         source = source_issue_of(repo, meta, artifacts)
         if source and source not in {n["number"] for n in nodes} | {n["number"] for n in map_nodes}:
@@ -686,6 +749,10 @@ class Initiatives:
             "history": col_state.read_archived(repo_path, number, COLUMNS[: COLUMNS.index(column)]),
             "tickets": tickets,
             "prs": prs,
+            # Open PRs that name an effort ticket without closing it (the conductor's review threads).
+            "refPrs": ref_prs,
+            # The effort's spec issues: parents of its tickets, never tiles.
+            "specIssues": specs,
             "frontier": front,
             "sessionStates": session_states,
             # What stage sessions told the conductor (kipo_cli.py report), and how far it has read.
@@ -696,6 +763,11 @@ class Initiatives:
         # the stalled ones.
         now = self.now()
         live = {k: v for k, v in sessions.items() if k not in closing.NEVER}
+        # When KiPo opened each session and whether its seed went out; the
+        # recorded slots Kiro Crew never created.
+        detail["starts"] = self.storage.get_starts(repo, number)
+        known = self.known_slots()
+        detail["missingSlots"] = sorted(v for v in live.values() if known is not None and v not in known)
         activity = col_activity.merge(
             self.storage.get_activity(repo, number), self.transcript_activity(live), now)
         detail["closing"] = stalls.sessions(
@@ -936,6 +1008,14 @@ class Initiatives:
         self.storage.record_activity(repo, number, clean, seen)
         return {"recorded": sorted(clean)}
 
+    def record_started(self, repo, number, key):
+        """The page sent this session's seed (or its hand-over message): it
+        has started. Until then a recorded session hasn't (kipo/closing.py)."""
+        sessions = self.storage.get_sessions(repo, number)
+        if not isinstance(key, str) or key not in sessions:
+            raise KipoError(f"Not a session of this effort: {key!r}.", "invalid_key", 400)
+        return {"started": self.storage.mark_seeded(repo, number, key)}
+
     def record_wake(self, repo, number, key, stall, why):
         """The page woke a stalled session (kipo/stalls.py): record it in the
         effort's checkout (.kipo/<n>/wakes.json), once per stall."""
@@ -1033,7 +1113,7 @@ class Initiatives:
 
     # -- sessions ---------------------------------------------------------
 
-    def session(self, repo, number, column=None, skill=None, ticket=None, mode=None):
+    def session(self, repo, number, column=None, skill=None, ticket=None, mode=None, replace=False):
         issue, body = self._fetch(repo, number)
         summary = self._summary(repo, issue, body)
         column = validate_column(column or summary["column"])
@@ -1049,7 +1129,7 @@ class Initiatives:
             # The effort's own conversation, run by the kipo-conductor agent.
             slot = session_name(repo, number, "conductor")
             self.storage.record_session(repo, number, "conductor", slot)
-            return {"slotName": slot, "agent": CONDUCTOR_AGENT, "existing": False,
+            return {"slotName": slot, "key": "conductor", "agent": CONDUCTOR_AGENT, "existing": False,
                     "seed": render_conductor_seed(summary, repo_path)}
 
         if mode == "implement-spec":
@@ -1069,8 +1149,11 @@ class Initiatives:
                 # One ticket's review (kipo-review): its own conversation beside
                 # the build's, seeded with the ticket and its open PRs.
                 found = self.gh.view_issue(repo, ticket)
-                prs = [p for p in self._prs(repo, number, [ticket])
-                       if ticket in p["tickets"] and p["state"] == "OPEN"]
+                # Its open PRs: those closing it, and those only naming it (#t),
+                # which it reviews even once the ticket closed.
+                closers, namers = self._pr_lists(repo, number, [ticket])
+                prs = sorted([p for p in closers if ticket in p["tickets"] and p["state"] == "OPEN"] + namers,
+                             key=lambda p: p["number"])
                 seed_ticket = {"number": ticket, "title": (found or {}).get("title") or "", "prs": prs}
                 key = f"review-t{ticket}"
             else:
@@ -1080,16 +1163,26 @@ class Initiatives:
                 )
         else:
             key, seed_ticket = column, None
-            if column == "plan" and sessions.get("grill"):
+            if column == "plan" and sessions.get("grill") and not replace:
                 # Grill and Plan share one unbroken context.
                 slot = sessions["grill"]
                 self.storage.record_session(repo, number, "plan", slot)
-                return {"slotName": slot, "seed": render_plan_handoff(summary, skill, repo_path), "existing": True}
+                return {"slotName": slot, "key": "plan", "seed": render_plan_handoff(summary, skill, repo_path),
+                        "existing": True}
 
         slot = session_name(repo, number, key)
+        if replace and sessions.get(key):
+            # A re-dispatch replaces the thread's dead session: a fresh slot, so
+            # nothing of the old one (closed in Kiro Crew by the page) carries over.
+            used = {sessions[key], *self.storage.get_starts(repo, number).get(key, {}).get("replaced", [])}
+            k = 2
+            while f"{slot}-r{k}" in used:
+                k += 1
+            slot = f"{slot}-r{k}"
         self.storage.record_session(repo, number, key, slot)
         return {
             "slotName": slot,
+            "key": key,
             "seed": render_seed(summary, repo_path, column, ticket=seed_ticket, skill=skill,
                                 state_key=key,
                                 stage=(self.storage.get_frontier(repo, number) or {}).get("stage")),
@@ -1101,6 +1194,13 @@ class Initiatives:
         tickets, a child of its wayfinder map, or the issue it started from."""
         nodes, _ = self._ticket_nodes(repo, number)
         found = next((n for n in nodes if n["number"] == ticket), None)
+        if found:
+            _, body = self._fetch(repo, number)
+            artifacts = merge_artifacts(
+                body["artifacts"], col_state.effort_artifacts(self._repo_path(repo, body["meta"]), number))
+            if ticket in spec_issues(repo, nodes, artifacts):
+                raise KipoError(f"#{ticket} is the effort's spec: its tickets are the work, not the spec.",
+                                "is_spec", 409)
         if not found:
             issue, body = self._fetch(repo, number)
             meta = body["meta"]
@@ -1227,8 +1327,10 @@ _TICKETS_QUERY = (
     "query($owner: String!, $name: String!) {"
     " repository(owner: $owner, name: $name) {"
     " issues(first: 100, labels: LABELS, states: [OPEN, CLOSED], orderBy: {field: CREATED_AT, direction: ASC}) {"
-    " nodes { number title url state labels(first: 50) { nodes { name } } BLOCKED } } } }"
+    " nodes { number title url state labels(first: 50) { nodes { name } } BLOCKED PARENT } } } }"
 )
+# The ticket's native sub-issue parent: a ticket that is another's parent is the spec.
+_TICKET_PARENT_FIELD = "parent { number }"
 _COUNT_QUERY = (
     "query($owner: String!, $name: String!, $cursor: String) {"
     " repository(owner: $owner, name: $name) {"

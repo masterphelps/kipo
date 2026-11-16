@@ -837,3 +837,143 @@ class MapAsEffortTests(Columns):
     def test_an_issue_that_is_neither_is_refused(self):
         self.fake.add_issue(REPO, 60, title="Plain")
         self.assertEqual(self.get(n=60)[0], 404)
+
+
+class PrsNamingATicketTests(Columns):
+    """A PR that names an effort ticket (#n in its title or body) without a
+    closing keyword: not one of the effort's ``prs`` (they close a ticket), but
+    an open one is in ``refPrs`` with the tickets it names (#201's #609/#611/#612)."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_effort(column="build", meta={"mapIssue": 9})
+        self.fake.add_issue(REPO, 9, title="Map", body="The map.", labels=["wayfinder:map"])
+        self.fake.add_issue(REPO, 24, title="An ADR", labels=["wayfinder:grilling"], state="CLOSED")
+        self.fake.sub_issues[(REPO, 9)] = [24]
+        self.ticket(20, title="Add export")
+
+    def test_open_prs_naming_a_ticket_or_map_child(self):
+        self.fake.add_pr(REPO, 45, body="Mentions #20 without closing it")
+        self.fake.add_pr(REPO, 609, title="docs: ADR 0007 (#24)", body="Docs only.")
+        self.fake.add_pr(REPO, 610, title="docs: ADR 0008 (#24)", state="MERGED")
+        self.fake.add_pr(REPO, 46, body="See other/repo#20")
+        self.fake.add_pr(REPO, 47, body="Unrelated, see #3")
+        self.fake.add_pr(REPO, 50, body="Closes #20")
+        d = self.get()[1]
+        self.assertEqual([p["number"] for p in d["prs"]], [50])
+        self.assertEqual([(p["number"], p["refs"], p["state"]) for p in d["refPrs"]], [(45, [20], "OPEN"), (609, [24], "OPEN")])
+        self.assertNotIn("body", d["refPrs"][0])
+        # The tile states are as before: only a closing PR puts a ticket in review.
+        self.assertEqual({t["number"]: t["state"] for t in d["frontier"]["tiles"]}[24], "done")
+
+    def test_a_closed_tickets_review_is_seeded_with_the_prs_naming_it(self):
+        self.fake.add_pr(REPO, 609, title="docs: ADR 0007 (#24)")
+        status, out = self.post("/session", {"column": "review", "ticket": 24, "skill": "kipo-review"})
+        self.assertEqual(status, 200, out)
+        self.assertIn(f"PRs: #609 {self.fake.prs[(REPO, 609)]['url']}", out["seed"].split("\n"))
+
+
+class SessionStartTests(Columns):
+    """KiPo records when it opened each session and whether its seed went out,
+    so a never-reported session is a stall candidate, an unstarted one is
+    started again, and a re-dispatched thread gets a fresh slot."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        self.app.initiatives.transcript_activity = lambda slots: {}
+
+    def test_start_is_recorded_unseeded_then_seeded(self):
+        status, out = self.post("/session", {"column": "review", "ticket": 20})
+        self.assertEqual((status, out["key"]), (200, "review-t20"))
+        start = self.get()[1]["starts"]["review-t20"]
+        self.assertEqual((start["slot"], start["seeded"]), ("kipo-acme-widgets-7-review-t20", False))
+        status, out = self.post("/sessions/started", {"key": "review-t20"})
+        self.assertEqual(status, 200, out)
+        self.assertTrue(self.get()[1]["starts"]["review-t20"]["seeded"])
+        self.assertEqual(self.post("/sessions/started", {"key": "nope"})[0], 400)
+
+    def test_an_unseeded_session_is_not_started_after_a_grace(self):
+        import datetime
+        self.post("/session", {"column": "review", "ticket": 20})
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "review-t20")
+        self.assertNotIn("started", row)  # its seed may still be on its way
+        self.app.initiatives.now = lambda: datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "review-t20")
+        self.assertEqual(row["started"], False)
+
+    def test_a_slot_missing_from_kiro_crew_is_not_started(self):
+        self.storage.record_session(REPO, 7, "plan", "kipo-acme-widgets-7-plan")
+        os.remove(os.path.join(self.storage.data_dir, "starts.json"))  # an older record: no start
+        self.app.initiatives.known_slots = lambda: {"something-else"}
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "plan")
+        self.assertEqual(row["started"], False)
+        self.app.initiatives.known_slots = lambda: None  # session map unreadable: assume it exists
+        self.assertNotIn("started", next(r for r in self.get()[1]["closing"] if r["key"] == "plan"))
+
+    def test_replace_opens_a_fresh_slot(self):
+        self.post("/session", {"column": "review", "ticket": 20})
+        status, out = self.post("/session", {"column": "review", "ticket": 20, "replace": True})
+        self.assertEqual((status, out["slotName"], out["existing"]), (200, "kipo-acme-widgets-7-review-t20-r2", False))
+        d = self.get()[1]
+        self.assertEqual(d["sessions"]["review-t20"], "kipo-acme-widgets-7-review-t20-r2")
+        self.assertEqual(d["starts"]["review-t20"]["replaced"], ["kipo-acme-widgets-7-review-t20"])
+        out = self.post("/session", {"column": "review", "ticket": 20, "replace": True})[1]
+        self.assertEqual(out["slotName"], "kipo-acme-widgets-7-review-t20-r3")
+
+    def test_starting_the_same_slot_again_keeps_its_start(self):
+        self.post("/session", {"column": "review", "ticket": 20})
+        first = self.get()[1]["starts"]["review-t20"]["at"]
+        self.storage.record_session(REPO, 7, "review-t20", "kipo-acme-widgets-7-review-t20", when="2099-01-01T00:00:00Z")
+        self.assertEqual(self.get()[1]["starts"]["review-t20"]["at"], first)
+
+    def test_a_replacing_plan_is_a_new_conversation_not_the_handover(self):
+        self.post("/session", {"column": "grill"})
+        self.post("/session", {"column": "plan"})
+        out = self.post("/session", {"column": "plan", "replace": True})[1]
+        self.assertEqual((out["slotName"], out["existing"]), ("kipo-acme-widgets-7-plan-r2", False))
+
+
+class SpecIssueTests(Columns):
+    """#201: Plan filed spec #617 (label kipo:201) and cut it into #618-#633, its
+    sub-issues. A spec is a parent, not work: no tile, no ticket, no build."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_effort(column="build")
+        self.ticket(17, title="Spec: Held-store migration")
+        self.ticket(18, title="Add the held table")
+        self.ticket(19, title="Backfill", state="CLOSED")
+        self.fake.sub_issues[(REPO, 17)] = [18, 19]
+
+    def test_the_parent_of_effort_tickets_is_the_spec_not_a_tile(self):
+        d = self.get()[1]
+        self.assertEqual(sorted(t["number"] for t in d["frontier"]["tiles"]), [18, 19])
+        self.assertEqual(sorted(t["number"] for t in d["tickets"]), [18, 19])
+        self.assertEqual(d["ticketCounts"], {"open": 1, "closed": 1})
+        self.assertEqual(sum(d["frontier"]["counts"].values()), 2)
+        self.assertEqual(d["specIssues"], [17])
+
+    def test_a_spec_artifact_names_it_too(self):
+        # Without sub-issues, any "Spec" artifact (plan.json and state.json may each have one).
+        self.fake.sub_issues.clear()
+        os.makedirs(st.state_dir(self.checkout, 7), exist_ok=True)
+        with open(st.session_state_path(self.checkout, 7, "plan"), "w") as f:
+            json.dump({"artifacts": [{"label": "Spec", "href": f"https://github.com/{REPO}/issues/14"},
+                                     {"label": "Spec", "href": f"https://github.com/{REPO}/issues/17"}]}, f)
+        self.storage.record_session(REPO, 7, "plan", "kipo-acme-widgets-7-plan")
+        d = self.get()[1]
+        self.assertEqual(sorted(t["number"] for t in d["frontier"]["tiles"]), [18, 19])
+
+    def test_no_build_session_for_the_spec(self):
+        status, out = self.post("/session", {"column": "build", "ticket": 17})
+        self.assertEqual((status, out["code"]), (409, "is_spec"))
+
+    def test_its_existing_build_session_is_closable(self):
+        from kipo import reports
+        self.storage.record_session(REPO, 7, "build-t17", "kipo-acme-widgets-7-build-t17")
+        reports.append(self.checkout, 7, "build-t17", "started", "Building #17")
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "build-t17")
+        self.assertEqual(row["status"], "closable")
+        self.assertIn("spec", row["reason"])

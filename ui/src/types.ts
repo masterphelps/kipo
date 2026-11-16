@@ -233,7 +233,9 @@ export type PhaseState = {
   dispatch?: DispatchEntry[]
 }
 
-export type DispatchEntry = { ticket?: number; stage?: 'grill' | 'intake' | 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string }
+// `replace`: the slot of the thread's dead session (stuck, closed, never
+// started) that this entry replaces (kipo_cli.py dispatch).
+export type DispatchEntry = { ticket?: number; stage?: 'grill' | 'intake' | 'shape' | 'plan' | 'review' | 'done'; skill?: string; at: string; replace?: string }
 
 // What a stage session told the conductor (kipo_cli.py report), in .kipo/<n>/reports.json.
 // `read` is the highest id the conductor has been shown by its frontier.
@@ -248,6 +250,8 @@ export type Reports = { reports: SessionReport[]; read: number }
 export type SessionStall = { state: 'stalled' | 'woken' | 'stuck'; why: string; id: string | null; wakes: number }
 export type SessionClose = {
   key: string; slot: string; status: 'open' | 'closable' | 'closed'; reason: string; stall?: SessionStall
+  // false: KiPo recorded it but its seed never went out (or Kiro Crew has no such session).
+  started?: false
 }
 // What the page read of one session from Kiro Crew (GET /api/chat/slots/<slot>?limit=1).
 export type SessionObservation = { at: string | null; running: boolean | null; agent: boolean | null }
@@ -292,10 +296,12 @@ export type EffortDetail = Effort & {
   closing?: SessionClose[]
   tickets: TicketInfo[]
   prs: PrInfo[]
+  // Open PRs that name an effort ticket (#n) without closing it.
+  refPrs?: (PrInfo & { refs: number[] })[]
   frontier?: Frontier
   ticketsError?: string
 }
 
 export type Ticket = { number: number; title: string; url: string; labels: string[]; type: string | null }
 export type Doc = { href: string; title: string; kind: 'markdown'; text: string; url: string | null }
-export type SessionStart = { slotName: string; seed: string; existing?: boolean; agent?: string }
+export type SessionStart = { slotName: string; key?: string; seed: string; existing?: boolean; agent?: string }

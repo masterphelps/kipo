@@ -166,6 +166,35 @@ class StageSessions(unittest.TestCase):
         d = detail(["review"], prs=[(31, "MERGED", [1])], landed=True)
         self.assertEqual(verdict(d, [rep("review", "finished")]), {"review": "closable"})
 
+    def test_review_naming_no_pr_closes_once_no_effort_pr_is_open(self):
+        # #201: review reported finished; its PRs merged; the Decide half is still
+        # open (so the frontier hasn't "landed"), and the repo's only open PR
+        # (#280, another effort's) isn't in the detail. Not "PRs still open".
+        d = detail(["review"], prs=[(31, "MERGED", [1])], landed=False, decide=True)
+        row = closing.sessions(d, [rep("review", "finished")])[0]
+        self.assertEqual(row["status"], "closable", row["reason"])
+        self.assertNotIn("PRs still open", row["reason"])
+
+    def test_review_naming_no_pr_stays_while_an_effort_pr_is_open(self):
+        d = detail(["review"], prs=[(31, "MERGED", [1]), (32, "OPEN", [2])], decide=True)
+        row = closing.sessions(d, [rep("review", "finished")])[0]
+        self.assertEqual(row["status"], "open")
+        self.assertIn("#32", row["reason"])
+
+    def test_review_stays_while_a_pr_naming_an_effort_ticket_is_open(self):
+        d = detail(["review"], prs=[(31, "MERGED", [1])])
+        d["refPrs"] = [{"number": 609, "state": "OPEN", "tickets": [], "refs": [208]}]
+        row = closing.sessions(d, [rep("review", "finished")])[0]
+        self.assertEqual(row["status"], "open")
+        self.assertIn("#609", row["reason"])
+
+    def test_ticket_review_stays_while_a_pr_naming_its_closed_ticket_is_open(self):
+        d = detail(["review-t208"], tickets=[(208, "CLOSED")])
+        d["refPrs"] = [{"number": 609, "state": "OPEN", "tickets": [], "refs": [208]}]
+        self.assertEqual(verdict(d, [rep("review-t208", "finished")]), {"review-t208": "open"})
+        d["refPrs"][0]["state"] = "MERGED"
+        self.assertEqual(verdict(d, [rep("review-t208", "finished")]), {"review-t208": "closable"})
+
     def test_shape_closes_when_decide_is_clear(self):
         self.assertEqual(verdict(detail(["shape"], decide=False), [rep("shape", "finished")]), {"shape": "closable"})
         self.assertEqual(verdict(detail(["shape"], decide=True), [rep("shape", "finished")]), {"shape": "open"})
@@ -205,6 +234,40 @@ class SharedConversation(unittest.TestCase):
         d = self.shared(deliver=3)
         self.assertEqual(verdict(d, [rep("grill", "finished"), rep("plan", "finished")]),
                          {"grill": "closable", "plan": "closable"})
+
+
+class Unstarted(unittest.TestCase):
+    """A session KiPo recorded whose seed never went out (the page recorded the
+    slot, then the chat never started): not started. Nothing to wake or close;
+    the page starts it again, and a re-dispatch replaces it."""
+
+    def test_unseeded_session_is_not_started(self):
+        d = detail(["plan"])
+        d["starts"] = {"plan": {"at": "2026-11-15T08:59:21Z", "slot": d["sessions"]["plan"], "seeded": False}}
+        row = closing.sessions(d, [])[0]
+        self.assertEqual((row["status"], row["started"]), ("open", False))
+        self.assertIn("never started", row["reason"])
+
+    def test_seeded_or_legacy_sessions_are_started(self):
+        d = detail(["plan", "review"])
+        d["starts"] = {"plan": {"at": "2026-11-15T08:59:21Z", "slot": d["sessions"]["plan"], "seeded": True}}
+        self.assertTrue(all("started" not in r for r in closing.sessions(d, [])))
+
+    def test_a_slot_kiro_crew_never_created_is_not_started(self):
+        d = detail(["plan"])
+        d["missingSlots"] = [d["sessions"]["plan"]]
+        self.assertEqual(closing.sessions(d, [])[0]["started"], False)
+
+
+class SpecSessions(unittest.TestCase):
+    def test_a_session_for_the_spec_issue_is_closable_whatever_it_reported(self):
+        # #201's build-t617: KiPo opened a build for spec #617; its thread doesn't exist.
+        d = detail(["build-t617", "shape-t617"], tickets=[(618, "OPEN")])
+        d["specIssues"] = [617]
+        rows = {r["key"]: r for r in closing.sessions(d, [rep("build-t617", "started")])}
+        self.assertEqual(rows["build-t617"]["status"], "closable")
+        self.assertIn("#617 is the effort's spec", rows["build-t617"]["reason"])
+        self.assertEqual(rows["shape-t617"]["status"], "closable")
 
 
 class Storage_(unittest.TestCase):

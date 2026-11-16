@@ -65,8 +65,13 @@ export const backend = {
   advance: (repo: string, n: number, force: boolean, to: Column | null = null) =>
     call<EffortDetail>(`${issuePath(repo, n)}/advance`, 'POST', { force, to }),
   // A column's session; `skill` makes its seed end with that skill's Run line.
-  startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | 'conductor' | null }) =>
+  // `replace`: the thread's session is dead (stuck, closed, never started): a fresh slot.
+  startSession: (repo: string, n: number, body: { column: Column; skill?: string | null; ticket?: number | null; mode?: 'implement-spec' | 'conductor' | null; replace?: boolean }) =>
     call<SessionStart>(`${issuePath(repo, n)}/session`, 'POST', { skill: null, ticket: null, mode: null, ...body }),
+  // The session's seed (or hand-over message) went out: it has started. Until
+  // then KiPo counts a recorded session as not started, and the page retries it.
+  sessionStarted: (repo: string, n: number, key: string) =>
+    call<{ started: { at: string; slot: string; seeded: boolean } }>(`${issuePath(repo, n)}/sessions/started`, 'POST', { key }),
   // The page closed these sessions (the close rule's closable ones): KiPo records them.
   sessionsClosed: (repo: string, n: number, keys: string[]) =>
     call<{ closed: Record<string, string> }>(`${issuePath(repo, n)}/sessions/closed`, 'POST', { keys }),

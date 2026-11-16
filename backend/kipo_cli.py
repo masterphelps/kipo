@@ -6,14 +6,21 @@
       Blocked) and next action. Read-only. Run it on every wake; never
       work from memory.
 
-  python3 kipo_cli.py dispatch OWNER/REPO N (--ticket T | --stage grill|intake|shape|plan|review|done) [--skill S]
+  python3 kipo_cli.py dispatch OWNER/REPO N (--ticket T | --stage grill|intake|shape|plan|review|done) [--skill S] [--replace]
       Ask KiPo to start a stage-skill session: a ticket's conversation, or
       the effort's Grill (an idea grilled, before any ticket), Intake (an
       issue read in), Shape (chart the fog, or map a new effort), Plan
       (hand-over), Review or Done (retro) conversation. --skill names the KiPo skill when it isn't the
       ticket's build: --ticket T --skill kipo-review opens the ticket's
       review conversation (its PR reviewed, fixed, merged). One entry per
-      (ticket or stage, skill): the same again is "already queued".
+      (ticket or stage, skill): the same again is "already queued" while the
+      thread's session is alive. When it is dead (stuck: woken twice with no
+      answer; closed; or never started: its seed never went out) the same
+      dispatch queues a fresh session that replaces it ("replaces": the old
+      slot): the page closes the old one, then starts the new one, so a thread
+      never has two. --replace does the same for a session the human closed
+      (or says is dead) that KiPo can't see. A closed ticket can still get its
+      kipo-review while an open PR names it.
       It's queued in the conductor's state file; the KiPo page starts it
       (once) while it's open.
 
@@ -94,6 +101,7 @@ def main(argv=None):
     g.add_argument("--ticket", type=int)
     g.add_argument("--stage", choices=STAGES)
     d.add_argument("--skill")
+    d.add_argument("--replace", action="store_true")
     s = sub.add_parser("sessions")
     s.add_argument("repo")
     s.add_argument("number", type=int)
@@ -124,12 +132,13 @@ def main(argv=None):
     if not repo_path:
         print("No repo checkout is known for this effort; dispatch needs one for the state file.", file=sys.stderr)
         return 2
+    tile = None
     if args.ticket is not None:
         tile = next((t for t in (detail.get("frontier") or {}).get("tiles") or [] if t["number"] == args.ticket), None)
         if not tile:
             print(f"#{args.ticket} isn't one of this effort's tickets.", file=sys.stderr)
             return 2
-        if tile["state"] in ("done", "blocked"):
+        if tile["state"] in ("done", "blocked") and not (args.skill == "kipo-review" and _open_pr_names(detail, args.ticket)):
             print(f"#{args.ticket} is {tile['state']}; nothing to start.", file=sys.stderr)
             return 2
     entry = {k: v for k, v in (("ticket", args.ticket), ("stage", args.stage), ("skill", args.skill)) if v is not None}
@@ -144,21 +153,70 @@ def main(argv=None):
     if not isinstance(data, dict):
         data = {}
     queue = data.setdefault("dispatch", [])
-    # One entry per (ticket, stage, skill). No skill means the stage's default
-    # skill and is its own entry, so a ticket's build and then its kipo-review
-    # each queue once.
-    key = lambda e: (e.get("ticket"), e.get("stage"), e.get("skill"))  # noqa: E731
-    if any(key(e) == key(entry) for e in queue):
-        print(json.dumps({"queued": False, "reason": "already queued", "entry": entry}))
-        return 0
+    # The thread's session, and whether it is dead: then this entry replaces it.
+    thread = _thread_key(entry, tile)
+    slot = (detail.get("sessions") or {}).get(thread)
+    dead = _dead(thread, detail, args.replace) if slot else None
+    if dead:
+        if any(e.get("replace") == slot for e in queue):
+            print(json.dumps({"queued": False, "reason": f"already queued: a replacement for {thread} is pending",
+                              "entry": entry}))
+            return 0
+        entry["replace"] = slot
+    else:
+        # One entry per (ticket, stage, skill). No skill means the stage's default
+        # skill and is its own entry, so a ticket's build and then its kipo-review
+        # each queue once.
+        key = lambda e: (e.get("ticket"), e.get("stage"), e.get("skill"))  # noqa: E731
+        if any(key(e) == key(entry) for e in queue):
+            why = f"already queued; {thread} is open" if slot else "already queued"
+            print(json.dumps({"queued": False, "reason": why, "entry": entry}))
+            return 0
     queue.append(entry)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=1)
     os.replace(tmp, path)
-    print(json.dumps({"queued": True, "entry": entry, "stateFile": path}))
+    out = {"queued": True, "entry": entry, "stateFile": path}
+    if dead:
+        out.update(replaces=slot, why=f"{thread} {dead}")
+    print(json.dumps(out))
     return 0
+
+
+def _open_pr_names(detail, ticket):
+    """Is there an open PR closing or naming ``ticket``?"""
+    prs = list(detail.get("prs") or []) + list(detail.get("refPrs") or [])
+    return any(p.get("state") == "OPEN" and (ticket in (p.get("tickets") or []) or ticket in (p.get("refs") or []))
+               for p in prs)
+
+
+def _thread_key(entry, tile):
+    """The session key a dispatch entry opens (as the page does): a stage's
+    own; a ticket's review-t<t> for kipo-review, else its build or decision."""
+    if entry.get("stage"):
+        return entry["stage"]
+    t = entry["ticket"]
+    if entry.get("skill") == "kipo-review":
+        return f"review-t{t}"
+    return (tile or {}).get("sessionKey") or (f"build-t{t}" if (tile or {}).get("lane") == "deliver" else f"shape-t{t}")
+
+
+def _dead(key, detail, forced):
+    """Why the thread's recorded session can't carry on (so a dispatch
+    replaces it), else ``None``."""
+    row = next((r for r in detail.get("closing") or [] if r.get("key") == key), {})
+    if row.get("started") is False:
+        why = row.get("reason") or ""
+        return why if why.startswith("never started") else "never started"
+    if (row.get("stall") or {}).get("state") == "stuck":
+        return f"is stuck ({row['stall'].get('why')})"
+    if row.get("status") == "closed":
+        return "was closed"
+    if forced:
+        return "is replaced (--replace)"
+    return None
 
 
 def _reports(args):

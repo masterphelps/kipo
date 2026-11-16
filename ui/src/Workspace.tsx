@@ -11,7 +11,7 @@ import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
 import { QuestionWizard, TicketPanel } from './SessionPanel'
-import { closeFinished, isClosed, openSession } from './sessions'
+import { closeFinished, closeReplaced, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
 import {
@@ -97,7 +97,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   const ticket = detail && focus.kind === 'ticket' ? detail.tickets.find(t => t.number === focus.t) ?? null : null
 
   // Open (or continue) the session for the current focus, optionally starting a skill.
-  const start = async (skill: string | null = null, override?: Focus, moveFocus = true) => {
+  // `replace`: its thread's session is dead (the caller closed it): open a fresh slot.
+  const start = async (skill: string | null = null, override?: Focus, moveFocus = true, replace = false) => {
     if (!detail) return
     const f = override ?? focus
     setStarting(true)
@@ -109,7 +110,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
         : f.kind === 'review' ? { column: 'review' as Column, ticket: f.t, skill }
         : f.kind === 'stage' ? { column: f.column, skill }
         : { column: detail.column, mode: 'conductor' as const }
-      const res = await backend.startSession(repo, number, body)
+      const res = await backend.startSession(repo, number, replace ? { ...body, replace: true } : body)
       const title = f.kind === 'ticket' ? `${detail.title}: #${f.t}`
         : f.kind === 'spec' ? `${detail.title}: implement-spec`
         : f.kind === 'decision' ? `${detail.title}: decision #${f.t}`
@@ -121,6 +122,13 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
         await api.post('/api/chat?ws=1', { slot: res.slotName, message: res.seed })
       } else {
         await openSession(api, repo, res.slotName, res.seed, title, res.agent)
+      }
+      // Its seed went out: only now has it started (KiPo counts a recorded
+      // session whose seed never went out as not started, and it's retried).
+      if (res.key) {
+        await backend.sessionStarted(repo, number, res.key)
+          .catch(() => backend.sessionStarted(repo, number, res.key!))
+          .catch(() => { /* counted not started: retried with a fresh slot */ })
       }
       if (override && moveFocus) setFocus(override)
       if (moveFocus) { load(); onChanged() }
@@ -249,23 +257,59 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // time, so a ticket's review isn't taken for its build that already started.
   const dispatchSeenKey = `kipo.dispatched:${repo}#${number}`
   const dispatching = useRef(new Set<string>())
+  const forgetDispatched = (id: string) => {
+    dispatching.current.delete(id)
+    try {
+      const seen = JSON.parse(localStorage.getItem(dispatchSeenKey) || '[]') as string[]
+      localStorage.setItem(dispatchSeenKey, JSON.stringify(seen.filter(x => x !== id)))
+    } catch { /* fine */ }
+  }
   useEffect(() => {
     if (!active || starting || startingAgents || !detail?.frontier) return
     const queue = detail.sessionStates?.conductor?.dispatch ?? []
     let seen: string[] = []
     try { seen = JSON.parse(localStorage.getItem(dispatchSeenKey) || '[]') } catch { seen = [] }
     const { fresh, starts } = dispatchStarts(
-      queue, id => seen.includes(id) || dispatching.current.has(id), detail.frontier.tiles, detail.sessions)
+      queue, id => seen.includes(id) || dispatching.current.has(id), detail.frontier.tiles, detail.sessions,
+      { prs: [...detail.prs, ...(detail.refPrs ?? [])], unstarted: unstartedKeys(detail) })
     if (!fresh.length) return
     for (const id of fresh) { dispatching.current.add(id); seen.push(id) }
     try { localStorage.setItem(dispatchSeenKey, JSON.stringify(seen.slice(-300))) } catch { /* full: fine */ }
     if (!starts.length) return
     void (async () => {
       for (const s of starts) {
-        if (s.kind === 'tile') await start(s.skill ?? tileSkill(s.tile), tileFocus(s.tile), false)
-        else if (s.kind === 'review') await start(null, { kind: 'review', t: s.t }, false)
-        else await start(s.skill, { kind: 'stage', column: s.column }, false)
+        // A dead session's thread: close it first, so the thread never has two.
+        // If it won't close, try again on a later refresh.
+        if (s.replace && !sharedSlot(detail, s.replace) && !(await closeReplaced(api, s.replace))) { forgetDispatched(s.id); continue }
+        const fresh = !!s.replace
+        if (s.kind === 'tile') await start(s.skill ?? tileSkill(s.tile), tileFocus(s.tile), false, fresh)
+        else if (s.kind === 'review') await start(null, { kind: 'review', t: s.t }, false, fresh)
+        else await start(s.skill, { kind: 'stage', column: s.column }, false, fresh)
       }
+      load(); onChanged()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, starting, startingAgents, detail])
+
+  // A session KiPo recorded whose seed never went out (backend/kipo/closing.py:
+  // `started: false`, after a 2-minute grace, or Kiro Crew has no such slot):
+  // start it again on a fresh slot, closing the old one first. Once per slot
+  // per browser; a fresh slot that fails too is retried on a later refresh.
+  const restartedKey = `kipo.restarted:${repo}#${number}`
+  useEffect(() => {
+    if (!active || starting || startingAgents || !detail?.closing) return
+    let done: string[] = []
+    try { done = JSON.parse(localStorage.getItem(restartedKey) || '[]') } catch { done = [] }
+    const due = detail.closing.filter(r => r.started === false && r.key !== 'conductor' && !done.includes(r.slot))
+    const row = due.map(r => [r, focusOfKey(r.key)] as const).find(([, f]) => f)
+    if (!row) return
+    const [r, f] = row
+    try { localStorage.setItem(restartedKey, JSON.stringify([...done, r.slot].slice(-200))) } catch { /* full: fine */ }
+    void (async () => {
+      // Plan carrying on in the grill's slot: never close the grill with it.
+      if (!sharedSlot(detail, r.slot) && !(await closeReplaced(api, r.slot))) return
+      const tile = detail.frontier?.tiles.find(t => (f!.kind === 'ticket' || f!.kind === 'decision') && t.number === f!.t)
+      await start(tile ? tileSkill(tile) : null, f!, false, true)
       load(); onChanged()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1061,3 +1105,19 @@ function Running({ skills }: { skills: string[] }) {
   )
 }
 
+
+// The session keys KiPo says never started (their seed never went out).
+const unstartedKeys = (detail: EffortDetail) => (detail.closing ?? []).filter(r => r.started === false).map(r => r.key)
+
+// The focus that opens a session key, for starting it again; null for the
+// conductor or a key the page can't open by itself.
+function focusOfKey(key: string): Focus | null {
+  const m = /^(build|shape|review)-t(\d+)$/.exec(key)
+  if (m) return { kind: m[1] === 'build' ? 'ticket' : m[1] === 'shape' ? 'decision' : 'review', t: Number(m[2]) } as Focus
+  if (key === 'build-spec') return { kind: 'spec' } as Focus
+  if ((['intake', 'shape', 'grill', 'plan', 'review', 'done'] as string[]).includes(key)) return { kind: 'stage', column: key as Column } as Focus
+  return null
+}
+
+// More than one key on this slot (the hand-over continues the grill's conversation).
+const sharedSlot = (detail: EffortDetail, slot: string) => Object.values(detail.sessions).filter(v => v === slot).length > 1

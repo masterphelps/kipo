@@ -54,3 +54,39 @@ test('a grill entry starts the effort grill conversation once', () => {
     [{ id: 'grill@g', kind: 'stage', column: 'grill', skill: null }])
   assert.deepEqual(dispatchStarts([grill], () => false, [], { grill: 'kipo-x-1054-grill' }).starts, [])
 })
+
+// A dead session (stuck, closed, never started) is replaced: the entry says
+// which slot, the page closes it, then starts a fresh one. Never two at once.
+const stuckReview: DispatchEntry = { stage: 'review', at: '2026-11-15T10:00:00Z', replace: 'kipo-x-201-review' }
+
+test('a replacing entry starts the thread again, naming the slot to close', () => {
+  const { starts } = dispatchStarts([stuckReview], () => false, [], { review: 'kipo-x-201-review' })
+  assert.deepEqual(starts, [{ id: dispatchId(stuckReview), kind: 'stage', column: 'review', skill: null, replace: 'kipo-x-201-review' }])
+})
+
+test('a replacing entry whose slot was already replaced is skipped', () => {
+  const { starts } = dispatchStarts([stuckReview], () => false, [], { review: 'kipo-x-201-review-r2' })
+  assert.deepEqual(starts, [])
+})
+
+test('a replacing ticket review replaces only review-t<t>', () => {
+  const e: DispatchEntry = { ticket: 1022, skill: 'kipo-review', at: 'y', replace: 'kipo-x-995-review-t1022' }
+  const { starts } = dispatchStarts([e], () => false, [tile(1022, 'review', 'build-t1022')],
+    { 'build-t1022': 'a', 'review-t1022': 'kipo-x-995-review-t1022' })
+  assert.deepEqual(starts, [{ id: dispatchId(e), kind: 'review', t: 1022, replace: 'kipo-x-995-review-t1022' }])
+})
+
+test('a recorded session that never started is started again (#201 plan)', () => {
+  const plan: DispatchEntry = { stage: 'plan', at: '2026-11-15T08:59:20Z' }
+  const { starts } = dispatchStarts([plan], () => false, [], { plan: 'kipo-x-201-plan' }, { unstarted: ['plan'] })
+  assert.deepEqual(starts, [{ id: dispatchId(plan), kind: 'stage', column: 'plan', skill: null, replace: 'kipo-x-201-plan' }])
+})
+
+test('a closed ticket gets its review while an open PR names it (#201 #208)', () => {
+  const e: DispatchEntry = { ticket: 208, skill: 'kipo-review', at: 'z' }
+  const done = [{ ...tile(208, 'done'), lane: 'decide', type: 'grilling' } as Tile]
+  const open = { prs: [{ state: 'OPEN', tickets: [], refs: [208] }] }
+  assert.deepEqual(dispatchStarts([e], () => false, done, {}, open).starts, [{ id: dispatchId(e), kind: 'review', t: 208 }])
+  assert.deepEqual(dispatchStarts([e], () => false, done, {}).starts, [])
+  assert.deepEqual(dispatchStarts([{ ticket: 208, at: 'w' }], () => false, done, {}, open).starts, [])
+})

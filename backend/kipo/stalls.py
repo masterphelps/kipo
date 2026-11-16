@@ -6,15 +6,22 @@ not closed), has no unanswered decision card (a session waiting on the human's
 cards is never stalled), is not mid-turn, and its thread isn't settled
 (``closing.settled``). A candidate is **stalled** when either holds:
 
-(a) **idle**: its last activity is ``IDLE_MINUTES`` or more ago, and its last
-    report isn't ``finished`` or ``nothing-to-do``. A session that never reported
-    predates reporting and is left alone (as the close rule does).
+(a) **idle**: its last activity (or its opening, when later or activity is
+    unknown) is ``IDLE_MINUTES`` or more ago, and its last report isn't
+    ``finished`` or ``nothing-to-do``, or it never reported though it was seeded
+    to (``closing.expects_reports``: a dispatch entry opens it, or KiPo recorded
+    its start; every session KiPo opens today). Only a session from before
+    reporting, which may stay silent, is left alone (as the close rule does).
+    A session that never started (``started: false``) has nothing to wake.
 (b) **blocker cleared**: its last report is ``blocked`` and something later
     clears it: a ``finished`` or ``pr-opened`` from another session on the same
     ticket, or a merged PR or closed issue that the blocked report's text names
     (by ``#<n>``), from a later ``pr-merged`` / ``issue-closed`` report or from
     GitHub (the effort's tickets and PRs). The session's own ticket and its PRs
     don't count: they are what it is working on.
+
+A re-dispatched thread's fresh session (``closing.since``) ignores the old
+slot's reports, wakes and activity.
 
 Each stall has an id: ``blocked#<report id>`` for (b), ``idle@<last activity>``
 for (a). KiPo's page wakes a stalled session once per stall id and records the
@@ -129,9 +136,12 @@ def unanswered(wakes, rs, activity):
     return count
 
 
-def stall(key, rs, reports, detail, activity, wakes, now):
+def stall(key, rs, reports, detail, activity, wakes, now, expected=None, opened=None):
     """The stall state of one candidate session (open, not the conductor, no
-    open card, thread not settled): ``{state, why, id, wakes}`` or ``None``."""
+    open card, thread not settled): ``{state, why, id, wakes}`` or ``None``.
+    ``expected``: why it is seeded to report (``closing.expects_reports``), so
+    never reporting is idling too; ``opened``: when it was opened, the idle
+    clock's start when its activity is unknown or older."""
     activity = activity or {}
     if activity.get("running") is True:
         return None
@@ -145,11 +155,17 @@ def stall(key, rs, reports, detail, activity, wakes, now):
     blocked, cleared = blocker_cleared(key, rs, reports, detail)
     if cleared:
         found.append((f"blocked#{blocked.get('id')}", f"your blocker cleared: {cleared}"))
-    at = parse_time(activity.get("at"))
-    if rs and at and rs[-1].get("event") not in QUIET:
+    # Idle since its last activity, or, with none known, since it was opened.
+    at, at_text = parse_time(activity.get("at")), activity.get("at")
+    if at is None and parse_time(opened):
+        at, at_text = parse_time(opened), opened
+    # Silent: seeded to report, it never did. A session from before reporting
+    # (``expected`` None) is left alone.
+    unfinished = rs[-1].get("event") not in QUIET if rs else bool(expected)
+    if unfinished and at:
         idle = int((now - at).total_seconds() // 60)
         if idle >= IDLE_MINUTES:
-            found.append((f"idle@{activity.get('at')}", f"idle {idle} min"))
+            found.append((f"idle@{at_text}", f"idle {idle} min" + ("" if rs else f", never reported since {expected}")))
     fresh = [(i, why) for i, why in found if i not in woken_ids]
     if fresh:
         # Both reasons, if both hold: the first fresh one is the stall's id.
@@ -170,7 +186,7 @@ def sessions(detail, reports, closed=None, activity=None, wakes=None, now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     activity = activity or {}
     wakes = wakes or {}
-    rows = closing.sessions(detail, reports, closed)
+    rows = closing.sessions(detail, reports, closed, now)
     attributed = closing.attribute(reports, detail.get("sessions") or {}, closed)
     prs = [p for p in detail.get("prs") or [] if isinstance(p, dict) and "number" in p]
     closed_tickets = {t["number"] for t in detail.get("tickets") or [] if t.get("state") not in (None, "OPEN")}
@@ -178,12 +194,21 @@ def sessions(detail, reports, closed=None, activity=None, wakes=None, now=None):
     out = []
     for row in rows:
         key = row["key"]
-        if row["status"] != "open" or key in closing.NEVER or closing.open_cards(detail, key):
+        if (row["status"] != "open" or key in closing.NEVER or row.get("started") is False
+                or closing.open_cards(detail, key)):
             out.append(row)
             continue
-        rs = closing.thread_reports(key, attributed)
+        # A re-dispatched thread's fresh session: the old one's reports, wakes
+        # and activity aren't its own.
+        first = closing.since(key, detail)
+        rs = closing.thread_reports(key, attributed, first)
+        mine = [w for w in wakes.get(key) or [] if not first or str(w.get("at") or "") >= first]
+        act = activity.get(key)
+        if first and act and (parse_time(act.get("at")) or parse_time(first)) < parse_time(first):
+            act = {**act, "at": first, "agent": None}  # the old slot's last message
         ok, _ = closing.settled(key, detail, rs, closed_tickets, prs)
-        s = None if ok else stall(key, rs, attributed, detail, activity.get(key), wakes.get(key), now)
+        s = None if ok else stall(key, rs, attributed, detail, act, mine, now,
+                                  closing.expects_reports(key, detail), closing.opened_at(key, detail))
         out.append({**row, "stall": s} if s else row)
     return out
 
@@ -208,5 +233,6 @@ def stuck_cards(rows):
     ``waiting``: ``{from, id, title, options, recommended, stuck}``."""
     return [{"from": r["key"], "id": f"stuck-{r['key']}",
              "title": f"{r['key']} is stuck: {r['stall']['why']}. Open it and see what it needs?",
-             "options": ["Open it", "Close it"], "recommended": "Open it", "stuck": True}
+             "options": ["Dispatch a fresh session", "Open it", "Close it"],
+             "recommended": "Dispatch a fresh session", "stuck": True}
             for r in rows or [] if (r.get("stall") or {}).get("state") == "stuck"]

@@ -85,7 +85,16 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
 
 - **Tiles**: the effort's `kipo:<n>` tickets, its wayfinder map's children, and an `issue`
   start's source issue. The map is found from the meta's `mapIssue`, or an artifact labelled
-  "Wayfinder map" or "Wayfinder map #<n>".
+  "Wayfinder map" or "Wayfinder map #<n>". The effort's **spec issue** is never a tile (nor in
+  `tickets`, nor counted): a `kipo:<n>` issue that is the native sub-issue parent of another of
+  the effort's tickets (`/to-tickets` makes each ticket the spec's sub-issue), or that a "Spec"
+  artifact names (any of them: `plan.json` and `state.json` may each carry one). The detail
+  lists them as `specIssues`; no build session starts for one (`is_spec`), and a session opened
+  for one before is closable.
+- **`refPrs`**: open PRs that name an effort ticket or map child (`#<n>` in the title or body,
+  not `other/repo#<n>`) without a closing keyword, each with `refs`. They are not `prs` (tile
+  states read only closing PRs); the conductor makes each a review thread for the ticket it
+  names, even once that ticket closed.
 - **Type** (tile code): `wayfinder:grilling` Gr, `prototype` Pr, `research` Rs, `task` Tk; a
   `kipo:<n>` ticket is `build` Bd; an untyped map child is a grill unless it carries a triage
   label, then it's an `issue` Is.
@@ -177,7 +186,10 @@ the effort's own conversation and never does the work itself.
 
 - **Watch**: on every wake it runs `python3 <app>/backend/kipo_cli.py frontier <repo> <n>`,
   which prints the open threads (`kipo/conductor.py`: each with its stage, KiPo skill, owner
-  HITL / Agent / Running / Stalled / Blocked, and next action; a ticket whose session stalled is
+  HITL / Agent / Running / Stalled / Blocked, and next action; an open PR closing no ticket
+  but naming one (`refPrs`) is a `pr` thread with `ticket`: kipo-review, `Agent` ("dispatch
+  --ticket <t> --skill kipo-review"), or `Running`/`Stalled` while `review-t<t>` (else the
+  effort's `review`) is open on it; a ticket whose session stalled is
   `Stalled` instead of `Running` or `Agent`, with `session`, `stall` and `why`: see "Stalled
   sessions") from GitHub through KiPo's own frontier
   code. It works from that output only. It wakes when the human writes, and when the page sees
@@ -188,18 +200,28 @@ the effort's own conversation and never does the work itself.
   the browser, and a report the conductor has already read is never sent), and when the page
   woke a stalled session (`[KiPo] Woke <session>: <why>`, held until it's not mid-turn) or one
   turned stuck (in `[KiPo] Frontier changed: <session> stuck …`).
-- **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage grill|intake|shape|plan|review|done) [--skill <s>]`
+- **Dispatch**: `kipo_cli.py dispatch <repo> <n> (--ticket <t> | --stage grill|intake|shape|plan|review|done) [--skill <s>] [--replace]`
   appends to `dispatch` in its state file (`.kipo/<n>/conductor.json`). A ticket thread whose
   skill is `kipo-build` is `--ticket <t>`; whenever the thread's skill differs from `kipo-build`,
   it is `--ticket <t> --skill <thread's skill>`. A ticket in review (action "dispatch
   kipo-review: review, fix, merge if a two-way door") is `--ticket <t> --skill kipo-review`:
   its own review conversation (`review-t<t>`, seeded with the ticket and its open PRs), beside
   its build. Entries are deduped on (ticket, stage, skill), a missing skill counting as its
-  own value, so a ticket's build and then its review each queue once. The page starts each
-  queued entry once while it's open, its started-marker keyed on ticket or stage, skill and
-  time (skipping a ticket that's done or blocked, a ticket that already has the conversation
-  the entry asks for: `review-t<t>` for kipo-review, its build or decision otherwise, and a
-  stage conversation that exists).
+  own value, so a ticket's build and then its review each queue once, while the thread's
+  session is alive. **Re-dispatch**: when the thread's session is dead (`stuck`; `closed`; or
+  never started, `started: false`), the same dispatch queues a fresh one: the entry carries
+  `replace: <old slot>` and the output `{"queued": true, "replaces", "why"}`; a second one while
+  that replacement is pending is "already queued". `--replace` does the same for a session the
+  human closed (or says is dead) that KiPo can't see. A closed ticket still takes `--ticket <t>
+  --skill kipo-review` while an open PR closes or names it. The page starts each queued entry
+  once while it's open, its started-marker keyed on ticket or stage, skill and time (skipping a
+  ticket that's done or blocked, unless it's a kipo-review and an open PR names the ticket; a
+  ticket that already has the conversation the entry asks for: `review-t<t>` for kipo-review,
+  its build or decision otherwise; and a stage conversation that exists). A replacing entry
+  whose slot is still the thread's: the page closes that slot first (`DELETE
+  /api/chat/slots/<slot>`, mid-turn or not; if it won't close, it tries again later), then
+  starts the thread on a fresh slot (`POST …/session` with `replace: true`:
+  `kipo-…-<key>-r2`, `-r3`, …), so a thread never has two live sessions.
 - **Hear**: every stage session reports to it (below). The frontier command's JSON also carries
   `reports` (the unread reports, oldest first, marked read once printed; `--peek` leaves them
   unread), `waiting` (every stage session's unanswered decision cards, `{from, id, title,
@@ -268,19 +290,34 @@ is **closable** when both hold:
    later report on the same thread (`started`, `finished`, `nothing-to-do`, `pr-merged`) shows
    another try took over. Reports count by session key; an older `t<t>` report counts for the
    session it is attributed to (above, "Reports"), so a build's `finished` never makes the
-   ticket's review look finished. A session with no report at all predates reporting and counts
-   as finished.
+   ticket's review look finished. A session with no report at all either predates reporting
+   (no dispatch entry opens it and KiPo recorded no start for it: it counts as finished), or
+   was seeded to report (a dispatch entry opens it: `--stage <s>` opens `<s>`, `--ticket <t>
+   --skill kipo-review` opens `review-t<t>`, any other `--ticket <t>` its `build-t<t>` or
+   `shape-t<t>`; or KiPo recorded its start, which every session KiPo opens now has): "never
+   reported since it was dispatched", not finished, and closable only once its thread settled
+   without it.
 2. **Its thread is settled**:
 
 | Session | Settled when |
 |---|---|
 | `shape-t<t>` | `#t` is closed |
 | `build-t<t>` | `#t` is closed, or it has a PR and `review-t<t>` exists (the review owns it now) |
-| `review-t<t>` | `#t` is closed, or every PR for `#t` is merged or closed |
-| `review` | every effort PR its reports name (`#<n>` in text or items) is merged or closed; naming none, the frontier has landed |
+| `review-t<t>` | every PR for `#t` (closing it, or open and naming it: `refPrs`) is merged or closed; or `#t` is closed and no such PR is open |
+| `review` | every effort PR its reports name (`#<n>` in text or items) is merged or closed; naming none, no effort PR is open. Effort PRs are the detail's `prs` and `refPrs`, never the repo's others |
 | `shape`, `grill`, `intake` | the Decide half is clear: no open decision ticket, no fog |
 | `plan` | build tickets are cut |
 | `build-spec`, `done` | the frontier has landed |
+
+**Never started**: a recorded session whose seed never went out (KiPo records `seeded: false`
+when it hands the page a slot and seed; the page posts `POST …/sessions/started` (`{key}`) once
+its seed or hand-over message is sent, `seeded: true`; still unseeded 2 minutes later), or whose
+slot Kiro Crew has no session for (`dashboard:<slot>` missing from `session_map.json`), is
+`open` with `started: false`: nothing to wake or close. The page starts it again on a fresh
+slot (closing the old slot first, unless another key shares it), once per slot per browser,
+and a dispatch for its thread replaces it. **Replaced**: a session whose slot a pending dispatch
+entry `replace`s is `closable` ("replaced: a fresh session is queued for its thread"). A
+replacing slot's session ignores the reports, wakes and activity from before its start.
 
 Never closable: the conductor; any session whose own state file has an unanswered decision
 card (each conversation has its own, so a card holds only the session that asked it); and a
@@ -315,9 +352,11 @@ closable, not closed), has no unanswered decision card (a session waiting on the
 is never stalled), isn't mid-turn, and its thread isn't settled (the close rule's table). A
 candidate is **stalled** when either holds:
 
-1. **Idle**: its last activity was 15 minutes ago or more, and its last report isn't
-   `finished` or `nothing-to-do`. A session that never reported predates reporting and is left
-   alone.
+1. **Idle**: its last activity (with none known, its opening: its recorded start or latest
+   dispatch entry) was 15 minutes ago or more, and its last report isn't `finished` or
+   `nothing-to-do`, or it never reported though seeded to (the close rule's "never reported":
+   dispatched, or KiPo recorded its start; why ends ", never reported since it was
+   dispatched"). Only a session from before reporting is left alone.
 2. **Its blocker cleared**: its last report is `blocked`, and later another session on the same
    ticket reported `finished` or `pr-opened`, or a PR or issue that the blocked report's text
    names (`#<n>`, not its own ticket or PRs) was merged or closed: by a later `pr-merged` /
@@ -330,7 +369,7 @@ Each stall has an id (`blocked#<report id>`, or `idle@<last activity>`). The eff
 |---|---|---|
 | `stalled` | stalled, not yet woken for this stall | wakes it |
 | `woken` | woken for this stall, or its last wake is unanswered | waits |
-| `stuck` | 2 wakes in a row with no answer | never wakes it again; the conductor puts it to the human (a `stuck` card in `waiting`) |
+| `stuck` | 2 wakes in a row with no answer | never wakes it again; the conductor puts it to the human (a `stuck` card in `waiting`: Dispatch a fresh session (recommended) / Open it / Close it; on the first, the conductor re-dispatches the thread, which replaces it) |
 
 A wake is answered when the session reports after it, or acts after it (the agent's message;
 when only the transcript mtime is known, more than 30 s after the wake).
@@ -446,7 +485,8 @@ handlers read the query string.
 | POST | `…/{n}/sessions/closed` | `{"keys":[…]}` | the page closed these (closable) sessions: recorded in `data/closed.json` |
 | POST | `…/{n}/sessions/activity` | `{"activity":{key:{at,running,agent}}}` | `{recorded}`: what Kiro Crew says of each open session, for the stall rule |
 | POST | `…/{n}/sessions/woken` | `{"key","stall","why"}` | `{wake}`: the page woke a stalled session; recorded in `.kipo/<n>/wakes.json`, once per stall |
-| POST | `…/{n}/session` | `{"column":"<key base>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null}` | `{"slotName","seed","existing":bool}` |
+| POST | `…/{n}/session` | `{"column":"<key base>","skill":"<name>"\|null,"ticket":n\|null,"mode":"implement-spec"\|null,"replace":bool}` | `{"slotName","key","seed","existing":bool}`; recorded unseeded; `replace` opens the key on a fresh slot (`-r2`, …) |
+| POST | `…/{n}/sessions/started` | `{"key"}` | `{started}`: the page sent the seed; recorded in `data/starts.json` |
 | GET | `…/{n}/tickets/{t}` | | a ticket's card: body and latest comment |
 | POST | `…/{n}/hide`, `…/{n}/unhide` | | off and back on the sidebar (local) |
 | POST | `…/{n}/remove` | | closes a KiPo effort's issue as not planned; a map is only taken off the sidebar |
@@ -459,7 +499,8 @@ handlers read the query string.
 ## Storage
 
 `$KIROCREW_HOME/apps/kipo/data/`: `config.json` (watched repos), `sessions.json`, `closed.json`
-(sessions the page closed), `activity.json` (what the page last read of each open session),
+(sessions the page closed), `starts.json` (when KiPo opened each session, on which slot, the
+slots it replaced, whether its seed went out), `activity.json` (what the page last read of each open session),
 `frontier.json` (each effort's last frontier, for the sidebar bars), `maps.json` (maps put on
 the sidebar), `hidden.json` (efforts taken off it). In the effort's checkout,
 `.kipo/<n>/`: the state files, `reports.json` and `wakes.json`.

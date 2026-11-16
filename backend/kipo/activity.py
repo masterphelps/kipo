@@ -119,6 +119,21 @@ def transcript_activity(slots, home=None, claude_home=None):
     return out
 
 
+def known_slots(home=None):
+    """Every slot Kiro Crew has created a session for (``dashboard:<slot>`` in
+    its session map), or ``None`` when the map can't be read (then assume
+    every slot exists)."""
+    home = home or os.environ.get("KIROCREW_HOME") or os.path.expanduser("~/.kiro/crew")
+    try:
+        with open(os.path.join(home, "session_map.json"), encoding="utf-8") as fh:
+            smap = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(smap, dict):
+        return None
+    return {k.split(":", 1)[1] for k in smap if isinstance(k, str) and k.startswith("dashboard:")}
+
+
 def merge(observed, fallback, now, fresh_s=FRESH_S):
     """Per session: the page's observation (from Kiro Crew's API) while it is
     fresh, else the transcript's mtime."""

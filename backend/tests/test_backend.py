@@ -36,6 +36,8 @@ class Base(unittest.TestCase):
         self.storage = Storage(os.path.join(self.tmp, "data"))
         self.storage.save_config({"repos": [{"slug": REPO, "path": self.checkout}]})
         self.app = server.App(gh=Gh(self.fake), storage=self.storage, clock=lambda: "2026-11-06", repo_roots=(self.tmp,))
+        # Kiro Crew's session map on this Mac isn't the test's: every slot exists.
+        self.app.initiatives.known_slots = lambda: None
 
     def tearDown(self):
         shutil.rmtree(self.tmp)

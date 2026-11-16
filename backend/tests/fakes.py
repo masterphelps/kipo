@@ -174,6 +174,11 @@ class FakeGh:
             for (r, _), i in sorted(self.issues.items())
             if r == repo and wanted & {l["name"] for l in i["labels"]}
         ]
+        if "parent {" in query:
+            # The native sub-issue parent: the issue whose sub_issues list it.
+            for n in nodes:
+                up = next((m for (r, m), kids in self.sub_issues.items() if r == repo and n["number"] in kids), None)
+                n["parent"] = {"number": up} if up is not None else None
         return {"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}
 
     def _sub_issues_query(self, repo, number):

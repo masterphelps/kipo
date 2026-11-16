@@ -83,6 +83,7 @@ ROUTES = [
     ("POST", re.compile(_ISSUE + r"/sessions/closed$"), "sessions_closed"),
     ("POST", re.compile(_ISSUE + r"/sessions/activity$"), "sessions_activity"),
     ("POST", re.compile(_ISSUE + r"/sessions/woken$"), "sessions_woken"),
+    ("POST", re.compile(_ISSUE + r"/sessions/started$"), "sessions_started"),
     ("POST", re.compile(_ISSUE + r"/skill$"), "skill"),
     ("POST", re.compile(_ISSUE + r"/remove$"), "remove"),
     ("POST", re.compile(_ISSUE + r"/hide$"), "hide"),
@@ -240,7 +241,12 @@ class App:
             skill=body.get("skill") or None,
             ticket=body.get("ticket"),
             mode=body.get("mode") or None,
+            replace=bool(body.get("replace")),
         )
+
+    def sessions_started(self, body, owner, repo, n):
+        body = body if isinstance(body, dict) else {}
+        return self.initiatives.record_started(f"{owner}/{repo}", int(n), body.get("key"))
 
     def sessions_closed(self, body, owner, repo, n):
         body = body if isinstance(body, dict) else {}

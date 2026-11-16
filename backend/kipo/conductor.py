@@ -39,7 +39,7 @@ def stage_of(tile):
 _STALL_ACTION = {
     "stalled": "{key} stalled ({why}); KiPo's page wakes it",
     "woken": "{key} was woken ({why}); wait for it to answer",
-    "stuck": "{key} is stuck ({why}); put it to the human",
+    "stuck": "{key} is stuck ({why}); put it to the human (its card: dispatch a fresh session, open it or close it)",
 }
 
 
@@ -65,6 +65,32 @@ def _ticket_thread(t, stalled=None):
         return {**base, "owner": "HITL", "action": f"{verb} ({STAGE_SKILL[stage]}); ask in one batched message"}
     # afk: an agent can take it now
     return {**base, "owner": "Agent", "action": f"dispatch {STAGE_SKILL[stage]}"}
+
+
+def _ref_pr_thread(p, t, detail):
+    """An open PR that names effort ticket ``t`` (``#t`` in its title or body)
+    without closing it: a review thread for that ticket, even once ``t`` closed.
+    Its review is ``review-t<t>``; while that doesn't exist, an open effort
+    review conversation (``review``) holds it."""
+    base = {"id": f"pr{p['number']}", "kind": "pr", "pr": p["number"], "ticket": t, "refs": list(p.get("refs") or []),
+            "stage": "review", "skill": "kipo-review", "label": f"PR #{p['number']} {p.get('title') or ''}".strip()}
+    sessions = detail.get("sessions") or {}
+    rows = {r.get("key"): r for r in detail.get("closing") or []}
+    key = f"review-t{t}" if f"review-t{t}" in sessions else "review" if "review" in sessions else None
+    row = rows.get(key) or {}
+    if key and row.get("status") == "open" and row.get("started") is not False:
+        again = f"--ticket {t} --skill kipo-review" if key != "review" else "--stage review"
+        s = row.get("stall")
+        if s:
+            action = _STALL_ACTION[s["state"]].format(key=key, why=s["why"])
+            if s["state"] == "stuck":
+                action += f"; on the human's say-so, dispatch {again} for a fresh session"
+            return {**base, "owner": "Stalled", "session": key, "stall": s["state"], "why": s["why"], "action": action}
+        return {**base, "owner": "Running", "session": key,
+                "action": f"{key} is reviewing it; wait for its report"}
+    return {**base, "owner": "Agent",
+            "action": f"names #{t} without closing it: dispatch --ticket {t} --skill kipo-review "
+                      "(review, fix, merge if a two-way door)"}
 
 
 # An effort's own first stage, while it has no ticket, spec or map yet: the
@@ -136,6 +162,11 @@ def threads(detail):
             out.append({"id": f"pr{p['number']}", "kind": "pr", "pr": p["number"], "stage": "review",
                         "skill": "kipo-review", "label": f"PR #{p['number']} {p.get('title') or ''}".strip(),
                         "owner": "Agent", "action": "closes no ticket: find what it's for, link or flag it, then review"})
+    seen = {t.get("pr") for t in out}
+    for p in detail.get("refPrs") or []:
+        t = next((n for n in p.get("refs") or [] if n in known), None)
+        if p.get("state") == "OPEN" and t is not None and p["number"] not in seen:
+            out.append(_ref_pr_thread(p, t, detail))
     if fog_items:
         out.append({"id": "fog", "kind": "fog", "stage": "shape", "skill": "kipo-shape", "items": fog_items,
                     "label": f"{len(fog_items)} not yet specified on the map", "owner": "HITL",

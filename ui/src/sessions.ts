@@ -36,6 +36,19 @@ function markClosed(slot: string) {
   try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...s].slice(-500))) } catch { /* full: fine */ }
 }
 
+// Close a dead session that a fresh one replaces (kipo_cli.py dispatch:
+// stuck, closed, or never started), mid-turn or not: the thread must never
+// have two live sessions. True once it's closed (or was never there).
+export async function closeReplaced(api: Api, slot: string): Promise<boolean> {
+  try {
+    await api.del(`/api/chat/slots/${encodeURIComponent(slot)}`)
+  } catch (e) {
+    if (!/404|not.?found/i.test(String((e as Error)?.message ?? e))) return false
+  }
+  markClosed(slot)
+  return true
+}
+
 // Close the given sessions unless one is still running (its agent is mid-turn,
 // such as writing its last message) or is the one on screen. Kiro Crew's close
 // (DELETE /api/chat/slots/<slot>) is what a session's ⋯ menu "Close session"

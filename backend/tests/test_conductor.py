@@ -77,6 +77,54 @@ class Threads(unittest.TestCase):
         self.assertNotIn("pr9", [t["id"] for t in conductor.threads(d)["threads"]])
 
 
+def ref_pr(n, refs, state="OPEN"):
+    return {"number": n, "state": state, "tickets": [], "refs": list(refs), "title": f"docs: ADR (#{refs[0]})"}
+
+
+class PrNamingATicket(unittest.TestCase):
+    """#201: PRs #609/#611/#612 name #208 in their title, close nothing. Each is a
+    review thread for #208 (kipo-review, Agent), even with #208 closed."""
+
+    def _d(self, **kw):
+        d = detail([tile(208, "done", "grilling"), tile(212, "you", "grilling")], **kw)
+        d["refPrs"] = [ref_pr(609, [208]), ref_pr(611, [208]), ref_pr(612, [208])]
+        return d
+
+    def test_each_is_a_review_thread_for_its_ticket(self):
+        r = conductor.threads(self._d())
+        by = {t["id"]: t for t in r["threads"]}
+        self.assertEqual([i for i in by if i.startswith("pr")], ["pr609", "pr611", "pr612"])
+        th = by["pr609"]
+        self.assertEqual((th["kind"], th["pr"], th["ticket"], th["stage"], th["skill"], th["owner"]),
+                         ("pr", 609, 208, "review", "kipo-review", "Agent"))
+        self.assertIn("--ticket 208 --skill kipo-review", th["action"])
+        self.assertNotIn("closes no ticket", th["action"])
+        self.assertEqual(by["retro"]["owner"], "Blocked")
+
+    def test_merged_ones_are_not_threads(self):
+        d = self._d()
+        d["refPrs"] = [ref_pr(609, [208], "MERGED")]
+        self.assertNotIn("pr609", [t["id"] for t in conductor.threads(d)["threads"]])
+
+    def test_its_review_conversation_running_owns_it(self):
+        d = self._d(column="grill", path=IDEA, sessions={"review-t208": "slot"},
+                    closing=[{"key": "review-t208", "status": "open"}])
+        th = next(t for t in conductor.threads(d)["threads"] if t["id"] == "pr609")
+        self.assertEqual((th["owner"], th["session"]), ("Running", "review-t208"))
+
+    def test_the_effort_review_conversation_owns_it_when_there_is_no_ticket_review(self):
+        row = {"key": "review", "status": "open", "stall": {"state": "stuck", "why": "woken 2 times with no answer"}}
+        d = self._d(column="grill", path=IDEA, sessions={"review": "slot"}, closing=[row])
+        th = next(t for t in conductor.threads(d)["threads"] if t["id"] == "pr609")
+        self.assertEqual((th["owner"], th["session"], th["stall"]), ("Stalled", "review", "stuck"))
+        self.assertIn("--stage review", th["action"])
+
+    def test_a_pr_closing_no_ticket_and_naming_none_is_still_a_stray(self):
+        d = self._d(prs=[{"number": 45, "state": "OPEN", "tickets": [], "title": "Drop the default"}])
+        th = next(t for t in conductor.threads(d)["threads"] if t["id"] == "pr45")
+        self.assertIn("closes no ticket", th["action"])
+
+
 
 class NoTicketsYet(unittest.TestCase):
     """Zero tickets is never "every ticket is done": #1054, an idea just created."""

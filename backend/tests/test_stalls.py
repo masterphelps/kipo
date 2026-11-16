@@ -236,6 +236,9 @@ class Surfaces(unittest.TestCase):
         act = {"review-t4": {"at": ago(20), "running": False, "agent": False}}
         cards = stalls.stuck_cards(self._detail(act, wakes)["closing"])
         self.assertEqual([(c["from"], c["id"], c["stuck"]) for c in cards], [("review-t4", "stuck-review-t4", True)])
+        # The human can have it replaced: the conductor re-dispatches its thread.
+        self.assertEqual(cards[0]["recommended"], "Dispatch a fresh session")
+        self.assertIn("Dispatch a fresh session", cards[0]["options"])
 
     def test_cli_counts_stalled_woken_stuck(self):
         d = self._detail(IDLE)
@@ -283,6 +286,135 @@ class Effort995(unittest.TestCase):
         now = datetime.datetime(2026, 11, 10, 11, 53, tzinfo=datetime.timezone.utc)
         row = stalls.sessions(d, rs, None, act, {}, now)[0]
         self.assertEqual((row["stall"]["state"], row["stall"]["why"]), ("stalled", "idle 40 min"))
+
+
+def dispatched(d, *entries, starts=None):
+    """``d`` with the conductor's dispatch queue and KiPo's recorded starts."""
+    d = dict(d)
+    d["sessionStates"] = {**(d.get("sessionStates") or {}), "conductor": {"dispatch": list(entries)}}
+    if starts is not None:
+        d["starts"] = starts
+    return d
+
+
+class NeverReported(unittest.TestCase):
+    """Every session KiPo dispatches today is seeded to report: one that never
+    did is a stall candidate. Only a session from before reporting (no dispatch
+    entry, no recorded start) is left alone."""
+
+    base = detail(["review-t4"], tickets=[(4, "OPEN")], prs=[(40, "OPEN", [4])])
+
+    def test_a_dispatched_ticket_session_that_never_reported_stalls(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(60)})
+        s = stall_of(d, [], IDLE)
+        self.assertEqual((s["state"], s["id"]), ("stalled", f"idle@{ago(20)}"))
+        self.assertIn("never reported", s["why"])
+
+    def test_a_session_kipo_recorded_starting_that_never_reported_stalls(self):
+        d = dispatched(self.base, starts={"review-t4": {"at": ago(60), "slot": "kipo-acme-widgets-7-review-t4"}})
+        self.assertEqual(stall_of(d, [], IDLE)["state"], "stalled")
+
+    def test_a_pre_reporting_session_is_still_left_alone(self):
+        # Dispatched for another thread; this one has no entry and no recorded start.
+        d = dispatched(self.base, {"ticket": 9, "at": ago(60)})
+        self.assertIsNone(stall_of(d, [], IDLE))
+
+    def test_with_no_activity_known_it_idles_from_its_dispatch(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(60)})
+        s = stall_of(d, [], {})
+        self.assertEqual(s["state"], "stalled")
+        self.assertIn("idle 60 min", s["why"])
+
+    def test_recently_dispatched_is_not_yet_idle(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(5)})
+        self.assertIsNone(stall_of(d, [], {}))
+
+    def test_close_rule_agrees_it_is_not_finished(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(60)})
+        row = closing.sessions(d, [])[0]
+        self.assertEqual(row["status"], "open")
+        self.assertIn("never reported since it was dispatched", row["reason"])
+        self.assertNotIn("started before reporting", row["reason"])
+
+    def test_close_rule_still_closes_it_once_its_thread_settled(self):
+        d = dispatched(detail(["review-t4"], tickets=[(4, "OPEN")], prs=[(40, "MERGED", [4])]),
+                       {"ticket": 4, "skill": "kipo-review", "at": ago(60)})
+        row = closing.sessions(d, [])[0]
+        self.assertEqual(row["status"], "closable")
+        self.assertIn("never reported", row["reason"])
+
+    def test_a_shape_ticket_dispatched_under_its_skill_counts(self):
+        d = dispatched(detail(["shape-t9"], tickets=[(9, "OPEN")],
+                              tiles=[{"number": 9, "state": "you", "type": "grilling", "lane": "decide"}]),
+                       {"ticket": 9, "skill": "kipo-grill", "at": ago(60)})
+        act = {"shape-t9": {"at": ago(40), "running": False, "agent": True}}
+        self.assertEqual(stall_of(d, [], act, key="shape-t9")["state"], "stalled")
+
+
+class Effort201(unittest.TestCase):
+    """interroseclabs/qsight#201, 2026-11-14: `dispatch --stage review` at 09:47Z
+    opened the review session; it never reported, and the stall rule skipped it
+    for ~18 hours while three docs-only PRs (#609, #611, #612, "(#208)" in their
+    titles, no closing keyword) waited."""
+
+    def _detail(self):
+        d = detail(["conductor", "shape-t208", "shape-t212", "review", "plan"],
+                   tickets=[(208, "CLOSED"), (212, "OPEN")], prs=[],
+                   tiles=[{"number": 208, "state": "done", "type": "grilling", "lane": "decide"},
+                          {"number": 212, "state": "you", "type": "task", "lane": "decide"}])
+        d["frontier"].update(landed=False, active={"decide": True, "deliver": False})
+        d["refPrs"] = [{"number": n, "state": "OPEN", "tickets": [], "refs": [208], "title": f"ADR (#208) {n}"}
+                       for n in (609, 611, 612)]
+        return dispatched(d, {"ticket": 212, "skill": "kipo-shape", "at": "2026-11-14T09:13:49Z"},
+                          {"stage": "review", "at": "2026-11-14T09:47:20Z"})
+
+    def test_the_review_session_is_stalled(self):
+        now = datetime.datetime(2026, 11, 15, 3, 47, tzinfo=datetime.timezone.utc)
+        act = {"review": {"at": "2026-11-14T09:48:00Z", "running": False, "agent": True}}
+        rows = {r["key"]: r for r in stalls.sessions(self._detail(), [], None, act, {}, now)}
+        self.assertEqual(rows["review"]["status"], "open")
+        self.assertEqual(rows["review"]["stall"]["state"], "stalled")
+        self.assertIn("idle 1079 min", rows["review"]["stall"]["why"])
+
+    def test_shape_t212_silent_for_40_minutes_is_stalled(self):
+        now = datetime.datetime(2026, 11, 14, 9, 55, tzinfo=datetime.timezone.utc)
+        act = {"shape-t212": {"at": "2026-11-14T09:14:30Z", "running": False, "agent": True}}
+        rows = {r["key"]: r for r in stalls.sessions(self._detail(), [], None, act, {}, now)}
+        self.assertEqual(rows["shape-t212"]["stall"]["state"], "stalled")
+
+
+class Replaced(unittest.TestCase):
+    """A re-dispatched thread: its fresh session starts clean of the old one's
+    reports, wakes and activity; the old slot, while the replacement is
+    pending, is closable."""
+
+    base = detail(["review-t4"], tickets=[(4, "OPEN")], prs=[(40, "OPEN", [4])])
+    old_wakes = {"review-t4": [{"at": ago(50), "stall": "idle@a", "why": "x"}, {"at": ago(30), "stall": "idle@b", "why": "x"}]}
+
+    def test_the_old_session_was_stuck(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(70)})
+        act = {"review-t4": {"at": ago(30), "running": False, "agent": False}}
+        self.assertEqual(stall_of(d, [], act, self.old_wakes)["state"], "stuck")
+
+    def test_a_pending_replacement_makes_the_old_one_closable(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(70)},
+                       {"ticket": 4, "skill": "kipo-review", "at": ago(1), "replace": "kipo-acme-widgets-7-review-t4"})
+        row = closing.sessions(d, [])[0]
+        self.assertEqual(row["status"], "closable")
+        self.assertIn("replaced", row["reason"])
+
+    def test_the_fresh_session_ignores_the_old_ones_wakes_and_reports(self):
+        d = dispatched(self.base, {"ticket": 4, "skill": "kipo-review", "at": ago(70)},
+                       {"ticket": 4, "skill": "kipo-review", "at": ago(3), "replace": "kipo-acme-widgets-7-review-t4"},
+                       starts={"review-t4": {"at": ago(2), "slot": "kipo-acme-widgets-7-review-t4-r2",
+                                             "replaced": ["kipo-acme-widgets-7-review-t4"]}})
+        d["sessions"] = {"review-t4": "kipo-acme-widgets-7-review-t4-r2"}
+        old = [rep(1, "review-t4", "blocked", "waits on #99", at=ago(65))]
+        act = {"review-t4": {"at": ago(30), "running": False, "agent": False}}  # the old slot's, before the start
+        rows = stalls.sessions(d, old, None, act, self.old_wakes, NOW)
+        self.assertEqual(rows[0]["status"], "open")
+        self.assertNotIn("stall", rows[0])
+        self.assertIn("never reported", rows[0]["reason"])
 
 
 class Io(unittest.TestCase):
