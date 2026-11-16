@@ -117,6 +117,15 @@ type Station = {
 
 const seg = (n: number, state: Tile['state']): Station['segments'][number] => ({ n, color: STATE_META[state].color })
 
+// The header alert's label: recorded questions and live trust-prompt/ask
+// sessions, whichever are waiting. Live needs lead — they block an agent now.
+function rollupLabel(questions: number, needs: number): string {
+  const parts: string[] = []
+  if (needs > 0) parts.push(needs === 1 ? '1 needs you now' : `${needs} need you now`)
+  if (questions > 0) parts.push(questions === 1 ? '1 question' : `${questions} questions`)
+  return parts.join(' · ') + (needs > 0 ? '' : ' waiting on you')
+}
+
 export function StationsPanel({ detail, statuses, activity, busy, autopilot, selectedKey, embedded, compact, onAutopilot, onOpenTile, onOpenConversation, onSelectConductor, onJumpQuestions, onHandover, onReview, onRetro, onClose }: {
   detail: EffortDetail
   statuses: Record<number, SessionStatus>
@@ -352,6 +361,10 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
   })
 
   const totalQ = conductorQ + stations.reduce((a, s) => a + s.rows.reduce((x, r) => x + (r.questions ?? 0), 0), 0)
+  // Sessions stopped on a trust prompt or an ask (live, not a recorded
+  // question): surfaced in the header too, so a blocked tool call isn't missed
+  // just because its row is deep in a collapsed station.
+  const liveNeeds = Object.values(activity ?? {}).filter(a => a && (a.needs === 'approval' || a.needs === 'input')).length
   const conductorSelected = selectedKey === 'conductor'
   const conductorOpen = !!detail.sessions.conductor && !isClosed(detail.sessions.conductor)
 
@@ -380,12 +393,14 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
               </>)
             : <span style={muted}>{fogItems.length ? `${fogItems.length} in the fog, nothing cut yet` : 'nothing cut yet'}</span>}
         </div>
-        {totalQ > 0 && (
-          <button type="button" onClick={onJumpQuestions}
-            title="Jump to the next conversation with open questions; answer them on the right"
+        {(totalQ > 0 || liveNeeds > 0) && (
+          <button type="button" onClick={onJumpQuestions} className={liveNeeds > 0 ? 'kipo-pulse' : undefined}
+            title={liveNeeds > 0
+              ? 'A session is stopped on a trust prompt or an ask: open it to allow or answer'
+              : 'Jump to the next conversation with open questions; answer them on the right'}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '2px 9px', borderRadius: 99,
               background: STATE_META.you.color, color: '#14121c', fontSize: T.tiny, fontWeight: 700, cursor: 'pointer', border: 0 }}>
-            {totalQ === 1 ? '1 question waiting on you' : `${totalQ} questions waiting on you`} →
+            {rollupLabel(totalQ, liveNeeds)} →
           </button>
         )}
         <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}

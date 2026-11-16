@@ -187,20 +187,35 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
       const t = s?.replace(/\s+/g, ' ').trim()
       return t ? t.slice(0, 140) : null
     }
-    const poll = () => {
-      void Promise.all(sessionTiles.map(t =>
-        api.get<SlotInfo>(`/api/chat/slots/${encodeURIComponent(detail!.sessions[t.sessionKey!])}?limit=1`)
+    // running / pending_approval / needs_input live on the session-LIST rows
+    // (GET /api/chat/slots), not on the per-slot ?limit=1 messages endpoint —
+    // reading them off the latter is why a trust-prompted session pulsed blue,
+    // not orange. One list call per cycle gives every session's flags by key.
+    type SlotRow = { key?: string; running?: boolean; pending_approval?: boolean; needs_input?: boolean }
+    const poll = async () => {
+      let byKey = new Map<string, SlotRow>()
+      try {
+        const list = await api.get<SlotRow[]>('/api/chat/slots')
+        if (live && Array.isArray(list)) byKey = new Map(list.filter(r => r.key).map(r => [r.key as string, r]))
+      } catch { /* no list: fall back to whatever the per-slot call carries */ }
+      void Promise.all(sessionTiles.map(t => {
+        const slot = detail!.sessions[t.sessionKey!]
+        const row = byKey.get(slot)
+        return api.get<SlotInfo>(`/api/chat/slots/${encodeURIComponent(slot)}?limit=1`)
           .then(r => {
             const last = r?.messages?.[r.messages.length - 1]
-            const needs = r?.pending_approval ? 'approval' as const : r?.needs_input ? 'input' as const : null
+            const pending = row?.pending_approval ?? r?.pending_approval
+            const asking = row?.needs_input ?? r?.needs_input
+            const running = row?.running ?? r?.running
+            const needs = pending ? 'approval' as const : asking ? 'input' as const : null
             const act: SessionActivity = { at: last?.ts ?? null, line: last && last.role !== 'user' ? lineOf(last) : null, needs }
             // A trust prompt or a question outranks running; a finished
             // ticket's idle session isn't waiting on anyone: no dot.
-            const status = needs ? 'attention' as const : r?.running ? 'running' as const : t.state === 'done' ? null : 'waiting' as const
+            const status = needs ? 'attention' as const : running ? 'running' as const : t.state === 'done' ? null : 'waiting' as const
             return [t.number, status, act] as const
           })
-          .catch(() => null),
-      )).then(rows => {
+          .catch(() => null)
+      })).then(rows => {
         if (!live) return
         const next: Record<number, SessionStatus> = {}
         const acts: Record<number, SessionActivity> = {}
