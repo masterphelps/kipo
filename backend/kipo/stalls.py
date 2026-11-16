@@ -6,12 +6,14 @@ not closed), has no unanswered decision card (a session waiting on the human's
 cards is never stalled), is not mid-turn, and its thread isn't settled
 (``closing.settled``). A candidate is **stalled** when either holds:
 
-(a) **idle**: its last activity (or its opening, when later or activity is
-    unknown) is ``IDLE_MINUTES`` or more ago, and its last report isn't
-    ``finished`` or ``nothing-to-do``, or it never reported though it was seeded
-    to (``closing.expects_reports``: a dispatch entry opens it, or KiPo recorded
-    its start; every session KiPo opens today). Only a session from before
-    reporting, which may stay silent, is left alone (as the close rule does).
+(a) **idle**: its newest sign of life is ``IDLE_MINUTES`` or more ago, and its
+    last report isn't ``finished`` or ``nothing-to-do``, or it never reported
+    though it was seeded to (``closing.expects_reports``: a dispatch entry opens
+    it, KiPo recorded its start, or its transcript's seed has a Report line).
+    Only a session from before reporting, which may stay silent, is left alone
+    (as the close rule does). Its newest sign of life: its last activity (with
+    none known, its opening), its latest report of any kind, or its own state
+    file's latest write (``stateWrites``).
     A session that never started (``started: false``) has nothing to wake.
 (b) **blocker cleared**: its last report is ``blocked`` and something later
     clears it: a ``finished`` or ``pr-opened`` from another session on the same
@@ -23,7 +25,7 @@ cards is never stalled), is not mid-turn, and its thread isn't settled
 A re-dispatched thread's fresh session (``closing.since``) ignores the old
 slot's reports, wakes and activity.
 
-Each stall has an id: ``blocked#<report id>`` for (b), ``idle@<last activity>``
+Each stall has an id: ``blocked#<report id>`` for (b), ``idle@<newest sign of life>``
 for (a). KiPo's page wakes a stalled session once per stall id and records the
 wake (``.kipo/<n>/wakes.json``). A wake is answered when the session reports, or
 acts, after it. After ``MAX_WAKES`` unanswered wakes in a row the session is
@@ -136,12 +138,14 @@ def unanswered(wakes, rs, activity):
     return count
 
 
-def stall(key, rs, reports, detail, activity, wakes, now, expected=None, opened=None):
+def stall(key, rs, reports, detail, activity, wakes, now, expected=None, opened=None, written=None):
     """The stall state of one candidate session (open, not the conductor, no
     open card, thread not settled): ``{state, why, id, wakes}`` or ``None``.
     ``expected``: why it is seeded to report (``closing.expects_reports``), so
     never reporting is idling too; ``opened``: when it was opened, the idle
-    clock's start when its activity is unknown or older."""
+    clock's start when its activity is unknown; ``written``: its own state
+    file's latest write. The idle clock runs from the newest of its activity
+    (else opening), latest report and ``written``."""
     activity = activity or {}
     if activity.get("running") is True:
         return None
@@ -155,10 +159,17 @@ def stall(key, rs, reports, detail, activity, wakes, now, expected=None, opened=
     blocked, cleared = blocker_cleared(key, rs, reports, detail)
     if cleared:
         found.append((f"blocked#{blocked.get('id')}", f"your blocker cleared: {cleared}"))
-    # Idle since its last activity, or, with none known, since it was opened.
+    # Idle since its newest sign of life: its last activity (with none known,
+    # its opening), its latest report of any kind, or its state file's latest
+    # write. Reports and writes only move a known clock.
     at, at_text = parse_time(activity.get("at")), activity.get("at")
     if at is None and parse_time(opened):
         at, at_text = parse_time(opened), opened
+    if at is not None:
+        for t in [written] + [r.get("at") for r in rs or []]:
+            when = parse_time(t)
+            if when and when > at:
+                at, at_text = when, t
     # Silent: seeded to report, it never did. A session from before reporting
     # (``expected`` None) is left alone.
     unfinished = rs[-1].get("event") not in QUIET if rs else bool(expected)
@@ -208,7 +219,8 @@ def sessions(detail, reports, closed=None, activity=None, wakes=None, now=None):
             act = {**act, "at": first, "agent": None}  # the old slot's last message
         ok, _ = closing.settled(key, detail, rs, closed_tickets, prs)
         s = None if ok else stall(key, rs, attributed, detail, act, mine, now,
-                                  closing.expects_reports(key, detail), closing.opened_at(key, detail))
+                                  closing.expects_reports(key, detail), closing.opened_at(key, detail),
+                                  (detail.get("stateWrites") or {}).get(key))
         out.append({**row, "stall": s} if s else row)
     return out
 

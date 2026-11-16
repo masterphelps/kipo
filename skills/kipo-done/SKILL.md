@@ -66,8 +66,9 @@ The report doesn't replace asking in the chat and recording the cards (above), a
 2. Run `retro`. Show its candidates in order of severity, and ask about the ones worth building together in one numbered message (options: build it, skip), recording each in the state file's `decisions`.
 3. Build the agreed changes: mechanical mistakes become deterministic checks (lint rule, pre-commit hook, CI job); judgement calls become coding standards. Commit them on a branch `kipo/<n>-retro` and open a PR, or file a candidate ticket if it's too big to do here.
 4. Clean up: remove this effort's worktrees (`git -C <checkout> worktree remove <path>`) and delete its merged `kipo/<n>*` branches, local and remote.
+5. Close the effort's spec issue (the issue the "Spec" artifact names; its tickets are its sub-issues) once every one of its tickets is closed: `gh issue close <spec> --reason completed --comment "Every ticket of this spec is done: #<t>, …"`, and report `issue-closed`. KiPo never counts the spec as a ticket, so nothing else closes it. Leave it open, and say why, while any of its tickets is open.
 
-On `bug` starts, the retro's first question is what would have prevented this bug. The human closes the effort with KiPo's "Close effort"; don't close the issue yourself.
+On `bug` starts, the retro's first question is what would have prevented this bug. The human closes the effort with KiPo's "Close effort"; don't close the effort issue yourself.
 
 ## Documents
 

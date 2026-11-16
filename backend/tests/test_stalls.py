@@ -351,6 +351,80 @@ class NeverReported(unittest.TestCase):
         self.assertEqual(stall_of(d, [], act, key="shape-t9")["state"], "stalled")
 
 
+class SeededToReport(unittest.TestCase):
+    """A session with no dispatch entry and no recorded start (the page opened
+    it before KiPo kept starts) whose seed carried a Report line: it was seeded
+    to report, so never reporting is idling, not "started before reporting"."""
+
+    base = detail(["build-t4"], tickets=[(4, "OPEN")])
+    act = {"build-t4": {"at": ago(40), "running": False, "agent": True}}
+
+    def seeded(self, reports=True):
+        return {**self.base, "seeds": {"build-t4": {"at": ago(60), "reports": reports}}}
+
+    def test_a_seed_with_a_report_line_makes_silence_a_stall(self):
+        s = stall_of(self.seeded(), [], self.act, key="build-t4")
+        self.assertEqual((s["state"], s["id"]), ("stalled", f"idle@{ago(40)}"))
+        self.assertIn("never reported since its seed asked it to report", s["why"])
+
+    def test_the_close_rule_agrees(self):
+        row = closing.sessions(self.seeded(), [])[0]
+        self.assertEqual(row["status"], "open")
+        self.assertNotIn("started before reporting", row["reason"])
+        self.assertIn("never reported since its seed asked it to report", row["reason"])
+
+    def test_a_seed_without_a_report_line_is_left_alone(self):
+        self.assertIsNone(stall_of(self.seeded(reports=False), [], self.act, key="build-t4"))
+        self.assertIn("started before reporting", closing.sessions(self.seeded(reports=False), [])[0]["reason"])
+
+    def test_no_activity_known_idles_from_the_seed(self):
+        s = stall_of(self.seeded(), [], {}, key="build-t4")
+        self.assertIn("idle 60 min", s["why"])
+
+
+class Effort1054(unittest.TestCase):
+    """interroseclabs/netsight#1054, 2026-11-15: KiPo's page started build-t1062
+    at 18:05Z (its seed had a Report line; no dispatch entry, no starts.json);
+    it last moved at 18:25Z and never reported. 14 hours later `sessions` still
+    read it "never reported (started before reporting)", with no stall."""
+
+    def test_build_t1062_is_stalled(self):
+        d = detail(["conductor", "build-t1062"], tickets=[(1062, "OPEN")])
+        d["seeds"] = {"build-t1062": {"at": "2026-11-15T18:05:18.424Z", "reports": True}}
+        act = {"build-t1062": {"at": "2026-11-15T18:25:38.665053+00:00", "running": False, "agent": True}}
+        now = datetime.datetime(2026, 11, 16, 8, 30, tzinfo=datetime.timezone.utc)
+        row = next(r for r in stalls.sessions(d, [], None, act, {}, now) if r["key"] == "build-t1062")
+        self.assertEqual(row["stall"]["state"], "stalled")
+        self.assertEqual(row["stall"]["id"], "idle@2026-11-15T18:25:38.665053+00:00")
+        self.assertIn("idle 844 min", row["stall"]["why"])
+
+
+class IdleClock(unittest.TestCase):
+    """Idle counts from the session's newest sign of life: its activity, its
+    latest report (any event), or its state file's latest write. #1054,
+    2026-11-15: plan read "stalled, idle 25 min" a minute after reporting."""
+
+    d = detail(["review-t4"], tickets=[(4, "OPEN")], prs=[(40, "OPEN", [4])])
+    stale = {"review-t4": {"at": ago(112), "running": False, "agent": True}}
+
+    def test_a_fresh_report_resets_the_clock(self):
+        self.assertIsNone(stall_of(self.d, [rep(1, "review-t4", "asked", at=ago(1))], self.stale))
+
+    def test_a_fresh_state_write_resets_the_clock(self):
+        d = {**self.d, "stateWrites": {"review-t4": ago(2)}}
+        self.assertIsNone(stall_of(d, [rep(1, "review-t4", "started", at=ago(50))], self.stale))
+
+    def test_the_stall_id_and_minutes_come_from_the_newest(self):
+        d = {**self.d, "stateWrites": {"review-t4": ago(30)}}
+        s = stall_of(d, [rep(1, "review-t4", "started", at=ago(20))], self.stale)
+        self.assertEqual((s["state"], s["id"], s["why"]), ("stalled", f"idle@{ago(20)}", "idle 20 min"))
+
+    def test_another_sessions_report_doesnt_reset_it(self):
+        s = stall_of(self.d, [rep(1, "review-t4", "started", at=ago(50)), rep(2, "build-t4", "started", at=ago(1))],
+                     self.stale)
+        self.assertEqual(s["id"], f"idle@{ago(50)}")
+
+
 class Effort201(unittest.TestCase):
     """interroseclabs/qsight#201, 2026-11-14: `dispatch --stage review` at 09:47Z
     opened the review session; it never reported, and the stall rule skipped it
@@ -448,6 +522,31 @@ class Io(unittest.TestCase):
             os.utime(p, (1762779000, 1762779000))
             out = activity.transcript_activity({"review-t4": "slot-a", "gone": "slot-b"}, home=home, claude_home=claude)
             self.assertEqual(out, {"review-t4": {"at": "2025-11-10T12:50:00Z", "running": None, "agent": None}})
+
+    def test_transcript_seeds_read_the_first_user_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, claude = os.path.join(tmp, "crew"), os.path.join(tmp, "claude")
+            os.makedirs(home)
+            folder = os.path.join(claude, "projects", "-x-y--crew-workspace")
+            os.makedirs(folder)
+            with open(os.path.join(home, "session_map.json"), "w") as fh:
+                json.dump({f"dashboard:slot-{k}": {"sid": k, "cwd": "/x/y/.crew/workspace"} for k in "abc"}, fh)
+            seed = ("[AGENT SYSTEM PROMPT]\n...\nConversation: build-t4\n"
+                    "Report: python3 /k/backend/kipo_cli.py report acme/widgets 7 --from build-t4 --event <kind>\n")
+            lines = {
+                "a": [{"type": "system"}, {"type": "user", "timestamp": "2026-11-15T18:05:18.424Z",
+                                            "message": {"content": [{"type": "text", "text": seed}]}},
+                      {"type": "user", "message": {"content": "Report: kipo_cli.py report later"}}],
+                "b": [{"type": "user", "timestamp": "2026-11-01T09:00:00Z",
+                       "message": {"content": "Conversation: build-t5\nno report line"}}],
+            }
+            for sid, rows in lines.items():
+                with open(os.path.join(folder, f"{sid}.jsonl"), "w") as fh:
+                    fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
+            out = activity.transcript_seeds({"build-t4": "slot-a", "build-t5": "slot-b", "gone": "slot-c"},
+                                            home=home, claude_home=claude)
+            self.assertEqual(out, {"build-t4": {"at": "2026-11-15T18:05:18.424Z", "reports": True},
+                                   "build-t5": {"at": "2026-11-01T09:00:00Z", "reports": False}})
 
     def test_clean_observation(self):
         self.assertEqual(activity.clean_observation({"at": "t", "running": "yes", "agent": False}),

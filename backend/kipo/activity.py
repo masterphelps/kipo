@@ -119,6 +119,73 @@ def transcript_activity(slots, home=None, claude_home=None):
     return out
 
 
+_REPORT_LINE = re.compile(r"^Report: .*kipo_cli\.py report ", re.M)
+# The seed is the transcript's first user message, a few lines in.
+SEED_SCAN_LINES = 50
+_seed_cache = {}
+
+
+def _text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text") or "" for c in content if isinstance(c, dict))
+    return ""
+
+
+def _first_user_message(p):
+    """``{at, reports}`` from a transcript's first user message (the seed), or
+    ``None``. A seed never changes: cached per transcript once found."""
+    if p in _seed_cache:
+        return _seed_cache[p]
+    try:
+        with open(p, encoding="utf-8") as fh:
+            for i, line in enumerate(fh):
+                if i >= SEED_SCAN_LINES:
+                    break
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(row, dict) or row.get("type") != "user":
+                    continue
+                text = _text((row.get("message") or {}).get("content"))
+                seed = {"at": row.get("timestamp"), "reports": bool(_REPORT_LINE.search(text))}
+                _seed_cache[p] = seed
+                return seed
+    except OSError:
+        pass
+    return None
+
+
+def transcript_seeds(slots, home=None, claude_home=None):
+    """``{key: {at, reports}}``: each session's seed, its transcript's first
+    user message: when it was sent (the session's opening) and whether it
+    carried a ``Report:`` line (``kipo_cli.py report``), i.e. the session was
+    seeded to report. Sessions without a transcript are left out. This tells a
+    session opened before KiPo kept starts (``data/starts.json``) from one
+    opened before reporting existed."""
+    home = home or os.environ.get("KIROCREW_HOME") or os.path.expanduser("~/.kiro/crew")
+    claude_home = claude_home or os.path.expanduser("~/.claude")
+    try:
+        with open(os.path.join(home, "session_map.json"), encoding="utf-8") as fh:
+            smap = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(smap, dict):
+        return {}
+    out = {}
+    for key, slot in (slots or {}).items():
+        entry = smap.get(f"dashboard:{slot}")
+        if not isinstance(entry, dict) or not entry.get("sid"):
+            continue
+        cwd = entry.get("cwd") or os.path.join(home, "workspace")
+        seed = _first_user_message(os.path.join(claude_home, "projects", _folder(cwd), f"{entry['sid']}.jsonl"))
+        if seed:
+            out[key] = dict(seed)
+    return out
+
+
 def known_slots(home=None):
     """Every slot Kiro Crew has created a session for (``dashboard:<slot>`` in
     its session map), or ``None`` when the map can't be read (then assume

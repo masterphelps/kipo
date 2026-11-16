@@ -88,7 +88,8 @@ The effort detail returns `frontier: {tiles, counts, lanes, fog, stage, active, 
   "Wayfinder map" or "Wayfinder map #<n>". The effort's **spec issue** is never a tile (nor in
   `tickets`, nor counted): a `kipo:<n>` issue that is the native sub-issue parent of another of
   the effort's tickets (`/to-tickets` makes each ticket the spec's sub-issue), or that a "Spec"
-  artifact names (any of them: `plan.json` and `state.json` may each carry one). The detail
+  artifact names (any of them: `plan.json` and `state.json` may each carry one), or that a
+  session reported creating as a spec (`issue-created` with an item `#<n> Spec: …`). The detail
   lists them as `specIssues`; no build session starts for one (`is_spec`), and a session opened
   for one before is closable.
 - **`refPrs`**: open PRs that name an effort ticket or map child (`#<n>` in the title or body,
@@ -291,12 +292,15 @@ is **closable** when both hold:
    another try took over. Reports count by session key; an older `t<t>` report counts for the
    session it is attributed to (above, "Reports"), so a build's `finished` never makes the
    ticket's review look finished. A session with no report at all either predates reporting
-   (no dispatch entry opens it and KiPo recorded no start for it: it counts as finished), or
-   was seeded to report (a dispatch entry opens it: `--stage <s>` opens `<s>`, `--ticket <t>
-   --skill kipo-review` opens `review-t<t>`, any other `--ticket <t>` its `build-t<t>` or
-   `shape-t<t>`; or KiPo recorded its start, which every session KiPo opens now has): "never
-   reported since it was dispatched", not finished, and closable only once its thread settled
-   without it.
+   (no dispatch entry opens it, KiPo recorded no start for it, and its seed had no `Report:`
+   line: it counts as finished), or was seeded to report (a dispatch entry opens it: `--stage
+   <s>` opens `<s>`, `--ticket <t> --skill kipo-review` opens `review-t<t>`, any other
+   `--ticket <t>` its `build-t<t>` or `shape-t<t>`; or KiPo recorded its start, which every
+   session KiPo opens now has; or its seed, the first user message of its transcript (the
+   detail's `seeds`: `{key: {at, reports}}`), has a `Report:` line, which covers a session the
+   page opened before KiPo kept starts): "never reported since it was dispatched" (or "since
+   KiPo opened it", "since its seed asked it to report"), not finished, and closable only once
+   its thread settled without it.
 2. **Its thread is settled**:
 
 | Session | Settled when |
@@ -352,17 +356,20 @@ closable, not closed), has no unanswered decision card (a session waiting on the
 is never stalled), isn't mid-turn, and its thread isn't settled (the close rule's table). A
 candidate is **stalled** when either holds:
 
-1. **Idle**: its last activity (with none known, its opening: its recorded start or latest
-   dispatch entry) was 15 minutes ago or more, and its last report isn't `finished` or
-   `nothing-to-do`, or it never reported though seeded to (the close rule's "never reported":
-   dispatched, or KiPo recorded its start; why ends ", never reported since it was
-   dispatched"). Only a session from before reporting is left alone.
+1. **Idle**: its newest sign of life was 15 minutes ago or more, and its last report isn't
+   `finished` or `nothing-to-do`, or it never reported though seeded to (the close rule's
+   "never reported": dispatched, KiPo recorded its start, or its seed has a `Report:` line; why
+   ends ", never reported since …"). Only a session from before reporting is left alone. Its
+   newest sign of life is the newest of: its last activity (with none known, its opening: its
+   recorded start, latest dispatch entry or seed), its latest report of any kind, and its own
+   state file's latest write (the detail's `stateWrites`: `{key: time}`, `.kipo/<n>/<key>.json`'s
+   mtime). A report or a write resets the clock.
 2. **Its blocker cleared**: its last report is `blocked`, and later another session on the same
    ticket reported `finished` or `pr-opened`, or a PR or issue that the blocked report's text
    names (`#<n>`, not its own ticket or PRs) was merged or closed: by a later `pr-merged` /
    `issue-closed` report, or on GitHub (the effort's tickets and PRs).
 
-Each stall has an id (`blocked#<report id>`, or `idle@<last activity>`). The effort detail's
+Each stall has an id (`blocked#<report id>`, or `idle@<newest sign of life>`). The effort detail's
 `closing` rows carry `stall: {state, why, id, wakes}` on such sessions, `state` being:
 
 | `state` | Meaning | The page |

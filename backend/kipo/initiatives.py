@@ -400,12 +400,16 @@ def source_issue_of(repo, meta, artifacts):
     return None
 
 
-def spec_issues(repo, nodes, artifacts):
+_SPEC_ITEM_RE = re.compile(r"^\s*#(\d+)\s+Spec\b", re.I)
+
+
+def spec_issues(repo, nodes, artifacts, reports=()):
     """The effort's spec issues among its tickets: a spec is a parent, not
     work. Each ticket that is the native sub-issue parent of another of the
     effort's tickets (``to-tickets`` makes each ticket the spec's sub-issue),
-    plus each issue a "Spec" artifact names in this repo (plan.json and the
-    older state.json may each carry one)."""
+    each issue a "Spec" artifact names in this repo (plan.json and the
+    older state.json may each carry one), and each issue a session reported
+    creating as a spec (``issue-created`` with an item ``#<n> Spec: …``)."""
     numbers = {n["number"] for n in nodes}
     out = {n.get("parent") for n in nodes if n.get("parent") in numbers}
     for a in artifacts or []:
@@ -414,6 +418,12 @@ def spec_issues(repo, nodes, artifacts):
             m = _ISSUE_URL_RE.search(href)
             if m and f"github.com/{repo.lower()}/issues/" in href.lower():
                 out.add(int(m.group(1)))
+    for r in reports or []:
+        if isinstance(r, dict) and r.get("event") == "issue-created":
+            for item in r.get("items") or []:
+                m = _SPEC_ITEM_RE.match(item if isinstance(item, str) else "")
+                if m:
+                    out.add(int(m.group(1)))
     return sorted(n for n in out if n in numbers)
 
 
@@ -486,6 +496,8 @@ class Initiatives:
         # The slots Kiro Crew created (None: unknown), to tell a recorded
         # session that never started.
         self.known_slots = col_activity.known_slots
+        # Each session's seed, read from its transcript (kipo/activity.py).
+        self.transcript_seeds = col_activity.transcript_seeds
 
     # -- helpers ----------------------------------------------------------
 
@@ -669,11 +681,19 @@ class Initiatives:
         # Each conversation's own state (a ticket's, a stage's): its skills,
         # decisions and documents.
         session_states = {}
+        # When each conversation last wrote its own state file (the stall rule's
+        # idle clock counts from it too).
+        state_writes = {}
         for key in sessions:
             ss = col_state.read_session_state(repo_path, number, key)
             if ss:
                 session_states[key] = ss
                 artifacts = merge_artifacts(artifacts, col_state.state_artifacts(ss))
+                try:
+                    state_writes[key] = col_activity._iso(
+                        os.path.getmtime(col_state.session_state_path(repo_path, number, key)))
+                except OSError:
+                    pass
 
         # state.json, from conversations seeded before each had its own file:
         # a ticket's decisions to its conversation, the rest to the stage
@@ -689,7 +709,7 @@ class Initiatives:
         except KipoError as e:
             tickets_error = e.message
         # The spec issue is the tickets' parent, not a ticket: no tile, no build.
-        specs = spec_issues(repo, nodes, artifacts)
+        specs = spec_issues(repo, nodes, artifacts, all_reports)
         spec_nodes = [n for n in nodes if n["number"] in specs]
         nodes = [n for n in nodes if n["number"] not in specs]
         # The frontier: build tickets and the map's children, each in its real state.
@@ -766,6 +786,11 @@ class Initiatives:
         # When KiPo opened each session and whether its seed went out; the
         # recorded slots Kiro Crew never created.
         detail["starts"] = self.storage.get_starts(repo, number)
+        # Each session's seed, from its transcript (when it opened; whether it
+        # had a Report line): tells a session opened before KiPo kept starts
+        # from one opened before reporting. And its own state file's last write.
+        detail["seeds"] = self.transcript_seeds(live)
+        detail["stateWrites"] = state_writes
         known = self.known_slots()
         detail["missingSlots"] = sorted(v for v in live.values() if known is not None and v not in known)
         activity = col_activity.merge(
@@ -1196,9 +1221,9 @@ class Initiatives:
         found = next((n for n in nodes if n["number"] == ticket), None)
         if found:
             _, body = self._fetch(repo, number)
-            artifacts = merge_artifacts(
-                body["artifacts"], col_state.effort_artifacts(self._repo_path(repo, body["meta"]), number))
-            if ticket in spec_issues(repo, nodes, artifacts):
+            path = self._repo_path(repo, body["meta"])
+            artifacts = merge_artifacts(body["artifacts"], col_state.effort_artifacts(path, number))
+            if ticket in spec_issues(repo, nodes, artifacts, col_reports.all_reports(path, number)):
                 raise KipoError(f"#{ticket} is the effort's spec: its tickets are the work, not the spec.",
                                 "is_spec", 409)
         if not found:

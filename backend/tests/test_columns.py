@@ -337,7 +337,8 @@ class SessionTests(Columns):
         self.ticket(20, title="Add export")
         self.post("/session", {"column": "build", "ticket": 20})
         self.post("/session", {"column": "build", "mode": "conductor"})
-        reports.append(self.checkout, 7, "build-t20", "started", "Building #20.")
+        # Its report came before its last activity (a fresher one resets the idle clock).
+        reports.append(self.checkout, 7, "build-t20", "started", "Building #20.", clock=lambda: "2026-11-10T11:59:00Z")
         status, out = self.post("/sessions/activity", {"activity": {
             "build-t20": {"at": "2026-11-10T12:00:00Z", "running": False, "agent": True},
             "nobody": {"at": "2026-11-10T12:00:00Z"}}})
@@ -977,3 +978,50 @@ class SpecIssueTests(Columns):
         row = next(r for r in self.get()[1]["closing"] if r["key"] == "build-t17")
         self.assertEqual(row["status"], "closable")
         self.assertIn("spec", row["reason"])
+
+    def test_the_plans_issue_created_report_names_it_too(self):
+        # #1054: no sub-issues read, no artifact; the plan reported creating it.
+        self.fake.sub_issues.clear()
+        col_reports.append(self.checkout, 7, "plan", "issue-created", "The spec for #7",
+                           ["#17 Spec: Held-store migration"])
+        col_reports.append(self.checkout, 7, "plan", "issue-created", "The 1 ticket of spec #17",
+                           ["#18 Add the held table"])
+        d = self.get()[1]
+        self.assertEqual(d["specIssues"], [17])
+        self.assertEqual(sorted(t["number"] for t in d["frontier"]["tiles"]), [18, 19])
+
+
+class SeedAndStateWriteTests(Columns):
+    """The detail carries what the stall rule needs beyond Kiro Crew's
+    activity: each session's seed (from its transcript: when it opened, and
+    whether it had a Report line) and its own state file's latest write."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_effort(column="build")
+        self.ticket(20, title="Add export")
+        self.app.initiatives.transcript_activity = lambda slots: {}
+        self.storage.record_session(REPO, 7, "build-t20", "kipo-acme-widgets-7-build-t20")
+        os.remove(os.path.join(self.storage.data_dir, "starts.json"))  # opened before KiPo kept starts
+
+    def test_a_seed_with_a_report_line_makes_a_silent_session_stall(self):
+        self.app.initiatives.transcript_seeds = lambda slots: {
+            k: {"at": "2026-11-15T18:05:18Z", "reports": True} for k in slots}
+        d = self.get()[1]
+        self.assertEqual(d["seeds"]["build-t20"]["reports"], True)
+        row = next(r for r in d["closing"] if r["key"] == "build-t20")
+        self.assertEqual(row["stall"]["state"], "stalled")
+        self.assertNotIn("started before reporting", row["reason"])
+
+    def test_without_a_known_seed_it_is_left_alone(self):
+        row = next(r for r in self.get()[1]["closing"] if r["key"] == "build-t20")
+        self.assertNotIn("stall", row)
+        self.assertIn("started before reporting", row["reason"])
+
+    def test_state_writes_are_each_sessions_own_file(self):
+        write_state(self.checkout, 7, {"summary": "x"})  # the shared state.json: no session's own
+        os.makedirs(st.state_dir(self.checkout, 7), exist_ok=True)
+        with open(st.session_state_path(self.checkout, 7, "build-t20"), "w") as f:
+            json.dump({"summary": "building"}, f)
+        os.utime(st.session_state_path(self.checkout, 7, "build-t20"), (1763229938, 1763229938))
+        self.assertEqual(self.get()[1]["stateWrites"], {"build-t20": "2025-11-15T18:05:38Z"})

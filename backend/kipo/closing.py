@@ -6,9 +6,10 @@ A session is **closable** when both hold:
    ``failed`` and a later report on the same thread (``started``, ``finished``,
    ``nothing-to-do``, ``pr-merged``) shows another try took over. A session that
    never reported at all either predates ``kipo_cli.py report`` (no dispatch
-   entry opens it and KiPo recorded no start: it counts as finished), or was
-   seeded to report (``expects_reports``: dispatched, or opened by KiPo since it
-   records starts) and is "never reported": not finished, a stall candidate
+   entry opens it, KiPo recorded no start, and its transcript's seed has no
+   Report line: it counts as finished), or was seeded to report
+   (``expects_reports``: dispatched, opened by KiPo since it records starts, or
+   its seed has a Report line) and is "never reported": not finished, a stall candidate
    (kipo/stalls.py), closable only once its thread settled without it.
 2. **Its thread is settled.**
    - ``shape-t<t>`` (a Decide ticket): the ticket is closed.
@@ -157,15 +158,26 @@ def start_of(detail, key):
     return start if isinstance(start, dict) else None
 
 
+def seed_of(detail, key):
+    """The session's seed as its transcript shows it (``seeds``: ``{at,
+    reports}``), else ``None``."""
+    seed = (detail.get("seeds") or {}).get(key)
+    return seed if isinstance(seed, dict) else None
+
+
 def expects_reports(key, detail):
     """Why this session is seeded to report (every session KiPo opens today
-    is): ``"it was dispatched"`` (a dispatch entry opens it) or ``"KiPo
-    opened it"`` (KiPo recorded its start); ``None`` for a session from before
-    reporting, which may stay silent."""
+    is): ``"it was dispatched"`` (a dispatch entry opens it), ``"KiPo opened
+    it"`` (KiPo recorded its start) or ``"its seed asked it to report"`` (its
+    transcript's seed has a ``Report:`` line: a session the page opened before
+    KiPo kept starts); ``None`` for a session from before reporting (its seed
+    has no Report line, or nothing is known of it), which may stay silent."""
     if any(key in entry_keys(e) for e in dispatch_entries(detail)):
         return "it was dispatched"
     if start_of(detail, key):
         return "KiPo opened it"
+    if (seed_of(detail, key) or {}).get("reports"):
+        return "its seed asked it to report"
     return None
 
 
@@ -178,13 +190,17 @@ def since(key, detail):
 
 
 def opened_at(key, detail):
-    """The latest known time the session was opened: its recorded start or
-    its latest dispatch entry, else ``None``."""
+    """The latest known time the session was opened: its recorded start, its
+    latest dispatch entry or its seed's time, else ``None``."""
     times = [e.get("at") for e in dispatch_entries(detail) if key in entry_keys(e) and e.get("at")]
     start = start_of(detail, key)
     if start and start.get("at"):
         times.append(start["at"])
-    return max(times) if times else None
+    seed = seed_of(detail, key)
+    if seed and seed.get("at"):
+        times.append(seed["at"])
+    good = [t for t in times if _time(t)]
+    return max(good, key=_time) if good else None
 
 
 def not_started(key, slot, detail, now=None):
