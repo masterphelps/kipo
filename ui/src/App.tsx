@@ -44,12 +44,19 @@ export default function KiPo() {
   // Sessions started before KiPo filed them are moved into its folder once.
   useEffect(() => { void fileExistingSessions(api).catch(() => undefined) }, [api])
 
+  // GitHub refusing calls for some repos (rate limit, a blip): the backend
+  // serves each repo's last known listing, and this says so instead of
+  // letting the maps silently vanish.
+  const [notice, setNotice] = useState('')
   const load = useCallback(() => {
     backend.listInitiatives()
       .then(r => {
         setItems(r.initiatives); remember('initiatives', r.initiatives)
         setRepos(r.repos ?? []); remember('repos', r.repos ?? [])
         setError('')
+        setNotice(r.errors?.length
+          ? `GitHub is refusing calls for ${r.errors.length === 1 ? r.errors[0].repo.split('/').pop() : `${r.errors.length} repos`} (rate limit?) — showing the last known maps.`
+          : '')
       })
       .catch(e => setError(errorText(e)))
   }, [])
@@ -106,6 +113,7 @@ export default function KiPo() {
         items={items}
         repos={repos}
         error={error}
+        notice={notice}
         selected={selected}
         spineSlot={setSpineHost}
         onNew={() => setMain({ kind: 'new' })}

@@ -97,6 +97,8 @@ class FakeGh:
             ]
             return 0, json.dumps(out), ""
         if cmd == ["issue", "list"]:
+            if getattr(self, "list_error", False):
+                return 1, "", "GraphQL: API rate limit already exceeded"
             label = _flag(args, "--label")
             state = _flag(args, "--state", "open").upper()
             out = [

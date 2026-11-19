@@ -28,12 +28,13 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, repos, error, selected, spineSlot, onNew, onAddRepo, onRemoveRepo, onRestore, onSelect, onHide, onRemove, onCollapse }: {
+export function Rail({ width, items, repos, error, notice, selected, spineSlot, onNew, onAddRepo, onRemoveRepo, onRestore, onSelect, onHide, onRemove, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
   repos: RepoMeta[] | null // the added repos, in config order; the groups
   error: string
+  notice?: string // degraded, not broken: GitHub refused some calls, showing last known
   selected: string | null
   // The open effort's stations render here, under its row: the Workspace
   // portals its spine (conductor + seven stations) into this element.
@@ -121,6 +122,9 @@ export function Rail({ width, items, repos, error, selected, spineSlot, onNew, o
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 6px 8px' }}>
         {error && <div style={{ color: 'var(--danger-text)', fontSize: T.small, padding: '4px 6px' }}>{error}</div>}
+        {!error && notice && (
+          <div style={{ color: '#f5b14c', fontSize: T.tiny, padding: '4px 6px', lineHeight: 1.4 }}>{notice}</div>
+        )}
         {items === null && !error && <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>Loading…</div>}
         {items !== null && !groups.length && (
           <div style={{ ...muted, fontSize: T.small, padding: '4px 6px' }}>

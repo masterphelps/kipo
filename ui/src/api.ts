@@ -56,7 +56,8 @@ export const backend = {
   removeRepo: (slug: string) => call<Config>('/repos/remove', 'POST', { slug }),
   browse: (path?: string) =>
     call<BrowseResult>(path ? `/browse?path=${encodeURIComponent(path)}` : '/browse'),
-  listInitiatives: () => call<{ initiatives: Effort[]; repos?: RepoMeta[] }>('/initiatives'),
+  listInitiatives: () =>
+    call<{ initiatives: Effort[]; repos?: RepoMeta[]; errors?: { repo: string; error: string; code?: string }[] }>('/initiatives'),
   startInitiative: (start: { path: string; description: string; start: Start; worktree: boolean; sourceIssue: number | null }) =>
     call<Effort>('/initiatives', 'POST', start),
   getInitiative: (repo: string, n: number) =>

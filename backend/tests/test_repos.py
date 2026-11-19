@@ -129,6 +129,27 @@ class RepoRoutesTest(unittest.TestCase):
         shown = items("?completed=1")
         self.assertEqual((shown[7]["allDone"], shown[7]["closed"], shown[8]["allDone"]), (True, False, False))
 
+    def test_a_github_refusal_serves_the_last_known_listing(self):
+        # Rate-limited GitHub must not make the sidebar's maps vanish: the
+        # repo's last successful listing is served, and the error says so.
+        self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
+        self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])
+        status, out = self.app.dispatch("GET", "/initiatives", "")
+        self.assertEqual(status, 200, out)
+        self.assertEqual([i["number"] for i in out["initiatives"]], [5])
+        self.assertNotIn("errors", out)
+        self.fake.list_error = True
+        status, out = self.app.dispatch("GET", "/initiatives", "")
+        self.assertEqual(status, 200, out)
+        self.assertEqual([i["number"] for i in out["initiatives"]], [5])
+        self.assertEqual(out["errors"][0]["repo"], "acme/widgets")
+        # Back to life: the fresh listing replaces the cached one.
+        self.fake.list_error = False
+        self.fake.add_issue("acme/widgets", 6, title="Map: six", labels=["wayfinder:map"])
+        status, out = self.app.dispatch("GET", "/initiatives", "")
+        self.assertEqual(sorted(i["number"] for i in out["initiatives"]), [5, 6])
+        self.assertNotIn("errors", out)
+
     def test_the_green_dot_puts_things_on_and_off_the_sidebar(self):
         self.app.dispatch("POST", "/repos", json.dumps({"path": os.path.join(self.root, "widgets")}))
         self.fake.add_issue("acme/widgets", 5, title="Map: five", labels=["wayfinder:map"])

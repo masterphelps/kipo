@@ -498,6 +498,10 @@ class Initiatives:
         self.known_slots = col_activity.known_slots
         # Each session's seed, read from its transcript (kipo/activity.py).
         self.transcript_seeds = col_activity.transcript_seeds
+        # Each repo's last successful sidebar listing, served when GitHub
+        # refuses a call (rate limit): the maps don't vanish, the UI says
+        # "last known" instead.
+        self._list_cache = {}
 
     # -- helpers ----------------------------------------------------------
 
@@ -829,6 +833,10 @@ class Initiatives:
                         found.append(self._summary(repo, issue, map_body(issue)))
             except KipoError as e:
                 errors.append({"repo": repo, "error": e.message, "code": e.code})
+                # GitHub refused (rate limit, a blip): the repo's maps didn't
+                # really vanish, so show the last answer it gave instead of
+                # nothing. The error above still tells the UI to say so.
+                efforts += self._list_cache.get(repo, [])
                 continue
             if found:
                 try:
@@ -841,6 +849,7 @@ class Initiatives:
                     i["frontier"] = self.storage.get_frontier(repo, i["number"])
                     # The stage, read from the last frontier seen, else from the column.
                     i["stage"] = (i["frontier"] or {}).get("stage") or frontier_mod.LEGACY_STAGE.get(i["column"], "intake")
+            self._list_cache[repo] = list(found)
             efforts += found
         efforts.sort(key=lambda i: i["updatedAt"], reverse=True)
         # The configured repos themselves, so the sidebar can group by repo,
