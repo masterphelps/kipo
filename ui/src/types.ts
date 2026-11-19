@@ -289,6 +289,10 @@ export type EffortDetail = Effort & {
   state: PhaseState | null
   gatePassed: boolean
   sessions: Record<string, string>
+  // Live slots Kiro knows but never rendered as a chat page (background review
+  // rounds): the embedded popout shows them empty, so KiPo reads their
+  // transcript instead. Full slot names, not focus keys.
+  unindexedSlots?: string[]
   history?: Partial<Record<Column, PhaseState>>
   // Each ticket conversation's own state file, by session key (build-t22, shape-t24).
   sessionStates?: Record<string, PhaseState>
@@ -301,6 +305,9 @@ export type EffortDetail = Effort & {
   frontier?: Frontier
   ticketsError?: string
 }
+
+// One readable event in a session's transcript tail (SessionProgress).
+export type TailEvent = { role: 'user' | 'assistant'; text: string; ts?: string; tool?: boolean }
 
 export type Ticket = { number: number; title: string; url: string; labels: string[]; type: string | null }
 export type Doc = { href: string; title: string; kind: 'markdown'; text: string; url: string | null }

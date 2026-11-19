@@ -523,6 +523,47 @@ class Io(unittest.TestCase):
             out = activity.transcript_activity({"review-t4": "slot-a", "gone": "slot-b"}, home=home, claude_home=claude)
             self.assertEqual(out, {"review-t4": {"at": "2025-11-10T12:50:00Z", "running": None, "agent": None}})
 
+    def test_transcript_tail_reads_recent_events_and_skips_noise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, claude = os.path.join(tmp, "crew"), os.path.join(tmp, "claude")
+            os.makedirs(home)
+            folder = os.path.join(claude, "projects", "-x-y--crew-workspace")
+            os.makedirs(folder)
+            with open(os.path.join(home, "session_map.json"), "w") as fh:
+                json.dump({"dashboard:slot-a": {"sid": "abc", "cwd": "/x/y/.crew/workspace"}}, fh)
+            rows = [
+                {"type": "api-request"},  # noise, skipped
+                {"type": "user", "timestamp": "2026-11-19T09:00:00Z",
+                 "message": {"content": "review PR 620"}},
+                {"type": "assistant", "timestamp": "2026-11-19T09:00:05Z",
+                 "message": {"content": [{"type": "thinking", "thinking": "hmm"},
+                                          {"type": "text", "text": "Reading the file."},
+                                          {"type": "tool_use", "name": "Bash", "input": {"command": "go test ./..."}}]}},
+                {"type": "user", "timestamp": "2026-11-19T09:00:06Z",
+                 "message": {"content": [{"type": "tool_result", "content": "ok"}]}},  # skipped
+            ]
+            with open(os.path.join(folder, "abc.jsonl"), "w") as fh:
+                fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
+            out = activity.transcript_tail("slot-a", limit=10, home=home, claude_home=claude)
+            self.assertEqual(out, [
+                {"role": "user", "text": "review PR 620", "ts": "2026-11-19T09:00:00Z", "tool": False},
+                {"role": "assistant", "text": "Reading the file.", "ts": "2026-11-19T09:00:05Z", "tool": False},
+                {"role": "assistant", "text": "↳ Bash: go test ./...", "ts": "2026-11-19T09:00:05Z", "tool": True},
+            ])
+            # A slot with no transcript: None (the UI leaves the chat as-is).
+            self.assertIsNone(activity.transcript_tail("slot-missing", home=home, claude_home=claude))
+
+    def test_indexed_slots_lists_rendered_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "crew")
+            d = os.path.join(home, "sessions", ".page-index")
+            os.makedirs(d)
+            open(os.path.join(d, "dashboard_kipo-x-review.jsonl.json"), "w").close()
+            open(os.path.join(d, "ignore.txt"), "w").close()
+            self.assertEqual(activity.indexed_slots(home=home), {"kipo-x-review"})
+        # No page-index directory at all: None (assume everything renders).
+        self.assertIsNone(activity.indexed_slots(home=os.path.join(tmp, "gone")))
+
     def test_transcript_seeds_read_the_first_user_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             home, claude = os.path.join(tmp, "crew"), os.path.join(tmp, "claude")

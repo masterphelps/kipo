@@ -797,6 +797,15 @@ class Initiatives:
         detail["stateWrites"] = state_writes
         known = self.known_slots()
         detail["missingSlots"] = sorted(v for v in live.values() if known is not None and v not in known)
+        # Slots Kiro knows but never rendered as a chat page (background review
+        # rounds the conductor spawned): the embedded popout shows them empty,
+        # so the UI reads their transcript instead. None: can't tell, so assume
+        # all render (no transcript fallback).
+        indexed = col_activity.indexed_slots()
+        detail["unindexedSlots"] = sorted(
+            v for v in live.values()
+            if indexed is not None and known is not None and v in known and v not in indexed
+        ) if indexed is not None else []
         activity = col_activity.merge(
             self.storage.get_activity(repo, number), self.transcript_activity(live), now)
         detail["closing"] = stalls.sessions(

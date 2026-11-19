@@ -201,6 +201,102 @@ def known_slots(home=None):
     return {k.split(":", 1)[1] for k in smap if isinstance(k, str) and k.startswith("dashboard:")}
 
 
+def indexed_slots(home=None):
+    """Every slot Kiro Crew has rendered as a chat PAGE (a page-index file
+    exists), or ``None`` when the directory can't be read. A live slot that is
+    NOT here — a background session the dashboard never opened — renders empty
+    in the embedded popout; KiPo shows its transcript instead. The index file
+    is ``sessions/.page-index/dashboard_<slot>.jsonl.json``."""
+    home = home or os.environ.get("KIROCREW_HOME") or os.path.expanduser("~/.kiro/crew")
+    d = os.path.join(home, "sessions", ".page-index")
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return None
+    out = set()
+    for n in names:
+        if n.startswith("dashboard_") and n.endswith(".jsonl.json"):
+            out.add(n[len("dashboard_"):-len(".jsonl.json")])
+    return out
+
+
+def _transcript_path(slot, home, claude_home):
+    try:
+        with open(os.path.join(home, "session_map.json"), encoding="utf-8") as fh:
+            smap = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    entry = smap.get(f"dashboard:{slot}") if isinstance(smap, dict) else None
+    if not isinstance(entry, dict) or not entry.get("sid"):
+        return None
+    cwd = entry.get("cwd") or os.path.join(home, "workspace")
+    return os.path.join(claude_home, "projects", _folder(cwd), f"{entry['sid']}.jsonl")
+
+
+def _block_text(block):
+    """A readable line for one content block: its text, or a short note of the
+    tool it ran."""
+    if not isinstance(block, dict):
+        return None
+    t = block.get("type")
+    if t == "text":
+        return (block.get("text") or "").strip() or None
+    if t == "tool_use":
+        name = block.get("name") or "tool"
+        inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+        hint = inp.get("command") or inp.get("file_path") or inp.get("path") or inp.get("pattern") or inp.get("description") or ""
+        hint = re.sub(r"\s+", " ", str(hint)).strip()
+        return f"↳ {name}" + (f": {hint[:120]}" if hint else "")
+    return None  # thinking, tool_result: skipped — noise for a progress view
+
+
+def transcript_tail(slot, limit=40, home=None, claude_home=None):
+    """The last ``limit`` readable events of a session's transcript, oldest
+    first: ``[{role, text, ts, tool}]``. The agent writes this file as it
+    works, so polling it shows a background session's progress even when the
+    dashboard never opened it as a page."""
+    home = home or os.environ.get("KIROCREW_HOME") or os.path.expanduser("~/.kiro/crew")
+    claude_home = claude_home or os.path.expanduser("~/.claude")
+    p = _transcript_path(slot, home, claude_home)
+    if not p:
+        return None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return None
+    events = []
+    for ln in lines:
+        try:
+            d = json.loads(ln)
+        except ValueError:
+            continue
+        if d.get("type") not in ("user", "assistant"):
+            continue
+        msg = d.get("message") or {}
+        content = msg.get("content")
+        ts = d.get("timestamp")
+        role = d.get("type")
+        if isinstance(content, str):
+            text = content.strip()
+            if text:
+                events.append({"role": role, "text": text, "ts": ts, "tool": False})
+            continue
+        if isinstance(content, list):
+            for block in content:
+                # Skip a tool_result echo (the user turn that only feeds a tool
+                # answer back): it's machine chatter, not progress.
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    continue
+                line = _block_text(block)
+                if line:
+                    events.append({
+                        "role": role, "text": line, "ts": ts,
+                        "tool": isinstance(block, dict) and block.get("type") == "tool_use",
+                    })
+    return events[-limit:]
+
+
 def merge(observed, fallback, now, fresh_s=FRESH_S):
     """Per session: the page's observation (from Kiro Crew's API) while it is
     fresh, else the transcript's mtime."""

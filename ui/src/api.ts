@@ -1,6 +1,6 @@
 // Client for the KiPo backend, reached through the gateway's reverse proxy.
 import type {
-  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoMeta, RepoTree, SessionObservation, SessionStart, Start, Ticket, TicketCard,
+  BrowseResult, Column, Config, Doc, Effort, EffortDetail, FoundRepo, RepoMeta, RepoTree, SessionObservation, SessionStart, Start, TailEvent, Ticket, TicketCard,
 } from './types'
 
 const BASE = '/apps/kipo/api'
@@ -88,6 +88,11 @@ export const backend = {
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
   tree: (completed = false) => call<RepoTree>(completed ? '/tree?completed=1' : '/tree'),
+  // A background session's recent transcript, when the dashboard never opened
+  // it as a page (so the embedded chat would be empty).
+  sessionTail: (slot: string, limit = 60) =>
+    call<{ slot: string; events: TailEvent[]; found: boolean }>(
+      `/sessions/tail?slot=${encodeURIComponent(slot)}&limit=${limit}`),
   // The green dot: on the sidebar or off. Nothing changes on GitHub.
   setOnSidebar: (repo: string, number: number, kind: 'effort' | 'map', on: boolean) =>
     call<{ onSidebar: boolean }>('/sidebar', 'POST', { repo, number, kind, on }),

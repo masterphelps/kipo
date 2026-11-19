@@ -10,7 +10,7 @@ import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
-import { QuestionWizard, TicketPanel } from './SessionPanel'
+import { QuestionWizard, SessionProgress, TicketPanel } from './SessionPanel'
 import { closeFinished, closeReplaced, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
@@ -647,7 +647,12 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // A ticket you can still start (ready, or HITL) shows a Start button
           // over its details; done / blocked / in-review ones just show details.
           const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
-          const chatBody = slotKey ? (
+          // A background session the dashboard never opened as a page renders
+          // empty in the embedded chat; show its transcript progress instead.
+          const unindexed = slotKey && (detail.unindexedSlots ?? []).includes(slotKey)
+          const chatBody = slotKey && unindexed ? (
+            <SessionProgress slot={slotKey} active={active} />
+          ) : slotKey ? (
             // The card sits `composerH` up, so the transcript must clear the
             // composer, the card, and a gap above it.
             <KiroChatFrame key={slotKey} slotKey={slotKey} frameRef={chatFrameRef}

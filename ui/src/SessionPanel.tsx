@@ -5,7 +5,77 @@ import { backend, errorText } from './api'
 import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
-import type { Decision, EffortDetail, PhaseState, TicketCard, Tile } from './types'
+import type { Decision, EffortDetail, PhaseState, TailEvent, TicketCard, Tile } from './types'
+
+// A read-only progress view for a session the dashboard never rendered as a
+// page (a background review round the conductor spawned): the embedded chat is
+// empty for it, so KiPo reads the transcript the agent is writing and shows its
+// recent steps, polled. Not interactive — to type into it, open it in Kiro's
+// main window (its slot is the title). The orange pulse still catches a trust
+// prompt, so you won't miss when it needs you.
+function elapsedShort(ts?: string): string {
+  if (!ts) return ''
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+export function SessionProgress({ slot, active }: { slot: string; active: boolean }) {
+  const [events, setEvents] = useState<TailEvent[] | null>(null)
+  const [error, setError] = useState('')
+  const foot = useRef<HTMLDivElement>(null)
+  const atBottom = useRef(true)
+  useEffect(() => {
+    let live = true
+    const poll = () => backend.sessionTail(slot, 60)
+      .then(r => { if (live) { setEvents(r.events); setError('') } })
+      .catch(e => { if (live) setError(errorText(e)) })
+    poll()
+    if (!active) return () => { live = false }
+    const id = setInterval(poll, 4000)
+    return () => { live = false; clearInterval(id) }
+  }, [slot, active])
+  // Stick to the newest step unless the reader has scrolled up.
+  useEffect(() => { if (atBottom.current) foot.current?.scrollIntoView({ block: 'end' }) }, [events])
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)' }}>
+        <span className="kipo-pulse" aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: STATE_META.building.color, flexShrink: 0 }} />
+        <span style={{ ...muted, fontSize: T.tiny, lineHeight: 1.4 }}>
+          Running in the background — read-only progress from its transcript. To chat with it, open <code style={{ fontSize: T.tiny }}>{slot}</code> in Kiro's session window.
+        </span>
+      </div>
+      <div
+        onScroll={e => { const el = e.currentTarget; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40 }}
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 16px', scrollbarWidth: 'thin' }}>
+        <ErrorLine>{error}</ErrorLine>
+        {events === null && !error && <div style={{ ...muted, fontSize: T.small }}>Reading its transcript…</div>}
+        {events !== null && events.length === 0 && !error && (
+          <div style={{ ...muted, fontSize: T.small }}>No steps recorded yet.</div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {(events ?? []).map((e, n) => (
+            <div key={n} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={{ ...muted, fontSize: T.tiny, display: 'flex', gap: 6 }}>
+                <span style={{ fontWeight: 700, color: e.role === 'user' ? STATE_META.you.text : 'var(--muted)' }}>
+                  {e.role === 'user' ? 'You' : 'Agent'}
+                </span>
+                {e.ts && <span>{elapsedShort(e.ts)}</span>}
+              </span>
+              {e.tool
+                ? <span style={{ fontSize: T.small, fontFamily: 'var(--font-mono, monospace)', color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{e.text}</span>
+                : <div style={{ fontSize: T.body, lineHeight: 1.5 }}><MarkdownRenderer content={e.text} /></div>}
+            </div>
+          ))}
+        </div>
+        <div ref={foot} />
+      </div>
+    </div>
+  )
+}
 
 // Which answers were already sent to which session's chat, kept OUTSIDE the
 // component: the card clears the moment you submit and stays cleared across

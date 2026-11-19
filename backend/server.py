@@ -93,6 +93,7 @@ ROUTES = [
     ("GET", re.compile(_ISSUE + r"/frontier$"), "frontier"),
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
     ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
+    ("GET", re.compile(r"^/sessions/tail$"), "session_tail"),
 ]
 
 
@@ -284,6 +285,20 @@ class App:
             if r.get("slug") and not r.get("worktree"):
                 paths.setdefault(r["slug"].lower(), r["path"])
         return paths
+
+    def session_tail(self, body):
+        """The recent transcript of a background session the dashboard never
+        opened as a page, so KiPo can show its progress. ``?slot=<key>``."""
+        from kipo import activity as col_activity
+        slot = (body or {}).get("slot") if isinstance(body, dict) else None
+        if not slot or not isinstance(slot, str):
+            raise KipoError("Say which session.", "invalid_request", 400)
+        try:
+            limit = max(1, min(200, int((body or {}).get("limit", 60))))
+        except (TypeError, ValueError):
+            limit = 60
+        events = col_activity.transcript_tail(slot, limit=limit)
+        return {"slot": slot, "events": events or [], "found": events is not None}
 
     def tree(self, body):
         """Your repos, each with everything in it KiPo can show: its efforts and
