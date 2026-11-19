@@ -164,6 +164,22 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // endpoint" without opening the session.
   const [statuses, setStatuses] = useState<Record<number, SessionStatus>>({})
   const [activity, setActivity] = useState<Record<number, SessionActivity>>({})
+  // Kiro's live open slots (GET /api/chat/slots). A session KiPo recorded but
+  // that isn't here anymore has ended — its build finished and review took
+  // over, say — and embedding its dead slot 404s, so KiPo shows its transcript
+  // instead. null until first fetched; kept through a failed fetch (never
+  // falsely "ended").
+  const [liveSlots, setLiveSlots] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    let live = true
+    const poll = () => api.get<{ key?: string }[]>('/api/chat/slots')
+      .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
+      .catch(() => undefined)
+    poll()
+    if (!active) return () => { live = false }
+    const id = setInterval(poll, 5000)
+    return () => { live = false; clearInterval(id) }
+  }, [api, active])
   const sessionTiles = useMemo(
     () => (detail?.frontier?.tiles ?? []).filter(t => t.sessionKey && detail?.sessions[t.sessionKey]),
     [detail],
@@ -647,11 +663,14 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // A ticket you can still start (ready, or HITL) shows a Start button
           // over its details; done / blocked / in-review ones just show details.
           const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
-          // A background session the dashboard never opened as a page renders
-          // empty in the embedded chat; show its transcript progress instead.
-          const unindexed = slotKey && (detail.unindexedSlots ?? []).includes(slotKey)
-          const chatBody = slotKey && unindexed ? (
-            <SessionProgress slot={slotKey} active={active} />
+          // When the embedded chat can't show this session, read its transcript
+          // instead: a background round the dashboard never paged (unindexed),
+          // or a session Kiro has since closed (ended — its slot is gone from
+          // the live list, so the popout would 404).
+          const unindexed = !!slotKey && (detail.unindexedSlots ?? []).includes(slotKey)
+          const ended = !!slotKey && liveSlots !== null && !liveSlots.has(slotKey)
+          const chatBody = slotKey && (unindexed || ended) ? (
+            <SessionProgress slot={slotKey} active={active} ended={ended && !unindexed} />
           ) : slotKey ? (
             // The card sits `composerH` up, so the transcript must clear the
             // composer, the card, and a gap above it.

@@ -22,7 +22,7 @@ function elapsedShort(ts?: string): string {
   return `${Math.floor(s / 86400)}d ago`
 }
 
-export function SessionProgress({ slot, active }: { slot: string; active: boolean }) {
+export function SessionProgress({ slot, active, ended }: { slot: string; active: boolean; ended?: boolean }) {
   const [events, setEvents] = useState<TailEvent[] | null>(null)
   const [error, setError] = useState('')
   const foot = useRef<HTMLDivElement>(null)
@@ -33,19 +33,22 @@ export function SessionProgress({ slot, active }: { slot: string; active: boolea
       .then(r => { if (live) { setEvents(r.events); setError('') } })
       .catch(e => { if (live) setError(errorText(e)) })
     poll()
-    if (!active) return () => { live = false }
+    // An ended session's transcript won't change; a running one's will.
+    if (!active || ended) return () => { live = false }
     const id = setInterval(poll, 4000)
     return () => { live = false; clearInterval(id) }
-  }, [slot, active])
+  }, [slot, active, ended])
   // Stick to the newest step unless the reader has scrolled up.
   useEffect(() => { if (atBottom.current) foot.current?.scrollIntoView({ block: 'end' }) }, [events])
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderBottom: '1px solid var(--border)' }}>
-        <span className="kipo-pulse" aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: STATE_META.building.color, flexShrink: 0 }} />
+        {!ended && <span className="kipo-pulse" aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: STATE_META.building.color, flexShrink: 0 }} />}
         <span style={{ ...muted, fontSize: T.tiny, lineHeight: 1.4 }}>
-          Running in the background — read-only progress from its transcript. To chat with it, open <code style={{ fontSize: T.tiny }}>{slot}</code> in Kiro's session window.
+          {ended
+            ? <>This session has ended — a read-only record of what it did, from its transcript. Its slot <code style={{ fontSize: T.tiny }}>{slot}</code> is closed in Kiro.</>
+            : <>Running in the background — read-only progress from its transcript. To chat with it, open <code style={{ fontSize: T.tiny }}>{slot}</code> in Kiro's session window.</>}
         </span>
       </div>
       <div
