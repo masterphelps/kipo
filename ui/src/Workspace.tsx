@@ -173,7 +173,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   useEffect(() => {
     let live = true
     const poll = () => {
-      sweepCenters() // safety: keep one centre visible even for panel-only views
+      sweepFrames() // safety: keep only the active frame visible
       probeLayout(backend.debugFrame)
       return api.get<{ key?: string }[]>('/api/chat/slots')
         .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
@@ -184,14 +184,11 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     const id = setInterval(poll, 5000)
     return () => { live = false; clearInterval(id) }
   }, [api, active])
-  // The centre's identity: the open conversation's focus key, or its ended
-  // state. When this changes the mount was navigated, so it claims the single
-  // visible centre (bumpCenter, below, stamped on the section).
-  const centerRef = useRef<HTMLElement>(null)
-  const centerSig = `${key ?? ''}|${slotKey && liveSlots !== null && !liveSlots.has(slotKey) ? 'ended' : 'live'}`
-  useEffect(() => { bumpCenter(centerRef.current) }, [centerSig])
-  // Re-sweep when this mount goes away, so a survivor shows.
-  useEffect(() => () => { requestAnimationFrame(sweepCenters) }, [])
+  // The slot whose frame the centre wants shown, or null when the centre is a
+  // non-frame view (an ended session's record). Drives the frame sweeper, which
+  // shows only that frame and hides every stale one.
+  const centerFrameSlot = slotKey && !(liveSlots !== null && !liveSlots.has(slotKey)) ? slotKey : null
+  useEffect(() => { setActiveFrame(centerFrameSlot) }, [centerFrameSlot])
   const sessionTiles = useMemo(
     () => (detail?.frontier?.tiles ?? []).filter(t => t.sessionKey && detail?.sessions[t.sessionKey]),
     [detail],
@@ -736,7 +733,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
-              <section ref={centerRef} data-kipo-center="" style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <section data-kipo-center="" style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
                 {/* The ticket's map, only when toggled on (the Map button). */}
                 {focusTile && chainTiles.length > 1 && mapOpen && (<>
@@ -883,28 +880,36 @@ function probeLayout(apiPost: (snap: unknown) => Promise<unknown>) {
   } catch { /* never throw into the sweep */ }
 }
 
-let centerGen = 0
-function bumpCenter(el: HTMLElement | null) {
-  if (!el) return
-  el.setAttribute('data-kipo-cgen', String(++centerGen))
-  sweepCenters()
+// The probe settled it: one app root, one centre, but MULTIPLE
+// `iframe[data-kipo-frame]` stacked inside it — old frames that React/the host
+// never tore down (the same conductor twice, plus a ticket). So the fix works
+// at the iframe level: each frame takes a rising generation on mount; the
+// sweeper shows only the newest frame whose slot matches the active view, and
+// hides every frame when the active view is a non-frame panel (so a stale
+// frame can't sit behind a progress/ticket panel). `activeSlot` is the slot the
+// centre currently wants shown, or null for a panel.
+let frameGen = 0
+const nextFrameGen = () => ++frameGen
+let activeSlot: string | null = null
+function setActiveFrame(slot: string | null) {
+  activeSlot = slot
+  sweepFrames()
 }
-function sweepCenters() {
+function sweepFrames() {
   try {
-    const centers = [...document.querySelectorAll('[data-kipo-center]')] as HTMLElement[]
-    if (centers.length < 2) {
-      for (const c of centers) if (c.style.display === 'none') c.style.display = ''
-      return
-    }
+    const frames = [...document.querySelectorAll('iframe[data-kipo-frame]')] as HTMLElement[]
     let top: HTMLElement | null = null
     let topGen = -1
-    for (const c of centers) {
-      const g = Number(c.getAttribute('data-kipo-cgen') ?? '0')
-      if (g >= topGen) { topGen = g; top = c }
+    if (activeSlot !== null) {
+      for (const f of frames) {
+        if (f.getAttribute('data-kipo-frame') !== activeSlot) continue
+        const g = Number(f.getAttribute('data-kipo-gen') ?? '0')
+        if (g >= topGen) { topGen = g; top = f }
+      }
     }
-    for (const c of centers) {
-      const want = c === top ? '' : 'none'
-      if (c.style.display !== want) c.style.display = want
+    for (const f of frames) {
+      const want = f === top ? '' : 'none'
+      if (f.style.display !== want) f.style.display = want
     }
   } catch { /* defensive: never let the sweep throw into the watch */ }
 }
@@ -972,6 +977,14 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0, onComposerH }: {
   // runs), drop every other kipo session from the persisted tab list, so the
   // frame opens with ONE pane instead of one per session ever clicked.
   useEffect(() => { pruneKipoTabs(slotKey) }, [slotKey])
+  // Stamp this frame's generation and sweep, so the freshest frame claims the
+  // view; on unmount re-sweep so a survivor shows.
+  useEffect(() => {
+    const f = frameRef.current
+    if (f) f.setAttribute('data-kipo-gen', String(nextFrameGen()))
+    sweepFrames()
+    return () => { requestAnimationFrame(sweepFrames) }
+  }, [slotKey, frameRef])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -1023,7 +1036,7 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0, onComposerH }: {
         }
         // Keep one centre visible: the host double-mounts the app. Cheap and
         // idempotent, so safe every tick.
-        sweepCenters()
+        sweepFrames()
         const doc = frame?.contentDocument
         if (doc) isolatePane(doc)
       } catch { /* same origin */ }
