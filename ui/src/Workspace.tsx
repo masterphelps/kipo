@@ -172,14 +172,25 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   const [liveSlots, setLiveSlots] = useState<Set<string> | null>(null)
   useEffect(() => {
     let live = true
-    const poll = () => api.get<{ key?: string }[]>('/api/chat/slots')
-      .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
-      .catch(() => undefined)
+    const poll = () => {
+      sweepCenters() // safety: keep one centre visible even for panel-only views
+      return api.get<{ key?: string }[]>('/api/chat/slots')
+        .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
+        .catch(() => undefined)
+    }
     poll()
     if (!active) return () => { live = false }
     const id = setInterval(poll, 5000)
     return () => { live = false; clearInterval(id) }
   }, [api, active])
+  // The centre's identity: the open conversation's focus key, or its ended
+  // state. When this changes the mount was navigated, so it claims the single
+  // visible centre (bumpCenter, below, stamped on the section).
+  const centerRef = useRef<HTMLElement>(null)
+  const centerSig = `${key ?? ''}|${slotKey && liveSlots !== null && !liveSlots.has(slotKey) ? 'ended' : 'live'}`
+  useEffect(() => { bumpCenter(centerRef.current) }, [centerSig])
+  // Re-sweep when this mount goes away, so a survivor shows.
+  useEffect(() => () => { requestAnimationFrame(sweepCenters) }, [])
   const sessionTiles = useMemo(
     () => (detail?.frontier?.tiles ?? []).filter(t => t.sessionKey && detail?.sessions[t.sessionKey]),
     [detail],
@@ -663,14 +674,14 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // A ticket you can still start (ready, or HITL) shows a Start button
           // over its details; done / blocked / in-review ones just show details.
           const canStartTile = focusTile && (focusTile.state === 'you' || focusTile.state === 'afk')
-          // When the embedded chat can't show this session, read its transcript
-          // instead: a background round the dashboard never paged (unindexed),
-          // or a session Kiro has since closed (ended — its slot is gone from
-          // the live list, so the popout would 404).
-          const unindexed = !!slotKey && (detail.unindexedSlots ?? []).includes(slotKey)
+          // A live session — background review round included — opens in the
+          // real interactive chat frame, the same as every other session; the
+          // frame is what pages it in. Only a session Kiro has CLOSED (its slot
+          // gone from the live list) can't be opened, so it shows a read-only
+          // record of what it did from its transcript.
           const ended = !!slotKey && liveSlots !== null && !liveSlots.has(slotKey)
-          const chatBody = slotKey && (unindexed || ended) ? (
-            <SessionProgress slot={slotKey} active={active} ended={ended && !unindexed} />
+          const chatBody = slotKey && ended ? (
+            <SessionProgress slot={slotKey} active={active} ended />
           ) : slotKey ? (
             // The card sits `composerH` up, so the transcript must clear the
             // composer, the card, and a gap above it.
@@ -724,7 +735,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
-              <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <section ref={centerRef} data-kipo-center="" style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
                 {/* The ticket's map, only when toggled on (the Map button). */}
                 {focusTile && chainTiles.length > 1 && mapOpen && (<>
@@ -840,35 +851,39 @@ function isolatePane(doc: Document): boolean {
   return changed
 }
 
-// The tiling, finally understood: the host mounts the KiPo app page more than
-// once (the duplicates share this bundle's module scope, and share the cached
-// `focus`, so each renders the same session's frame), and the frames stack as
-// flex siblings. KiPo can't stop the host double-mounting, but from the shared
-// module scope it can keep only ONE frame shown.
-// Each frame takes a rising generation on mount; the sweeper leaves the newest
-// (always the one the last click created) visible and hides the rest. Hiding,
-// not removing: the frames are React-owned, and a hidden one is only ever
-// superseded by a newer one, never shown again, so it stays hidden until its
-// tree unmounts.
-let frameGen = 0
-const nextFrameGen = () => ++frameGen
-function sweepFrames() {
+// The tiling/split, finally understood: the host mounts the KiPo app page more
+// than once, and the mounts have INDEPENDENT focus — so one can show the
+// conductor frame while another shows a different session's frame or a progress
+// panel, stacked as flex siblings (the "split" of conductor-on-top,
+// output-below). KiPo can't stop the host double-mounting, but the mounts share
+// this bundle's module scope, so it keeps only ONE centre visible: whichever
+// was navigated most recently. Each centre is tagged `data-kipo-center`; a
+// rising generation is stamped when its content changes (a navigation, not a
+// background re-render), and the sweeper shows the highest and hides the rest.
+// This covers frames AND panels uniformly — a stale frame can't sit behind a
+// panel, because its whole centre is hidden.
+let centerGen = 0
+function bumpCenter(el: HTMLElement | null) {
+  if (!el) return
+  el.setAttribute('data-kipo-cgen', String(++centerGen))
+  sweepCenters()
+}
+function sweepCenters() {
   try {
-    const frames = [...document.querySelectorAll('iframe[data-kipo-frame]')] as HTMLElement[]
-    if (frames.length < 2) {
-      // Nothing to hide; make sure a lone frame is never left hidden.
-      for (const f of frames) if (f.style.display === 'none') f.style.display = ''
+    const centers = [...document.querySelectorAll('[data-kipo-center]')] as HTMLElement[]
+    if (centers.length < 2) {
+      for (const c of centers) if (c.style.display === 'none') c.style.display = ''
       return
     }
     let top: HTMLElement | null = null
     let topGen = -1
-    for (const f of frames) {
-      const g = Number(f.getAttribute('data-kipo-gen') ?? '0')
-      if (g >= topGen) { topGen = g; top = f }
+    for (const c of centers) {
+      const g = Number(c.getAttribute('data-kipo-cgen') ?? '0')
+      if (g >= topGen) { topGen = g; top = c }
     }
-    for (const f of frames) {
-      const want = f === top ? '' : 'none'
-      if (f.style.display !== want) f.style.display = want
+    for (const c of centers) {
+      const want = c === top ? '' : 'none'
+      if (c.style.display !== want) c.style.display = want
     }
   } catch { /* defensive: never let the sweep throw into the watch */ }
 }
@@ -936,15 +951,6 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0, onComposerH }: {
   // runs), drop every other kipo session from the persisted tab list, so the
   // frame opens with ONE pane instead of one per session ever clicked.
   useEffect(() => { pruneKipoTabs(slotKey) }, [slotKey])
-  // When this frame leaves, re-sweep so the newest survivor becomes visible.
-  useEffect(() => () => { requestAnimationFrame(sweepFrames) }, [])
-  // Stamp this frame with its generation (newest wins the single visible slot)
-  // and sweep, so a freshly mounted frame immediately claims the view.
-  useEffect(() => {
-    const f = frameRef.current
-    if (f) f.setAttribute('data-kipo-gen', String(nextFrameGen()))
-    sweepFrames()
-  }, [slotKey, frameRef])
   const onLoad = () => {
     const frame = frameRef.current
     try {
@@ -994,9 +1000,9 @@ function KiroChatFrame({ slotKey, frameRef, padBottom = 0, onComposerH }: {
           }
           return
         }
-        // Keep exactly one frame visible: the host double-mounts the app and
-        // the extra frames stack. Cheap and idempotent, so safe every tick.
-        sweepFrames()
+        // Keep one centre visible: the host double-mounts the app. Cheap and
+        // idempotent, so safe every tick.
+        sweepCenters()
         const doc = frame?.contentDocument
         if (doc) isolatePane(doc)
       } catch { /* same origin */ }
