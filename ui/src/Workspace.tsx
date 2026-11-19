@@ -174,6 +174,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     let live = true
     const poll = () => {
       sweepCenters() // safety: keep one centre visible even for panel-only views
+      probeLayout(backend.debugFrame)
       return api.get<{ key?: string }[]>('/api/chat/slots')
         .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
         .catch(() => undefined)
@@ -821,32 +822,23 @@ function pruneKipoTabs(keep: string) {
   }
 }
 
-// The pane list the chat page stacks from lives in memory out of KiPo's
-// reach (clearing both web storages didn't stop the tiling), so the fix is
-// presentation: when the frame shows more than one pane, keep only the one
-// for the session KiPo just opened and hide the rest. Panes append in open
-// order — the session you clicked is always the bottom one — so the pane
-// whose composer is last in document order is ours.
+// When `/popout/chat?sid=` can't pin its session (a background round the
+// dashboard never paged), it falls back to the stacked multi-session view —
+// one `data-session-window` per open session. Collapse it to one: keep the
+// LAST window (sessions append in open order, so the one just navigated to is
+// last) and hide the rest. Robust to the host's DOM churn — it keys off the
+// stable `data-session-window` marker, not a composer's ancestry.
 function isolatePane(doc: Document): boolean {
-  const composers = [...doc.querySelectorAll('[data-composer-input], textarea[placeholder]')] as HTMLElement[]
-  if (composers.length < 2) return false
-  // A composer's pane root: its highest ancestor that contains no OTHER
-  // composer — the subtree that is just this one session's pane.
-  const paneRoot = (c: HTMLElement): HTMLElement => {
-    let el: HTMLElement = c
-    while (el.parentElement && el.parentElement !== doc.body) {
-      const p = el.parentElement
-      if (composers.some(x => x !== c && p.contains(x))) return el
-      el = p
-    }
-    return el
+  const windows = [...doc.querySelectorAll('[data-session-window]')] as HTMLElement[]
+  if (windows.length < 2) {
+    for (const w of windows) if (w.style.display === 'none') w.style.display = ''
+    return false
   }
-  const roots = composers.map(paneRoot)
-  const keep = roots[roots.length - 1]
+  const keep = windows[windows.length - 1]
   let changed = false
-  for (const r of roots) {
-    if (r === keep || r.contains(keep) || keep.contains(r)) continue
-    if (r.style.display !== 'none') { r.style.display = 'none'; changed = true }
+  for (const w of windows) {
+    const want = w === keep ? '' : 'none'
+    if (w.style.display !== want) { w.style.display = want; changed = true }
   }
   return changed
 }
@@ -862,6 +854,35 @@ function isolatePane(doc: Document): boolean {
 // background re-render), and the sweeper shows the highest and hides the rest.
 // This covers frames AND panels uniformly — a stale frame can't sit behind a
 // panel, because its whole centre is hidden.
+// Temporary probe: what the page really holds — the centres (data-kipo-center,
+// their cgen + visibility), the frames, and each frame's stacked session
+// windows — so the remaining stacking is read, not guessed. Deduped, ≤1/8s.
+let lastProbe = ''
+let lastProbeAt = 0
+function probeLayout(apiPost: (snap: unknown) => Promise<unknown>) {
+  try {
+    const centers = [...document.querySelectorAll('[data-kipo-center]')].map(c => ({
+      cgen: c.getAttribute('data-kipo-cgen'),
+      shown: (c as HTMLElement).style.display !== 'none' && !!(c as HTMLElement).offsetParent,
+      h: Math.round((c as HTMLElement).getBoundingClientRect().height),
+      has: c.querySelector('iframe[data-kipo-frame]') ? 'frame'
+        : c.textContent?.includes('read-only record') ? 'ended-progress'
+        : c.querySelector('iframe') ? 'iframe?' : 'panel',
+    }))
+    const frames = ([...document.querySelectorAll('iframe[data-kipo-frame]')] as HTMLIFrameElement[]).map(f => {
+      let windows = -1
+      try { windows = f.contentDocument?.querySelectorAll('[data-session-window]').length ?? -1 } catch { windows = -2 }
+      return { slot: (f.getAttribute('data-kipo-frame') || '').split('995-').pop(), shown: !!f.offsetParent, windows }
+    })
+    const snap = { kind: 'layout', centers, frames, roots: document.querySelectorAll('[data-kipo-app]').length }
+    const j = JSON.stringify(snap)
+    if (j !== lastProbe && Date.now() - lastProbeAt > 8000) {
+      lastProbe = j; lastProbeAt = Date.now()
+      void apiPost(snap)
+    }
+  } catch { /* never throw into the sweep */ }
+}
+
 let centerGen = 0
 function bumpCenter(el: HTMLElement | null) {
   if (!el) return

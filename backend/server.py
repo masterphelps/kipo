@@ -94,6 +94,7 @@ ROUTES = [
     ("GET", re.compile(_ISSUE + r"/doc$"), "doc"),
     ("GET", re.compile(_ISSUE + r"/tickets/(\d+)$"), "ticket"),
     ("GET", re.compile(r"^/sessions/tail$"), "session_tail"),
+    ("POST", re.compile(r"^/debug/frame$"), "debug_frame"),
 ]
 
 
@@ -285,6 +286,17 @@ class App:
             if r.get("slug") and not r.get("worktree"):
                 paths.setdefault(r["slug"].lower(), r["path"])
         return paths
+
+    def debug_frame(self, body):
+        """Temporary: appends what the UI sees (centres, frames, mounts) to a
+        local file so the stacking can be read, not guessed."""
+        line = json.dumps({
+            "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            **(body if isinstance(body, dict) else {"raw": str(body)[:2000]}),
+        })[:12000]
+        with open("/tmp/kipo-frame-debug.jsonl", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return {"ok": True}
 
     def session_tail(self, body):
         """The recent transcript of a background session the dashboard never
