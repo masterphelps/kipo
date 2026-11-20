@@ -174,7 +174,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     let live = true
     const poll = () => {
       sweepFrames() // safety: keep only the active frame visible
-      probeLayout(backend.debugFrame)
       return api.get<{ key?: string }[]>('/api/chat/slots')
         .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
         .catch(() => undefined)
@@ -733,7 +732,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           return (
             <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
               {spine}
-              <section data-kipo-center="" style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <section style={{ flex: '1 1 0', minWidth: 360, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chatHead}
                 {/* The ticket's map, only when toggled on (the Map button). */}
                 {focusTile && chainTiles.length > 1 && mapOpen && (<>
@@ -840,46 +839,9 @@ function isolatePane(doc: Document): boolean {
   return changed
 }
 
-// The tiling/split, finally understood: the host mounts the KiPo app page more
-// than once, and the mounts have INDEPENDENT focus — so one can show the
-// conductor frame while another shows a different session's frame or a progress
-// panel, stacked as flex siblings (the "split" of conductor-on-top,
-// output-below). KiPo can't stop the host double-mounting, but the mounts share
-// this bundle's module scope, so it keeps only ONE centre visible: whichever
-// was navigated most recently. Each centre is tagged `data-kipo-center`; a
-// rising generation is stamped when its content changes (a navigation, not a
-// background re-render), and the sweeper shows the highest and hides the rest.
-// This covers frames AND panels uniformly — a stale frame can't sit behind a
-// panel, because its whole centre is hidden.
-// Temporary probe: what the page really holds — the centres (data-kipo-center,
-// their cgen + visibility), the frames, and each frame's stacked session
-// windows — so the remaining stacking is read, not guessed. Deduped, ≤1/8s.
-let lastProbe = ''
-let lastProbeAt = 0
-function probeLayout(apiPost: (snap: unknown) => Promise<unknown>) {
-  try {
-    const centers = [...document.querySelectorAll('[data-kipo-center]')].map(c => ({
-      cgen: c.getAttribute('data-kipo-cgen'),
-      shown: (c as HTMLElement).style.display !== 'none' && !!(c as HTMLElement).offsetParent,
-      h: Math.round((c as HTMLElement).getBoundingClientRect().height),
-      has: c.querySelector('iframe[data-kipo-frame]') ? 'frame'
-        : c.textContent?.includes('read-only record') ? 'ended-progress'
-        : c.querySelector('iframe') ? 'iframe?' : 'panel',
-    }))
-    const frames = ([...document.querySelectorAll('iframe[data-kipo-frame]')] as HTMLIFrameElement[]).map(f => {
-      let windows = -1
-      try { windows = f.contentDocument?.querySelectorAll('[data-session-window]').length ?? -1 } catch { windows = -2 }
-      return { slot: (f.getAttribute('data-kipo-frame') || '').split('995-').pop(), shown: !!f.offsetParent, windows }
-    })
-    const snap = { kind: 'layout', centers, frames, roots: document.querySelectorAll('[data-kipo-app]').length }
-    const j = JSON.stringify(snap)
-    if (j !== lastProbe && Date.now() - lastProbeAt > 8000) {
-      lastProbe = j; lastProbeAt = Date.now()
-      void apiPost(snap)
-    }
-  } catch { /* never throw into the sweep */ }
-}
-
+// The tiling/split, finally understood (by a since-removed layout probe): the
+// host mounts the KiPo app page more than once, and the mounts leak stale
+// `iframe[data-kipo-frame]` elements into the one centre.
 // The probe settled it: one app root, one centre, but MULTIPLE
 // `iframe[data-kipo-frame]` stacked inside it — old frames that React/the host
 // never tore down (the same conductor twice, plus a ticket). So the fix works

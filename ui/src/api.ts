@@ -88,7 +88,6 @@ export const backend = {
     call<{ message: string }>(`${issuePath(repo, n)}/skill`, 'POST', { skill }),
   listSessions: () => call<{ sessions: string[]; byRepo?: { slot: string; repo: string }[] }>('/sessions'),
   tree: (completed = false) => call<RepoTree>(completed ? '/tree?completed=1' : '/tree'),
-  debugFrame: (snap: unknown) => call<{ ok: boolean }>('/debug/frame', 'POST', snap),
   // A background session's recent transcript, when the dashboard never opened
   // it as a page (so the embedded chat would be empty).
   sessionTail: (slot: string, limit = 60) =>
