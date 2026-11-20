@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shlex
+import time
 
 from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
 from . import activity as col_activity
@@ -502,6 +503,16 @@ class Initiatives:
         # refuses a call (rate limit): the maps don't vanish, the UI says
         # "last known" instead.
         self._list_cache = {}
+        # Short-TTL cache over the GitHub-expensive fetches. The UI polls the
+        # detail every 5s and the list every 15s, but tickets and PRs change on
+        # the minutes scale — asking GitHub each time was burning thousands of
+        # calls an hour and tripping its burst limiter. Failures are never
+        # cached, so recovery is immediate.
+        self._gh_cache = {}
+        # Each effort's last successfully built frontier (with tiles): served
+        # when a poll lands in a rate-limited window, so done tickets don't
+        # flap in and out of the stations.
+        self._frontier_cache = {}
 
     # -- helpers ----------------------------------------------------------
 
@@ -550,6 +561,28 @@ class Initiatives:
         return issue, parse_body(issue.get("body"))
 
     # -- tickets and PRs --------------------------------------------------
+
+    GH_CACHE_TTL = 20.0
+
+    def _cached_gh(self, key, fn, ttl=GH_CACHE_TTL):
+        """Serve ``fn()`` from a short cache: the UI polls every few seconds,
+        GitHub data changes on the minutes scale, and the calls are what burns
+        the rate limit. A failure is never cached, so recovery is immediate."""
+        hit = self._gh_cache.get(key)
+        now = time.monotonic()
+        if hit and hit[0] > now:
+            return hit[1]
+        value = fn()
+        self._gh_cache[key] = (now + ttl, value)
+        return value
+
+    def _uncache(self, repo):
+        """Drop a repo's cached GitHub reads after KiPo itself changes GitHub
+        (an effort created, advanced or closed), so the change shows at once
+        instead of after the TTL."""
+        for k in list(self._gh_cache):
+            if isinstance(k, tuple) and len(k) > 1 and k[1] == repo:
+                del self._gh_cache[k]
 
     def _ticket_nodes(self, repo, number):
         """Every ``kipo:<n>`` issue, open and closed, with its native blockers.
@@ -709,7 +742,7 @@ class Initiatives:
 
         nodes, tickets_note, tickets_error = [], None, None
         try:
-            nodes, tickets_note = self._ticket_nodes(repo, number)
+            nodes, tickets_note = self._cached_gh(("nodes", repo, number), lambda: self._ticket_nodes(repo, number))
         except KipoError as e:
             tickets_error = e.message
         # The spec issue is the tickets' parent, not a ticket: no tile, no build.
@@ -717,19 +750,22 @@ class Initiatives:
         spec_nodes = [n for n in nodes if n["number"] in specs]
         nodes = [n for n in nodes if n["number"] not in specs]
         # The frontier: build tickets and the map's children, each in its real state.
-        map_nodes, map_body, map_closed = [], None, False
+        map_nodes, map_body, map_closed, map_error = [], None, False, None
         if meta.get("mapIssue"):
             try:
-                map_nodes, map_body, map_closed = self._map_children(repo, int(meta["mapIssue"]))
-            except KipoError:
-                map_nodes, map_body, map_closed = [], None, False
+                map_nodes, map_body, map_closed = self._cached_gh(
+                    ("mapkids", repo, int(meta["mapIssue"])), lambda: self._map_children(repo, int(meta["mapIssue"])))
+            except KipoError as e:
+                map_error = e.message
         prs, ref_prs, prs_error = [], [], None
         try:
             # A PR that closes the issue the effort started from is the effort's PR too.
             source = source_issue_of(repo, meta, artifacts)
             closers = [n["number"] for n in nodes + spec_nodes] + ([source] if source else [])
             # An open PR naming any of its tickets (a map child too) without closing it: refPrs.
-            prs, ref_prs = self._pr_lists(repo, number, closers, closers + [n["number"] for n in map_nodes])
+            named = closers + [n["number"] for n in map_nodes]
+            prs, ref_prs = self._cached_gh(
+                ("prs", repo, number), lambda: self._pr_lists(repo, number, closers, named))
         except KipoError as e:
             prs_error = e.message
         tickets = [self._ticket_detail(n, prs, sessions) for n in nodes]
@@ -745,13 +781,25 @@ class Initiatives:
                     "number": source, "title": found.get("title") or "", "url": found.get("url") or "",
                     "state": (found.get("state") or "OPEN").upper(), "labels": label_names(found), "blockers": [],
                 }
-        front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body, source_node, map_closed=map_closed)
-        front.update(frontier_mod.stage_of(front, column, prs))
-        self.storage.save_frontier(repo, number, {
-            "counts": front["counts"], "lanes": front["lanes"], "fog": front["fog"],
-            "stage": front["stage"], "active": front["active"],
-            "stations": frontier_mod.stations_summary(front, prs, bool(sessions.get("done"))),
-        })
+        # A poll that hit GitHub's rate limiter must not gut the frontier (done
+        # tickets flapping out of the stations): serve the last good one and
+        # never save a degraded build over it.
+        gh_degraded = tickets_error is not None or map_error is not None or prs_error is not None
+        cached_front = self._frontier_cache.get((repo, number))
+        if gh_degraded and cached_front is not None:
+            front = cached_front
+        else:
+            front = frontier_mod.build(nodes, map_nodes, prs, sessions, map_body, source_node, map_closed=map_closed)
+            front.update(frontier_mod.stage_of(front, column, prs))
+            if not gh_degraded:
+                self._frontier_cache[(repo, number)] = front
+                self.storage.save_frontier(repo, number, {
+                    "counts": front["counts"], "lanes": front["lanes"], "fog": front["fog"],
+                    "stage": front["stage"], "active": front["active"],
+                    "stations": frontier_mod.stations_summary(front, prs, bool(sessions.get("done"))),
+                })
+        if gh_degraded and tickets_error is None:
+            tickets_error = map_error or prs_error
         summary["ticketCounts"] = {
             "open": sum(1 for t in tickets if t["state"] == "OPEN"),
             "closed": sum(1 for t in tickets if t["state"] != "OPEN"),
@@ -828,7 +876,8 @@ class Initiatives:
             try:
                 hidden = self.storage.hidden(repo)
                 found, wrapped = [], set()
-                for issue in self.gh.list_issues(repo, EFFORT_LABEL):
+                for issue in self._cached_gh(("issues", repo, EFFORT_LABEL),
+                                             lambda repo=repo: self.gh.list_issues(repo, EFFORT_LABEL), ttl=30.0):
                     body = parse_body(issue.get("body"))
                     wrapped.add(self._map_of(repo, issue["number"], body))
                     if issue["number"] not in hidden:
@@ -836,7 +885,8 @@ class Initiatives:
                 # Every open map in the repo, unless an effort already wraps
                 # it or you hid it: an added repo lists all its maps.
                 listed = {i["number"] for i in found}
-                for issue in self.gh.list_issues(repo, MAP_LABEL):
+                for issue in self._cached_gh(("issues", repo, MAP_LABEL),
+                                             lambda repo=repo: self.gh.list_issues(repo, MAP_LABEL), ttl=30.0):
                     n = issue["number"]
                     if is_map(issue) and n not in wrapped and n not in hidden and n not in listed:
                         found.append(self._summary(repo, issue, map_body(issue)))
@@ -849,7 +899,9 @@ class Initiatives:
                 continue
             if found:
                 try:
-                    counts = self._ticket_counts(repo, [i["number"] for i in found])
+                    nums = [i["number"] for i in found]
+                    counts = self._cached_gh(("counts", repo),
+                                             lambda repo=repo, nums=nums: self._ticket_counts(repo, nums), ttl=30.0)
                 except KipoError as e:
                     counts = {}
                     errors.append({"repo": repo, "error": e.message, "code": e.code})
@@ -987,6 +1039,7 @@ class Initiatives:
 
     def create(self, repo, title, destination, start=None, worktree=False, source_issue=None):
         validate_repo_slug(repo)
+        self._uncache(repo)
         if not isinstance(destination, str) or not destination.strip():
             raise KipoError("Say what you want to do first.", "invalid_request", 400)
         if not isinstance(title, str) or not title.strip():
@@ -1025,7 +1078,7 @@ class Initiatives:
         return self._summary(repo, issue, parsed)
 
     def detail(self, repo, number):
-        issue, body = self._fetch(repo, number)
+        issue, body = self._cached_gh(("issue", repo, number), lambda: self._fetch(repo, number))
         return self._detail(repo, issue, body)
 
     def record_closed(self, repo, number, keys):
@@ -1075,6 +1128,7 @@ class Initiatives:
     # -- advance ----------------------------------------------------------
 
     def advance(self, repo, number, force=False, to=None):
+        self._uncache(repo)
         issue, body = self._fetch(repo, number)
         if is_map(issue):
             raise KipoError(
@@ -1139,6 +1193,7 @@ class Initiatives:
         Nothing is deleted: the issue, its comments and any worktree stay, and
         reopening the issue on GitHub puts it back on the board.
         """
+        self._uncache(repo)
         issue, body = self._fetch(repo, number)
         if is_map(issue):
             # The map isn't KiPo's to close: only take it off the sidebar.

@@ -316,6 +316,7 @@ class SessionTests(Columns):
         rows = {r["key"]: r["status"] for r in self.get()[1]["closing"]}
         self.assertEqual(rows, {"build-t20": "open", "conductor": "open"})  # #20 is still open
         self.fake.issues[(REPO, 20)]["state"] = "CLOSED"
+        self.app.initiatives._gh_cache.clear()  # the change is GitHub's own: as if the TTL expired
         rows = {r["key"]: r["status"] for r in self.get()[1]["closing"]}
         self.assertEqual(rows, {"build-t20": "closable", "conductor": "open"})
         status, out = self.post("/sessions/closed", {"keys": ["build-t20"]})

@@ -138,6 +138,7 @@ class RepoRoutesTest(unittest.TestCase):
         self.assertEqual(status, 200, out)
         self.assertEqual([i["number"] for i in out["initiatives"]], [5])
         self.assertNotIn("errors", out)
+        self.app.initiatives._gh_cache.clear()  # as if the short TTL expired
         self.fake.list_error = True
         status, out = self.app.dispatch("GET", "/initiatives", "")
         self.assertEqual(status, 200, out)
@@ -146,6 +147,7 @@ class RepoRoutesTest(unittest.TestCase):
         # Back to life: the fresh listing replaces the cached one.
         self.fake.list_error = False
         self.fake.add_issue("acme/widgets", 6, title="Map: six", labels=["wayfinder:map"])
+        self.app.initiatives._gh_cache.clear()  # as if the short TTL expired
         status, out = self.app.dispatch("GET", "/initiatives", "")
         self.assertEqual(sorted(i["number"] for i in out["initiatives"]), [5, 6])
         self.assertNotIn("errors", out)
