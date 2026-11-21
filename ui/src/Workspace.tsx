@@ -266,7 +266,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // walks them: each click jumps to the next one, cycling.
   const questionStops = useMemo<Focus[]>(() => {
     if (!detail) return []
-    const openQ = (s?: PhaseState | null) => s?.decisions.filter(isOpenQuestion).length ?? 0
+    // `?? []` guards a state object that has no decisions array at all — a
+    // cross-version localStorage cache can seed `detail` with that shape, and
+    // `s?.decisions.filter` would throw on it before the fresh load lands.
+    const openQ = (s?: PhaseState | null) => (s?.decisions ?? []).filter(isOpenQuestion).length
     const stops: Focus[] = []
     if (openQ(detail.sessionStates?.conductor ?? detail.state)) stops.push({ kind: 'column' })
     for (const t of detail.frontier?.tiles ?? []) {

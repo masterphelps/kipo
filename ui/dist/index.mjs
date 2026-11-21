@@ -579,7 +579,7 @@ function Fn(e, t, i = 0.75) {
   }, [t, i, s]), f = r ? { flex: `0 0 ${r}px`, minHeight: 0, overflowY: "auto" } : { flex: "0 1 auto", minHeight: 0, maxHeight: `${Math.round(i * 100)}%`, overflowY: "auto" };
   return { ref: p, style: f, onDrag: d, reset: () => s(0) };
 }
-const $t = "kipo.cache.v2:";
+const $t = "kipo.cache.v3:";
 try {
   for (let e = localStorage.length - 1; e >= 0; e--) {
     const t = localStorage.key(e);
@@ -2360,7 +2360,7 @@ const Jt = 2 * 60 * 60 * 1e3, dt = /* @__PURE__ */ new Map(), $o = (e, t) => {
 function Io({ state: e, slotKey: t, settled: i, onError: r, onSize: s, bottomOffset: p = 122 }) {
   const d = xt();
   for (const b of (e == null ? void 0 : e.decisions) ?? []) b.answer && t && dt.delete(`${t}:${b.id}`);
-  const f = i || !t ? [] : (e == null ? void 0 : e.decisions.filter((b) => at(b) && !$o(t, b.id))) ?? [], [h, l] = E({}), [u, n] = E(0), [a, I] = E(!1), [j, z] = E(!1), D = f.map((b) => b.id).join(","), N = pe(D);
+  const f = i || !t ? [] : ((e == null ? void 0 : e.decisions) ?? []).filter((b) => at(b) && !$o(t, b.id)), [h, l] = E({}), [u, n] = E(0), [a, I] = E(!1), [j, z] = E(!1), D = f.map((b) => b.id).join(","), N = pe(D);
   K(() => {
     N.current !== D && (N.current = D, n(0), l({}), D && z(!1));
   }, [D]);
@@ -2855,7 +2855,7 @@ function Ho({ repo: e, number: t, active: i, autoStart: r, spineHost: s, spineCo
   const fe = rt(() => {
     var U, M, C, W, T;
     if (!n) return [];
-    const g = (S) => (S == null ? void 0 : S.decisions.filter(at).length) ?? 0, w = [];
+    const g = (S) => ((S == null ? void 0 : S.decisions) ?? []).filter(at).length, w = [];
     g(((U = n.sessionStates) == null ? void 0 : U.conductor) ?? n.state) && w.push({ kind: "column" });
     for (const S of ((M = n.frontier) == null ? void 0 : M.tiles) ?? [])
       S.state === "done" || !S.sessionKey || !g((C = n.sessionStates) == null ? void 0 : C[S.sessionKey]) || w.push(S.sessionKey.startsWith("review-t") ? { kind: "review", t: S.number } : S.lane === "deliver" ? { kind: "ticket", t: S.number } : { kind: "decision", t: S.number });

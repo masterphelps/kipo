@@ -7,7 +7,7 @@
 
 // Bump the version whenever a cached shape changes: an old shape rendered by new
 // code crashes the page before the fresh answer arrives.
-const PREFIX = 'kipo.cache.v2:'
+const PREFIX = 'kipo.cache.v3:'
 try {
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i)

@@ -117,7 +117,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   // (The memory of what was sent lives outside the component — see sentAnswers —
   // so a remount can't make an answered question pop back up.)
   for (const d of state?.decisions ?? []) if (d.answer && slotKey) sentAnswers.delete(`${slotKey}:${d.id}`)
-  const open = settled || !slotKey ? [] : (state?.decisions.filter(d => isOpenQuestion(d) && !wasSent(slotKey, d.id)) ?? [])
+  const open = settled || !slotKey ? [] : (state?.decisions ?? []).filter(d => isOpenQuestion(d) && !wasSent(slotKey, d.id))
   const [picks, setPicks] = useState<Record<string, string>>({})
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
