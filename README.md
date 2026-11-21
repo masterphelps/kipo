@@ -1,9 +1,10 @@
 # KiPo
 
-A Kiro Crew app that runs Matt Pocock's engineering skills over your repos. Each effort's
-tickets are tiles in two lanes, Decide and Deliver, read from GitHub; the next step sits on
-top, and each ticket has its own conversation running the right skills. Open wayfinder maps
-can be put on the sidebar as efforts. See CONTRACT.md.
+A Kiro Crew app that runs Matt Pocock's engineering skills over your repos. A conductor
+agent runs each effort through seven stations, one per KiPo skill: Intake, Shape, Grill,
+Plan, Build, Review and Done. Tickets live in GitHub Issues, each thread gets its own
+conversation running the right skills, and open wayfinder maps can be added as efforts.
+See CONTRACT.md.
 
 Forked from Launchpad (same plumbing, a different model).
 

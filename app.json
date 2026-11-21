@@ -2,7 +2,7 @@
   "name": "kipo",
   "version": "0.1.0",
   "displayName": "KiPo",
-  "description": "Matt Pocock's engineering flow for your repos: each effort run by a conductor agent, its tickets in seven columns (one per KiPo skill), and a conversation per ticket that runs the right Pocock skills. Open wayfinder maps from your repos as efforts.",
+  "description": "Matt Pocock's engineering flow for your repos. A conductor agent runs each effort through seven stations, one per KiPo skill: Intake, Shape, Grill, Plan, Build, Review, Done. Open wayfinder maps from your repos as efforts.",
   "author": "masterphelps",
   "iconPath": "assets/icon.png",
   "agents": [
