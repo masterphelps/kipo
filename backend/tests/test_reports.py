@@ -120,6 +120,13 @@ class OpenDecisions(unittest.TestCase):
     def test_effort_file_without_a_stage_session(self):
         self.assertEqual(reports.open_decisions({"state": {"decisions": [card("q")]}})[0]["from"], "effort")
 
+    def test_a_recorded_view_is_not_an_open_question(self):
+        # review-t664 wrote {id, view} into decisions — a settled view, no title,
+        # no options, no answer key. It must not surface as waiting on the human
+        # (in the page it crashed the question card outright).
+        d = {"state": {"decisions": [{"id": "shared-address-coverage", "view": "Agree: names neither."}, card("q")]}}
+        self.assertEqual([x["id"] for x in reports.open_decisions(d)], ["q"])
+
 
 def rep(id_, source, event, items=None):
     r = {"id": id_, "at": f"2026-11-15T09:{id_:02d}:00Z", "from": source, "event": event, "text": "x"}

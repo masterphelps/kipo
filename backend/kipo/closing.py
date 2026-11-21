@@ -250,7 +250,13 @@ def ref_prs(detail):
 def _open_cards(state):
     if not isinstance(state, dict):
         return 0
-    return sum(1 for d in state.get("decisions") or [] if isinstance(d, dict) and d.get("answer") in (None, ""))
+    # Only a titled, unanswered entry is an open question. Sessions also record
+    # settled views ({id, view}, no title) in the same array; those are history
+    # and must not block closing or count as waiting on the human.
+    return sum(
+        1 for d in state.get("decisions") or []
+        if isinstance(d, dict) and d.get("answer") in (None, "") and str(d.get("title") or "").strip()
+    )
 
 
 def open_cards(detail, key):

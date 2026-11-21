@@ -115,6 +115,12 @@ class Guards(unittest.TestCase):
         rows = closing.sessions(d, [rep("build-t4", "finished")])
         self.assertEqual((rows[0]["status"], rows[0]["reason"]), ("open", "1 unanswered decision card"))
 
+    def test_a_recorded_view_doesnt_hold_a_session_open(self):
+        # {id, view} with no title is a settled view, not an unanswered card.
+        d = detail(["build-t4"], tickets=[(4, "CLOSED")],
+                   states={"build-t4": {"decisions": [{"id": "coverage", "view": "Agree."}]}})
+        self.assertEqual(verdict(d, [rep("build-t4", "finished")]), {"build-t4": "closable"})
+
     def test_answered_cards_dont_hold_it(self):
         d = detail(["build-t4"], tickets=[(4, "CLOSED")], states={"build-t4": {"decisions": [card("A")]}})
         self.assertEqual(verdict(d, [rep("build-t4", "finished")]), {"build-t4": "closable"})
