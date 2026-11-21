@@ -1,6 +1,6 @@
 import { jsxs as c, jsx as o, Fragment as me } from "react/jsx-runtime";
 import { useAppApi as xt, useAppInfo as zn } from "@kirocrew/app-sdk";
-import { useState as E, useCallback as Ce, useEffect as K, useRef as pe, useLayoutEffect as An, useMemo as rt } from "react";
+import { useState as E, useCallback as Re, useEffect as K, useRef as pe, useLayoutEffect as An, useMemo as rt } from "react";
 import { Btn as Ie, Badge as Et, MarkdownRenderer as ft } from "@kirocrew/app-sdk/ui";
 import { X as On, FolderGit2 as en, FolderOpen as En, MessageSquare as tn, ChevronRight as gt, Plus as Wn, FolderPlus as Mn, MoreHorizontal as Wt, ExternalLink as Mt, EyeOff as Hn, Trash2 as Ht, Map as Nn, PanelRight as Pn } from "lucide-react";
 import { createPortal as Dn } from "react-dom";
@@ -283,7 +283,7 @@ function bt({ kind: e, map: t }) {
 }
 function on({ busy: e, onAdd: t, actionLabel: i = "Add" }) {
   var h;
-  const [r, s] = E(null), [p, d] = E(""), f = Ce(async (l) => {
+  const [r, s] = E(null), [p, d] = E(""), f = Re(async (l) => {
     d("");
     try {
       s(await ce.browse(l));
@@ -497,7 +497,7 @@ function Dt() {
   }
 }
 function sn(e, t, i, r) {
-  const s = Ce((h) => Math.round(Math.min(r, Math.max(i, h))), [i, r]), [p, d] = E(() => {
+  const s = Re((h) => Math.round(Math.min(r, Math.max(i, h))), [i, r]), [p, d] = E(() => {
     const h = Dt()[e];
     return s(typeof h == "number" ? h : t);
   });
@@ -509,7 +509,7 @@ function sn(e, t, i, r) {
     } catch {
     }
   }, [e, p]);
-  const f = Ce((h) => {
+  const f = Re((h) => {
     d((l) => s(typeof h == "function" ? h(l) : h));
   }, [s]);
   return [p, f];
@@ -569,7 +569,7 @@ function ln({ direction: e, onDrag: t, onReset: i, label: r }) {
   );
 }
 function Fn(e, t, i = 0.75) {
-  const [r, s] = sn(e, 0, 0, 4e3), p = pe(null), d = Ce((h) => {
+  const [r, s] = sn(e, 0, 0, 4e3), p = pe(null), d = Re((h) => {
     const l = Math.round(window.innerHeight * i);
     s((u) => {
       var a;
@@ -1139,7 +1139,7 @@ function co({ detail: e, statuses: t, activity: i, busy: r, autopilot: s, select
   ].filter((m) => m.n > 0), [te, ge] = E(() => new Set(Ee ? [Ee.id] : [])), Se = (m) => ge((ee) => {
     const F = new Set(ee);
     return F.has(m) ? F.delete(m) : F.add(m), F;
-  }), qe = J + he.reduce((m, ee) => m + ee.rows.reduce((F, Y) => F + (Y.questions ?? 0), 0), 0), Re = Object.values(i ?? {}).filter((m) => m && (m.needs === "approval" || m.needs === "input")).length, Te = p === "conductor", Ge = !!e.sessions.conductor && !Ke(e.sessions.conductor), ze = f ? 10 : 16;
+  }), qe = J + he.reduce((m, ee) => m + ee.rows.reduce((F, Y) => F + (Y.questions ?? 0), 0), 0), Ce = Object.values(i ?? {}).filter((m) => m && (m.needs === "approval" || m.needs === "input")).length, Te = p === "conductor", Ge = !!e.sessions.conductor && !Ke(e.sessions.conductor), ze = f ? 10 : 16;
   return /* @__PURE__ */ c("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, ...d ? {} : { height: "100%" } }, children: [
     /* @__PURE__ */ c("div", { style: { padding: `10px ${ze}px 9px`, borderBottom: "1px solid var(--border)" }, children: [
       /* @__PURE__ */ c("div", { style: { display: "flex", alignItems: "baseline", gap: 8 }, children: [
@@ -1168,13 +1168,16 @@ function co({ detail: e, statuses: t, activity: i, busy: r, autopilot: s, select
           /* @__PURE__ */ o("span", { style: B, children: m.label })
         ] }, m.label))
       ] }) : /* @__PURE__ */ o("span", { style: B, children: H.length ? `${H.length} in the fog, nothing cut yet` : "nothing cut yet" }) }),
-      (qe > 0 || Re > 0) && /* @__PURE__ */ c(
+      (qe > 0 || Ce > 0) && // The pill only shows when something is waiting on the human, so it
+      // pulses the moment it appears — the same amber attention cue the
+      // session cards use, for questions as well as trust prompts/asks.
+      /* @__PURE__ */ c(
         "button",
         {
           type: "button",
           onClick: a,
-          className: Re > 0 ? "kipo-pulse" : void 0,
-          title: Re > 0 ? "A session is stopped on a trust prompt or an ask: open it to allow or answer" : "Jump to the next conversation with open questions; answer them on the right",
+          className: "kipo-pulse",
+          title: Ce > 0 ? "A session is stopped on a trust prompt or an ask: open it to allow or answer" : "Jump to the next conversation with open questions; answer them on the right",
           style: {
             display: "inline-flex",
             alignItems: "center",
@@ -1190,7 +1193,7 @@ function co({ detail: e, statuses: t, activity: i, busy: r, autopilot: s, select
             border: 0
           },
           children: [
-            ao(qe, Re),
+            ao(qe, Ce),
             " →"
           ]
         }
@@ -1506,7 +1509,7 @@ function mo({ width: e, items: t, repos: i, error: r, notice: s, selected: p, at
   K(() => {
     X(!0);
   }, [p]);
-  const [x, R] = E(null), H = Ce(() => R(null), []), [q, oe] = E(null), [le, de] = E(fo);
+  const [x, R] = E(null), H = Re(() => R(null), []), [q, oe] = E(null), [le, de] = E(fo);
   K(() => {
     localStorage.setItem(hn, JSON.stringify(le));
   }, [le]);
@@ -2141,7 +2144,7 @@ function ko({ tiles: e, focus: t, fog: i = 0, onOpen: r, statuses: s, labeled: p
           fe.map(({ from: k, to: te }) => {
             const ge = ye.get(k.number), Se = ye.get(te.number);
             if (!ge || !Se) return null;
-            const qe = k.state === "done", Re = he ? he.has(k.number) && he.has(te.number) : t != null && (k.number === t || te.number === t), Te = he ? !Re : t != null && h && !Re || !Ne(k.number) || !Ne(te.number), Ge = H ? (() => {
+            const qe = k.state === "done", Ce = he ? he.has(k.number) && he.has(te.number) : t != null && (k.number === t || te.number === t), Te = he ? !Ce : t != null && h && !Ce || !Ne(k.number) || !Ne(te.number), Ge = H ? (() => {
               const ze = ge.x + R / 2, Ae = ge.y + y + 2, ae = Se.x + R / 2, Oe = Se.y - 2, be = (Ae + Oe) / 2;
               return `M${ze},${Ae} C${ze},${be} ${ae},${be} ${ae},${Oe}`;
             })() : (() => {
@@ -2153,8 +2156,8 @@ function ko({ tiles: e, focus: t, fog: i = 0, onOpen: r, statuses: s, labeled: p
               {
                 d: Ge,
                 fill: "none",
-                stroke: Re ? "var(--text)" : "var(--muted)",
-                strokeWidth: Re ? 1.6 : 1.2,
+                stroke: Ce ? "var(--text)" : "var(--muted)",
+                strokeWidth: Ce ? 1.6 : 1.2,
                 strokeDasharray: qe ? "3 3" : void 0,
                 opacity: Te ? 0.15 : qe ? 0.45 : 0.8,
                 markerEnd: "url(#kipo-arrow)"
@@ -2361,7 +2364,7 @@ function Io({ state: e, slotKey: t, settled: i, onError: r, onSize: s, bottomOff
   K(() => {
     N.current !== D && (N.current = D, n(0), l({}), D && z(!1));
   }, [D]);
-  const L = pe(null), P = Ce((b) => {
+  const L = pe(null), P = Re((b) => {
     var A;
     if ((A = L.current) == null || A.disconnect(), L.current = null, !b) {
       s == null || s(0);
@@ -2744,7 +2747,7 @@ function Ho({ repo: e, number: t, active: i, autoStart: r, spineHost: s, spineCo
   K(() => {
     et(`${u}:focus`, N);
   }, [u, N]);
-  const [P, J] = E(!1), [X, x] = E(!1), R = Fn("chain", 100, 0.75), H = Ce(() => {
+  const [P, J] = E(!1), [X, x] = E(!1), R = Fn("chain", 100, 0.75), H = Re(() => {
     ce.getInitiative(e, t).then((g) => {
       a(g), et(u, g), j("");
     }).catch((g) => j(ke(g)));
@@ -2874,11 +2877,11 @@ function Ho({ repo: e, number: t, active: i, autoStart: r, spineHost: s, spineCo
     A(null), H(), f();
   }, te = `kipo.autopilot:${e}#${t}`, [ge, Se] = E(() => localStorage.getItem(te) === "1"), qe = (g) => {
     Se(g), localStorage.setItem(te, g ? "1" : "0");
-  }, Re = pe(/* @__PURE__ */ new Set());
+  }, Ce = pe(/* @__PURE__ */ new Set());
   K(() => {
     if (!ge || !i || $ || !(n != null && n.frontier)) return;
-    const g = n.frontier.tiles.filter((w) => w.lane === "deliver" && w.state === "afk" && !w.sessionKey && !Re.current.has(w.number));
-    g.length && (g.forEach((w) => Re.current.add(w.number)), k(g));
+    const g = n.frontier.tiles.filter((w) => w.lane === "deliver" && w.state === "afk" && !w.sessionKey && !Ce.current.has(w.number));
+    g.length && (g.forEach((w) => Ce.current.add(w.number)), k(g));
   }, [ge, i, $, n]);
   const Te = `kipo.dispatched:${e}#${t}`, Ge = pe(/* @__PURE__ */ new Set()), ze = (g) => {
     Ge.current.delete(g);
@@ -3107,7 +3110,7 @@ Run the frontier and carry on.` }), localStorage.setItem(Ye, "[]"));
       (w = (g = Rt.current) == null ? void 0 : g.contentWindow) == null || w.dispatchEvent(new Event("toggle-activity-panel"));
     } catch {
     }
-  }, [Qe, yn] = E(!1), [Ct, bn] = E(0), vn = Ce((g) => bn((w) => Math.abs(w - g) > 4 ? g : w), []), [Tt, wn] = E(128), kn = Ce((g) => wn((w) => Math.abs(w - g) > 4 ? g : w), []), xn = G ? G.state === "done" : !!de && Ke(de), Sn = N.kind === "column" ? He ?? n.state : He;
+  }, [Qe, yn] = E(!1), [Ct, bn] = E(0), vn = Re((g) => bn((w) => Math.abs(w - g) > 4 ? g : w), []), [Tt, wn] = E(128), kn = Re((g) => wn((w) => Math.abs(w - g) > 4 ? g : w), []), xn = G ? G.state === "done" : !!de && Ke(de), Sn = N.kind === "column" ? He ?? n.state : He;
   return /* @__PURE__ */ c("div", { style: { flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }, children: [
     /* @__PURE__ */ o("style", { children: "@keyframes kipo-pulse{0%,100%{opacity:1}50%{opacity:.35}}.kipo-pulse{animation:kipo-pulse 1.2s ease-in-out infinite}" }),
     /* @__PURE__ */ c("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderBottom: "1px solid var(--border)", minWidth: 0 }, children: [
@@ -3366,7 +3369,7 @@ function nt() {
 function Bo({ slotKey: e, frameRef: t, padBottom: i = 0, onComposerH: r }) {
   const s = `/popout/chat?sid=${encodeURIComponent(e)}`, p = pe(null), d = pe(i);
   d.current = i;
-  const f = Ce(() => {
+  const f = Re(() => {
     var l;
     try {
       const u = (l = t.current) == null ? void 0 : l.contentDocument;
@@ -3547,7 +3550,7 @@ function Xo() {
     Xn(i).catch(() => {
     });
   }, [i]);
-  const [J, X] = E(""), x = Ce(() => {
+  const [J, X] = E(""), x = Re(() => {
     ce.listInitiatives().then((y) => {
       var b;
       s(y.initiatives), et("initiatives", y.initiatives), d(y.repos ?? []), et("repos", y.repos ?? []), u(""), X((b = y.errors) != null && b.length ? `GitHub is refusing calls for ${y.errors.length === 1 ? y.errors[0].repo.split("/").pop() : `${y.errors.length} repos`} (rate limit?) — showing the last known maps.` : "");
@@ -3578,7 +3581,7 @@ function Xo() {
     });
   }, le = (y, b) => {
     Promise.allSettled(b.map(($) => ce.unhide(y, $))).then(x);
-  }, de = (n == null ? void 0 : n.kind) === "initiative" ? `${n.repo}#${n.number}` : null, [Q, ue] = E(0), ne = Ce((y) => ue(y), []);
+  }, de = (n == null ? void 0 : n.kind) === "initiative" ? `${n.repo}#${n.number}` : null, [Q, ue] = E(0), ne = Re((y) => ue(y), []);
   return /* @__PURE__ */ c("div", { style: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", background: "var(--bg)", color: "var(--text)" }, children: [
     N ? /* @__PURE__ */ c(me, { children: [
       /* @__PURE__ */ o(

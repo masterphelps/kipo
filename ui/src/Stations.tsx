@@ -395,7 +395,10 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
             : <span style={muted}>{fogItems.length ? `${fogItems.length} in the fog, nothing cut yet` : 'nothing cut yet'}</span>}
         </div>
         {(totalQ > 0 || liveNeeds > 0) && (
-          <button type="button" onClick={onJumpQuestions} className={liveNeeds > 0 ? 'kipo-pulse' : undefined}
+          // The pill only shows when something is waiting on the human, so it
+          // pulses the moment it appears — the same amber attention cue the
+          // session cards use, for questions as well as trust prompts/asks.
+          <button type="button" onClick={onJumpQuestions} className="kipo-pulse"
             title={liveNeeds > 0
               ? 'A session is stopped on a trust prompt or an ask: open it to allow or answer'
               : 'Jump to the next conversation with open questions; answer them on the right'}
