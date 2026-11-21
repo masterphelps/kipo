@@ -36,7 +36,7 @@ const focusKey = (f: Focus) =>
     : f.kind === 'review' ? `review-t${f.t}`
     : f.kind === 'stage' ? f.column : 'conductor' // the effort's own conversation is its conductor
 
-export function Workspace({ repo, number, active, autoStart, spineHost, spineCompact, onRemoved, onChanged }: {
+export function Workspace({ repo, number, active, autoStart, spineHost, spineCompact, onRemoved, onChanged, onNeeds }: {
   repo: string
   number: number
   active: boolean
@@ -47,6 +47,9 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   spineCompact?: boolean
   onRemoved: () => void
   onChanged: () => void
+  // How many things here are stopped on a human (trust prompts, asks, open
+  // questions): the sidebar flashes a dot on layers that fold this away.
+  onNeeds?: (n: number) => void
 }) {
   const api = useAppApi()
   // Show the last answer for this effort straight away; the first load replaces it.
@@ -257,6 +260,36 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     const id = setInterval(poll, 5000)
     return () => { live = false; clearInterval(id) }
   }, [api, sessionTiles, active, detail])
+
+  // Every conversation with open questions, in spine order: the conductor,
+  // then the tickets, then the stage conversations. The spine's amber chip
+  // walks them: each click jumps to the next one, cycling.
+  const questionStops = useMemo<Focus[]>(() => {
+    if (!detail) return []
+    const openQ = (s?: PhaseState | null) => s?.decisions.filter(d => !d.answer).length ?? 0
+    const stops: Focus[] = []
+    if (openQ(detail.sessionStates?.conductor ?? detail.state)) stops.push({ kind: 'column' })
+    for (const t of detail.frontier?.tiles ?? []) {
+      if (t.state === 'done' || !t.sessionKey || !openQ(detail.sessionStates?.[t.sessionKey])) continue
+      stops.push(t.sessionKey.startsWith('review-t') ? { kind: 'review', t: t.number }
+        : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
+    }
+    for (const c of ['plan', 'review', 'done', 'intake', 'shape', 'grill'] as Column[]) {
+      if (detail.sessions[c] && openQ(detail.sessionStates?.[c])) stops.push({ kind: 'stage', column: c })
+    }
+    if (detail.sessions['build-spec'] && openQ(detail.sessionStates?.['build-spec'])) stops.push({ kind: 'spec' })
+    return stops
+  }, [detail])
+  // What here needs a human right now: sessions stopped on a trust prompt or
+  // waiting on an answer, plus conversations with open questions. Reported up
+  // so the sidebar can flash a dot on this effort's row, its repo's header and
+  // the folded rail strip even when those layers hide the session lines.
+  const needsYou = useMemo(
+    () => questionStops.length + Object.values(activity).filter(a => a && a.needs).length,
+    [questionStops, activity],
+  )
+  useEffect(() => { onNeeds?.(needsYou) }, [needsYou, onNeeds])
+  useEffect(() => () => { onNeeds?.(0) }, [onNeeds])
 
   // "Start N agents": one session per AFK ticket on the frontier, in parallel,
   // leaving this conversation where it is.
@@ -561,21 +594,6 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // the backend attributed to it from the effort's older shared state.json.
   const convState: PhaseState | null = key ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
-  // Every conversation with open questions, in spine order: the conductor,
-  // then the tickets, then the stage conversations. The spine's amber chip
-  // walks them: each click jumps to the next one, cycling.
-  const openQCount = (s?: PhaseState | null) => s?.decisions.filter(d => !d.answer).length ?? 0
-  const questionStops: Focus[] = []
-  if (openQCount(detail.sessionStates?.conductor ?? detail.state)) questionStops.push({ kind: 'column' })
-  for (const t of detail.frontier?.tiles ?? []) {
-    if (t.state === 'done' || !t.sessionKey || !openQCount(detail.sessionStates?.[t.sessionKey])) continue
-    questionStops.push(t.sessionKey.startsWith('review-t') ? { kind: 'review', t: t.number }
-      : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
-  }
-  for (const c of ['plan', 'review', 'done', 'intake', 'shape', 'grill'] as Column[]) {
-    if (detail.sessions[c] && openQCount(detail.sessionStates?.[c])) questionStops.push({ kind: 'stage', column: c })
-  }
-  if (detail.sessions['build-spec'] && openQCount(detail.sessionStates?.['build-spec'])) questionStops.push({ kind: 'spec' })
   const jumpQuestions = () => {
     if (!questionStops.length) return
     const idx = questionStops.findIndex(f => focusKey(f) === key)
