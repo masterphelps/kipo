@@ -21,7 +21,7 @@ You need:
 Then:
 
 ```bash
-kirocrew app install https://github.com/<owner>/kipo.git --ref main
+kirocrew app install https://github.com/masterphelps/kipo.git --ref main
 ```
 
 The app installs disabled. Open the Crew dashboard, review its permissions, enable it,
