@@ -43,8 +43,11 @@ CHIPS = {
 # Every skill KiPo knows (27), in column order.
 SKILLS = tuple(dict.fromkeys(s for c in COLUMNS for s in (*BUTTONS[c], *CHIPS[c])))
 
-# Where Matt Pocock's skills are installed: ~/.agents/skills, or $KIPO_SKILLS_DIR.
-SKILLS_DIR = os.environ.get("KIPO_SKILLS_DIR") or os.path.join(os.path.expanduser("~"), ".agents", "skills")
+# Matt Pocock's skills: the pinned copy bundled in vendor/, or $KIPO_SKILLS_DIR.
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SKILLS_DIR = os.path.expanduser(os.environ.get("KIPO_SKILLS_DIR") or "") or os.path.join(
+    APP_ROOT, "vendor", "mattpocock-skills"
+)
 
 
 def run_line(skill):

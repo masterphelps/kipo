@@ -16,8 +16,9 @@ You need:
 
 - [Kiro Crew](https://kiro.dev/crew) 0.13.0 or later, signed in to Kiro
 - The GitHub CLI, signed in: `gh auth login`
-- Matt Pocock's skills, installed globally: `npx skills add mattpocock/skills -g`
-  KiPo reads them from `~/.agents/skills`. If yours live elsewhere, set `KIPO_SKILLS_DIR`.
+
+Matt Pocock's skills come bundled (a pinned copy of v1.3.2 in `vendor/mattpocock-skills`,
+MIT-licensed, credited there). To use your own copy instead, set `KIPO_SKILLS_DIR`.
 
 Then:
 
@@ -41,3 +42,7 @@ curl -X POST http://localhost:5476/api/apps/kipo/update
 The built UI bundle (`ui/dist/index.mjs`) is committed so installs don't need a build.
 After changing `ui/src`, rebuild it (`cd ui && npm install && npm run build`), bump
 `version` in `app.json`, and commit both. Backend tests: `cd backend/tests && python3 -m unittest`.
+
+## License
+
+Apache-2.0 (see `LICENSE`). The bundled skills in `vendor/mattpocock-skills` are Matt Pocock's, under their own MIT license.

@@ -1,9 +1,10 @@
 {
   "name": "kipo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "KiPo",
   "description": "Matt Pocock's engineering flow for your repos. A conductor agent runs each effort through seven stations, one per KiPo skill: Intake, Shape, Grill, Plan, Build, Review, Done. Open wayfinder maps from your repos as efforts.",
   "author": "masterphelps",
+  "license": "Apache-2.0",
   "iconPath": "assets/icon.png",
   "agents": [
     "agents/kipo-conductor.json"

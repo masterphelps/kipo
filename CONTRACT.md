@@ -20,7 +20,8 @@ panel. Every stage conversation reports to the conductor.
 
 Each conversation KiPo starts loads one of KiPo's seven skills (`skills/kipo-<name>/SKILL.md`),
 which says what that conversation is for and which of Matt's skills it runs. Matt's 27 skills
-live at `~/.agents/skills/<name>/SKILL.md` (expand `~` to your home folder); KiPo never edits them.
+ship pinned in `vendor/mattpocock-skills/<name>/SKILL.md` (or `$KIPO_SKILLS_DIR`); KiPo never edits them.
+Every stage seed names that folder on its `Matt's skills:` line.
 
 | KiPo skill | The conversation | Matt's skills it runs |
 |---|---|---|
@@ -39,7 +40,7 @@ loaded by reading the file (most refuse the Skill tool). When KiPo starts a conv
 particular skill, the seed ends with:
 
 ```
-Run /<skill>: read ~/.agents/skills/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
+Run /<skill>: read <skills>/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
 ```
 
 ## Start points (the start form's "Where does this start?")

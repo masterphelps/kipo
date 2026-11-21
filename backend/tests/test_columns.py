@@ -242,6 +242,7 @@ class SessionTests(Columns):
             f"Repo checkout: {self.checkout}",
             f"Effort issue: https://github.com/{REPO}/issues/{n}",
             f"State file: {self.checkout}/.kipo/{n}/{state or (source or column) + '.json'}",
+            f"Matt's skills: {SKILLS_DIR}",
             self.report(source or column, n),
             *extra,
             f"Load the skill `kipo-{column}` and follow it. Destination: Ship widgets.",

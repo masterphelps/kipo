@@ -14,7 +14,7 @@ import re
 import shlex
 import time
 
-from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, STARTS, KipoError, run_line
+from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, SKILLS_DIR, STARTS, KipoError, run_line
 from . import activity as col_activity
 from . import closing
 from . import stalls
@@ -330,6 +330,7 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         f"Repo checkout: {repo_path}",
         f"Effort issue: {effort['url']}",
         f"State file: {col_state.session_state_path(repo_path, n, state_key or column)}",
+        f"Matt's skills: {SKILLS_DIR}",
         # Its own session key (build-t22, review-t22), so the close rule can tell
         # a ticket's build from its review.
         report_line(effort, repo_path, state_key or column),
