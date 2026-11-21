@@ -366,6 +366,10 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
   // question): surfaced in the header too, so a blocked tool call isn't missed
   // just because its row is deep in a collapsed station.
   const liveNeeds = Object.values(activity ?? {}).filter(a => a && (a.needs === 'approval' || a.needs === 'input')).length
+  // Tickets sitting in HITL ('you') need the human the same as the station card
+  // pulses on, but carry no question or live need of their own — count the ones
+  // not already tallied above so the roll-up pill shows and pulses for them too.
+  const hitlOnly = tiles.filter(t => t.state === 'you' && statuses[t.number] !== 'attention' && !qFor(t.sessionKey)).length
   const conductorSelected = selectedKey === 'conductor'
   const conductorOpen = !!detail.sessions.conductor && !isClosed(detail.sessions.conductor)
 
@@ -394,17 +398,19 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
               </>)
             : <span style={muted}>{fogItems.length ? `${fogItems.length} in the fog, nothing cut yet` : 'nothing cut yet'}</span>}
         </div>
-        {(totalQ > 0 || liveNeeds > 0) && (
+        {(totalQ > 0 || liveNeeds > 0 || hitlOnly > 0) && (
           // The pill only shows when something is waiting on the human, so it
           // pulses the moment it appears — the same amber attention cue the
-          // session cards use, for questions as well as trust prompts/asks.
+          // session cards use, for questions, trust prompts/asks, and HITL.
           <button type="button" onClick={onJumpQuestions} className="kipo-pulse"
             title={liveNeeds > 0
               ? 'A session is stopped on a trust prompt or an ask: open it to allow or answer'
-              : 'Jump to the next conversation with open questions; answer them on the right'}
+              : hitlOnly > 0
+                ? 'A ticket is in HITL, waiting on you: open it to act'
+                : 'Jump to the next conversation with open questions; answer them on the right'}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '2px 9px', borderRadius: 99,
               background: STATE_META.you.color, color: '#14121c', fontSize: T.tiny, fontWeight: 700, cursor: 'pointer', border: 0 }}>
-            {rollupLabel(totalQ, liveNeeds)} →
+            {rollupLabel(totalQ, liveNeeds + hitlOnly)} →
           </button>
         )}
         <button type="button" aria-pressed={autopilot} onClick={() => onAutopilot(!autopilot)}

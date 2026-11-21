@@ -261,36 +261,38 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     return () => { live = false; clearInterval(id) }
   }, [api, sessionTiles, active, detail])
 
-  // Every conversation with open questions, in spine order: the conductor,
-  // then the tickets, then the stage conversations. The spine's amber chip
-  // walks them: each click jumps to the next one, cycling.
-  const questionStops = useMemo<Focus[]>(() => {
+  // Everything here that needs the human, in spine order: the conductor and
+  // stage conversations with open questions, and every ticket that has an open
+  // question, is stopped on a live trust prompt/ask, OR is simply sitting in
+  // HITL ('you'). That last case is the same test the station card pulses on
+  // (Stations tileRow needsHuman) — without it a HITL ticket flashed on its
+  // own card but nothing bubbled up. The spine's amber chip walks this list.
+  const attentionStops = useMemo<Focus[]>(() => {
     if (!detail) return []
     // `?? []` guards a state object that has no decisions array at all — a
     // cross-version localStorage cache can seed `detail` with that shape, and
     // `s?.decisions.filter` would throw on it before the fresh load lands.
     const openQ = (s?: PhaseState | null) => (s?.decisions ?? []).filter(isOpenQuestion).length
-    const stops: Focus[] = []
-    if (openQ(detail.sessionStates?.conductor ?? detail.state)) stops.push({ kind: 'column' })
+    const seen = new Set<string>()
+    const out: Focus[] = []
+    const add = (f: Focus) => { const k = focusKey(f); if (!seen.has(k)) { seen.add(k); out.push(f) } }
+    const tileFocus = (t: Tile): Focus =>
+      t.sessionKey?.startsWith('review-t') ? { kind: 'review', t: t.number }
+        : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number }
+    if (openQ(detail.sessionStates?.conductor ?? detail.state)) add({ kind: 'column' })
     for (const t of detail.frontier?.tiles ?? []) {
-      if (t.state === 'done' || !t.sessionKey || !openQ(detail.sessionStates?.[t.sessionKey])) continue
-      stops.push(t.sessionKey.startsWith('review-t') ? { kind: 'review', t: t.number }
-        : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number })
+      if (t.state === 'done' || !t.sessionKey) continue
+      if (openQ(detail.sessionStates?.[t.sessionKey]) || statuses[t.number] === 'attention' || t.state === 'you') add(tileFocus(t))
     }
     for (const c of ['plan', 'review', 'done', 'intake', 'shape', 'grill'] as Column[]) {
-      if (detail.sessions[c] && openQ(detail.sessionStates?.[c])) stops.push({ kind: 'stage', column: c })
+      if (detail.sessions[c] && openQ(detail.sessionStates?.[c])) add({ kind: 'stage', column: c })
     }
-    if (detail.sessions['build-spec'] && openQ(detail.sessionStates?.['build-spec'])) stops.push({ kind: 'spec' })
-    return stops
-  }, [detail])
-  // What here needs a human right now: sessions stopped on a trust prompt or
-  // waiting on an answer, plus conversations with open questions. Reported up
-  // so the sidebar can flash a dot on this effort's row, its repo's header and
-  // the folded rail strip even when those layers hide the session lines.
-  const needsYou = useMemo(
-    () => questionStops.length + Object.values(activity).filter(a => a && a.needs).length,
-    [questionStops, activity],
-  )
+    if (detail.sessions['build-spec'] && openQ(detail.sessionStates?.['build-spec'])) add({ kind: 'spec' })
+    return out
+  }, [detail, statuses])
+  // Reported up so the sidebar can flash a dot on this effort's row, its repo's
+  // header and the folded rail strip even when those layers hide the lines.
+  const needsYou = attentionStops.length
   useEffect(() => { onNeeds?.(needsYou) }, [needsYou, onNeeds])
   useEffect(() => () => { onNeeds?.(0) }, [onNeeds])
 
@@ -598,9 +600,9 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   const convState: PhaseState | null = key ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
   const jumpQuestions = () => {
-    if (!questionStops.length) return
-    const idx = questionStops.findIndex(f => focusKey(f) === key)
-    setFocus(questionStops[(idx + 1) % questionStops.length])
+    if (!attentionStops.length) return
+    const idx = attentionStops.findIndex(f => focusKey(f) === key)
+    setFocus(attentionStops[(idx + 1) % attentionStops.length])
   }
 
   // Kiro hides its side-panel toggle on every embedded surface (the button is
