@@ -104,6 +104,12 @@ export default function KiPo() {
 
   const selected = main?.kind === 'initiative' ? `${main.repo}#${main.number}` : null
 
+  // The open effort's live "needs a human" count (trust prompts, asks, open
+  // questions), reported by the Workspace. The rail flashes a dot on whatever
+  // folded layer hides the session lines carrying it.
+  const [attention, setAttention] = useState(0)
+  const onNeeds = useCallback((n: number) => setAttention(n), [])
+
   return (
     <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', background: 'var(--bg)', color: 'var(--text)' }}>
       {railOpen ? (<>
@@ -115,6 +121,7 @@ export default function KiPo() {
         error={error}
         notice={notice}
         selected={selected}
+        attention={attention}
         spineSlot={setSpineHost}
         onNew={() => setMain({ kind: 'new' })}
         onAddRepo={() => setAddingRepo(true)}
@@ -126,7 +133,7 @@ export default function KiPo() {
       />
       <Divider direction="vertical" label="Resize the effort list" onDrag={d => setRailWidth(w => w + d)} onReset={() => setRailWidth(228)} />
       </>) : (
-        <RailStrip items={items} selected={selected} onNew={() => setMain({ kind: 'new' })}
+        <RailStrip items={items} selected={selected} attention={attention} onNew={() => setMain({ kind: 'new' })}
           onSelect={i => open(i)} onExpand={() => setRailOpen(true)} />
       )}
       <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
@@ -149,6 +156,7 @@ export default function KiPo() {
             spineCompact={railWidth < 340}
             onChanged={load}
             onRemoved={() => { load(); setMain(null) }}
+            onNeeds={onNeeds}
           />
         )}
       </main>

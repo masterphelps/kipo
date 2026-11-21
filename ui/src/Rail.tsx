@@ -17,6 +17,16 @@ const readRepoOpen = (): Record<string, boolean> => {
   try { return JSON.parse(localStorage.getItem(REPO_OPEN_KEY) || '{}') } catch { return {} }
 }
 
+// The amber attention dot: a folded layer (repo group, effort row) carries it
+// when it hides a session line stopped on a trust prompt, an ask or a question.
+// Same pulse as every other "needs you" cue (.kipo-pulse, from the Workspace).
+function AttentionDot() {
+  return (
+    <span className="kipo-pulse" title={`${TERM.HITL}: a session in here is stopped on a trust prompt or question`}
+      style={{ width: 7, height: 7, borderRadius: 999, background: '#f5b14c', flexShrink: 0 }} />
+  )
+}
+
 function StageTag({ stage }: { stage: Stage }) {
   return (
     <span style={{
@@ -28,7 +38,7 @@ function StageTag({ stage }: { stage: Stage }) {
   )
 }
 
-export function Rail({ width, items, repos, error, notice, selected, spineSlot, onNew, onAddRepo, onRemoveRepo, onRestore, onSelect, onHide, onRemove, onCollapse }: {
+export function Rail({ width, items, repos, error, notice, selected, attention, spineSlot, onNew, onAddRepo, onRemoveRepo, onRestore, onSelect, onHide, onRemove, onCollapse }: {
   width: number
   onCollapse: () => void
   items: Effort[] | null
@@ -36,6 +46,10 @@ export function Rail({ width, items, repos, error, notice, selected, spineSlot, 
   error: string
   notice?: string // degraded, not broken: GitHub refused some calls, showing last known
   selected: string | null
+  // The open effort's live "needs a human" count (trust prompts, asks, open
+  // questions). When a folded layer hides its session lines — the repo group
+  // shut, or the effort's spine folded — that layer flashes an amber dot.
+  attention?: number
   // The open effort's stations render here, under its row: the Workspace
   // portals its spine (conductor + seven stations) into this element.
   spineSlot?: (el: HTMLElement | null) => void
@@ -152,6 +166,8 @@ export function Rail({ width, items, repos, error, notice, selected, spineSlot, 
                   <span style={{ fontSize: T.small, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                     {name}
                   </span>
+                  {/* Folded shut over a session that needs a human: say so here. */}
+                  {!open && (attention ?? 0) > 0 && selected?.startsWith(`${g.meta.slug}#`) && <AttentionDot />}
                   <span style={{ ...muted, fontSize: T.tiny, flexShrink: 0 }}>
                     {g.rows.length || (open ? '' : '0')}
                   </span>
@@ -208,6 +224,8 @@ export function Rail({ width, items, repos, error, notice, selected, spineSlot, 
                       <span style={{ ...(on ? strong : {}), flex: 1, minWidth: 0, fontSize: T.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         <span style={{ ...muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>#{i.number}</span> {i.title}
                       </span>
+                      {/* Spine folded away over a session that needs a human. */}
+                      {on && !unfolded && (attention ?? 0) > 0 && <AttentionDot />}
                     </div>
                     {(() => {
                       // The open effort's spine unfolds right below: its glance
@@ -315,9 +333,10 @@ export function Rail({ width, items, repos, error, notice, selected, spineSlot, 
 // The effort list folded away: a narrow strip that still lets you switch efforts.
 // Each effort is a small marker colored by who's up (amber: you, teal: an agent,
 // blue: building or in review, green: all done, grey: nothing yet); hover for its title.
-export function RailStrip({ items, selected, onNew, onSelect, onExpand }: {
+export function RailStrip({ items, selected, attention, onNew, onSelect, onExpand }: {
   items: Effort[] | null
   selected: string | null
+  attention?: number // the open effort's live "needs a human" count
   onNew: () => void
   onSelect: (i: Effort) => void
   onExpand: () => void
@@ -346,7 +365,10 @@ export function RailStrip({ items, selected, onNew, onSelect, onExpand }: {
             <button key={key} type="button" onClick={() => onSelect(e)} title={`${e.title} (${e.repo.split('/').pop()})`}
               aria-current={on ? 'page' : undefined}
               style={{ ...icon, background: on ? 'var(--bg-elevated)' : 'transparent', border: on ? '1px solid var(--border)' : '1px solid transparent', flexShrink: 0 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: color(e) }} />
+              {/* The strip folds everything away: the open effort's marker
+                  flashes amber when a session in it needs a human right now. */}
+              <span className={on && (attention ?? 0) > 0 ? 'kipo-pulse' : undefined}
+                style={{ width: 10, height: 10, borderRadius: 3, background: on && (attention ?? 0) > 0 ? '#f5b14c' : color(e) }} />
             </button>
           )
         })}
