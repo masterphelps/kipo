@@ -2,6 +2,7 @@
 
 The columns, start points and skills are specified in CONTRACT.md.
 """
+import os
 
 # The seven columns (the ``kipo:col:`` label on the effort issue), in order.
 COLUMNS = ("intake", "shape", "grill", "plan", "build", "review", "done")
@@ -42,7 +43,8 @@ CHIPS = {
 # Every skill KiPo knows (27), in column order.
 SKILLS = tuple(dict.fromkeys(s for c in COLUMNS for s in (*BUTTONS[c], *CHIPS[c])))
 
-SKILLS_DIR = "/Users/masterphelps/.agents/skills"
+# Where Matt Pocock's skills are installed: ~/.agents/skills, or $KIPO_SKILLS_DIR.
+SKILLS_DIR = os.environ.get("KIPO_SKILLS_DIR") or os.path.join(os.path.expanduser("~"), ".agents", "skills")
 
 
 def run_line(skill):

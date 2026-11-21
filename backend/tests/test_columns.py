@@ -5,13 +5,13 @@ import unittest
 
 from test_backend import REPO, Base, write_state
 
-from kipo import COLUMNS, PATHS, SKILLS, run_line
+from kipo import COLUMNS, PATHS, SKILLS, SKILLS_DIR, run_line
 from kipo import initiatives as ini
 from kipo import reports as col_reports
 from kipo import state as st
 
 DONE = {"gate": [{"id": "g", "label": "Done", "done": True}]}
-RUN = "Run /{s}: read /Users/masterphelps/.agents/skills/{s}/SKILL.md (and any file it links to) and follow it now, for this effort."
+RUN = "Run /{s}: read " + SKILLS_DIR + "/{s}/SKILL.md (and any file it links to) and follow it now, for this effort."
 
 
 class Columns(Base):

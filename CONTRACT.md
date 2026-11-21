@@ -1,7 +1,7 @@
 # KiPo contract
 
 The single source of truth for KiPo's skills, backend and page. Change it here first.
-KiPo is a fork of Launchpad (`/Users/masterphelps/repos/launchpad`): same plumbing, its own
+KiPo is a fork of Launchpad (a Kiro Crew app): same plumbing, its own
 labels, storage and sidebar folder, so both can work in the same repo without colliding.
 
 ## The model in one paragraph
@@ -20,7 +20,7 @@ panel. Every stage conversation reports to the conductor.
 
 Each conversation KiPo starts loads one of KiPo's seven skills (`skills/kipo-<name>/SKILL.md`),
 which says what that conversation is for and which of Matt's skills it runs. Matt's 27 skills
-live at `/Users/masterphelps/.agents/skills/<name>/SKILL.md`; KiPo never edits them.
+live at `~/.agents/skills/<name>/SKILL.md` (expand `~` to your home folder); KiPo never edits them.
 
 | KiPo skill | The conversation | Matt's skills it runs |
 |---|---|---|
@@ -39,7 +39,7 @@ loaded by reading the file (most refuse the Skill tool). When KiPo starts a conv
 particular skill, the seed ends with:
 
 ```
-Run /<skill>: read /Users/masterphelps/.agents/skills/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
+Run /<skill>: read ~/.agents/skills/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
 ```
 
 ## Start points (the start form's "Where does this start?")

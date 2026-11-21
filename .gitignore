@@ -1,3 +1,8 @@
 node_modules/
-ui/dist/
 __pycache__/
+# Per-machine state: your repos, sessions and logs. Never ship it.
+data/
+.claude/
+.kipo/
+.DS_Store
+*.profraw
