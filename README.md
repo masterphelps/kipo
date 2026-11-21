@@ -26,16 +26,19 @@ Then:
 kirocrew app install https://github.com/masterphelps/kipo.git --ref main
 ```
 
-The app installs disabled. Open the Crew dashboard, review its permissions, enable it,
-and KiPo appears in the sidebar. Add a repo from KiPo's page to start an effort.
+The app installs disabled, and Crew won't run a third-party app's code until you trust it.
+Open the Crew dashboard's App Store, find KiPo, review its permissions and turn it on
+(`kirocrew app enable` is refused for untrusted apps). KiPo then appears in the sidebar. Add a repo from KiPo's page to start an effort.
 
 ## Update
 
-Pull the latest from the App Store page in the dashboard, or:
+Installed from the git URL, KiPo updates with:
 
 ```bash
-curl -X POST http://localhost:5476/api/apps/kipo/update
+kirocrew app update kipo
 ```
+
+If that reports nothing new, pull its checkout first (the install prints the path) and run it again.
 
 ## Developing
 
