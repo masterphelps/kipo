@@ -15,7 +15,7 @@ import { closeFinished, closeReplaced, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
 import {
-  COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS,
+  COLUMN_HINTS, COLUMN_LABELS, SKILL_HINTS, isOpenQuestion,
   type Column, type EffortDetail, type PhaseState, type SessionActivity, type TicketInfo, type Tile,
 } from './types'
 
@@ -266,7 +266,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // walks them: each click jumps to the next one, cycling.
   const questionStops = useMemo<Focus[]>(() => {
     if (!detail) return []
-    const openQ = (s?: PhaseState | null) => s?.decisions.filter(d => !d.answer).length ?? 0
+    const openQ = (s?: PhaseState | null) => s?.decisions.filter(isOpenQuestion).length ?? 0
     const stops: Focus[] = []
     if (openQ(detail.sessionStates?.conductor ?? detail.state)) stops.push({ kind: 'column' })
     for (const t of detail.frontier?.tiles ?? []) {

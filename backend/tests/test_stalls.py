@@ -109,7 +109,7 @@ class Idle(unittest.TestCase):
 
     def test_waiting_on_the_humans_cards_is_never_stalled(self):
         d = detail(["review-t4"], tickets=[(4, "OPEN")], prs=[(40, "OPEN", [4])],
-                   states={"review-t4": {"decisions": [{"id": "q", "answer": None}]}})
+                   states={"review-t4": {"decisions": [{"id": "q", "title": "Q?", "answer": None}]}})
         self.assertIsNone(stall_of(d, [rep(1, "review-t4", "asked")], IDLE))
 
     def test_asked_with_every_card_answered_can_stall(self):

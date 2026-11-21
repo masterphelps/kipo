@@ -5,6 +5,7 @@ import { STATE_META, type SessionStatus } from './Frontier'
 import { STATE_MEANING } from './glossary'
 import { isClosed } from './sessions'
 import { COLUMN_DEFS, columnOf, type ColId } from './StageBoard'
+import { isOpenQuestion } from './types'
 import type { EffortDetail, SessionActivity, Start, StationsSummary, Tile } from './types'
 
 // ------------------------------------------------- the sidebar's view of it
@@ -151,8 +152,8 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
   // Unanswered decisions waiting on the human, per conversation. A done
   // ticket's unanswered entries are settled history, never counted.
   const qFor = (key?: string | null) =>
-    key ? (detail.sessionStates?.[key]?.decisions ?? []).filter(d => !d.answer).length : 0
-  const conductorQ = ((detail.sessionStates?.conductor ?? detail.state)?.decisions ?? []).filter(d => !d.answer).length
+    key ? (detail.sessionStates?.[key]?.decisions ?? []).filter(isOpenQuestion).length : 0
+  const conductorQ = ((detail.sessionStates?.conductor ?? detail.state)?.decisions ?? []).filter(isOpenQuestion).length
   const qChip = (n: number): Row['chip'] =>
     ({ label: n === 1 ? '1 question' : `${n} questions`, color: STATE_META.you.color })
   const f = detail.frontier

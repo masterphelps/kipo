@@ -178,6 +178,9 @@ def open_decisions(detail):
         for d in st.get("decisions") or []:
             if not isinstance(d, dict) or d.get("answer") not in (None, ""):
                 continue
+            # An untitled entry ({id, view}) is a recorded view, not a question.
+            if not str(d.get("title") or "").strip():
+                continue
             out.append({"from": source, "id": d.get("id"), "title": d.get("title"),
                         "options": d.get("options") or [], "recommended": d.get("recommended")})
     return out

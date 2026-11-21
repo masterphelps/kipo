@@ -217,7 +217,11 @@ export type Effort = {
   stage?: Stage
 }
 
-export type Decision = { id: string; title: string; options: string[]; recommended: string | null; answer: string | null }
+// Sessions write more than questions into `decisions`: a settled view can be
+// recorded as `{id, view}` with no title or options. Only a titled, unanswered
+// entry is a question for the human — everything else is history.
+export type Decision = { id: string; title?: string; options?: string[]; recommended?: string | null; answer?: string | null; view?: string }
+export const isOpenQuestion = (d: Decision) => !d.answer && typeof d.title === 'string' && d.title.trim() !== ''
 export type GateItem = { id: string; label: string; done: boolean }
 export type Artifact = { label: string; href: string }
 

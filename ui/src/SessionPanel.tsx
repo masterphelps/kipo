@@ -5,6 +5,7 @@ import { backend, errorText } from './api'
 import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
+import { isOpenQuestion } from './types'
 import type { Decision, EffortDetail, PhaseState, TailEvent, TicketCard, Tile } from './types'
 
 // A read-only progress view for a session the dashboard never rendered as a
@@ -116,7 +117,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   // (The memory of what was sent lives outside the component — see sentAnswers —
   // so a remount can't make an answered question pop back up.)
   for (const d of state?.decisions ?? []) if (d.answer && slotKey) sentAnswers.delete(`${slotKey}:${d.id}`)
-  const open = settled || !slotKey ? [] : (state?.decisions.filter(d => !d.answer && !wasSent(slotKey, d.id)) ?? [])
+  const open = settled || !slotKey ? [] : (state?.decisions.filter(d => isOpenQuestion(d) && !wasSent(slotKey, d.id)) ?? [])
   const [picks, setPicks] = useState<Record<string, string>>({})
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
@@ -161,7 +162,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   const answered = open.filter(x => (picks[x.id] ?? '').trim())
   const atFirst = idx === 0
   const atLast = idx === open.length - 1
-  const custom = (picks[d.id] ?? '') !== '' && !d.options.includes(picks[d.id] ?? '')
+  const custom = (picks[d.id] ?? '') !== '' && !(d.options ?? []).includes(picks[d.id] ?? '')
 
   // Every open question that carries a recommendation — the Accept-all target.
   const recommendable = open.filter(x => x.recommended)
@@ -267,7 +268,8 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
 
       <div style={{ ...strong, fontSize: T.body, marginBottom: 8, lineHeight: 1.4 }}>{d.title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 9 }}>
-        {d.options.map(optionRow)}
+        {/* A question can come with no options at all: just the free-text row. */}
+        {(d.options ?? []).map(optionRow)}
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 10px' }}>
           {radio(custom)}
           <input value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)} disabled={sending}
