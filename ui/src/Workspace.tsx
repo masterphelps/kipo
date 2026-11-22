@@ -10,7 +10,7 @@ import { type SessionStatus } from './Frontier'
 import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
-import { QuestionWizard, SessionProgress, TicketPanel } from './SessionPanel'
+import { QuestionWizard, SessionProgress, TicketPanel, type PromptItem, type WizItem } from './SessionPanel'
 import { closeFinished, closeReplaced, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
@@ -173,12 +173,28 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // instead. null until first fetched; kept through a failed fetch (never
   // falsely "ended").
   const [liveSlots, setLiveSlots] = useState<Set<string> | null>(null)
+  // Each live slot's trust-prompt state, for the conductor's inbox: Kiro's
+  // slot list carries pending_approval_info (what the session wants to run,
+  // already redacted, plus the request id the approve call needs).
+  type LiveRow = {
+    key?: string
+    pending_approval?: boolean
+    needs_input?: boolean
+    pending_approval_info?: {
+      origin?: string; tool?: string; tool_input?: string; tool_purpose?: string; request_id?: string
+    } | null
+  }
+  const [liveInfo, setLiveInfo] = useState<Record<string, LiveRow>>({})
   useEffect(() => {
     let live = true
     const poll = () => {
       sweepFrames() // safety: keep only the active frame visible
-      return api.get<{ key?: string }[]>('/api/chat/slots')
-        .then(list => { if (live && Array.isArray(list)) setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string))) })
+      return api.get<LiveRow[]>('/api/chat/slots')
+        .then(list => {
+          if (!live || !Array.isArray(list)) return
+          setLiveSlots(new Set(list.filter(r => r.key).map(r => r.key as string)))
+          setLiveInfo(Object.fromEntries(list.filter(r => r.key).map(r => [r.key as string, r])))
+        })
         .catch(() => undefined)
     }
     poll()
@@ -600,6 +616,10 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   const convState: PhaseState | null = key ? detail.sessionStates?.[key] ?? null : detail.state
   const running = convState?.skillsUsed ?? []
   const jumpQuestions = () => {
+    // The conductor screen is the inbox: the first jump lands there, where
+    // every question and trust prompt is handled in one place. Further clicks
+    // (already on the conductor) walk the individual conversations.
+    if (focus.kind !== 'column') { setFocus({ kind: 'column' }); return }
     if (!attentionStops.length) return
     const idx = attentionStops.findIndex(f => focusKey(f) === key)
     setFocus(attentionStops[(idx + 1) % attentionStops.length])
@@ -633,6 +653,64 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
   // The open conversation's own state drives the question wizard. A ticket uses
   // its own file; the conductor its own, falling back to the effort's.
   const wizardState = focus.kind === 'column' ? (convState ?? detail.state) : convState
+
+  // The conductor screen is the effort's single point of contact: its card
+  // carries EVERY session's open questions (labelled with their origin; each
+  // answer routes back into the session that asked) and every session stopped
+  // on a trust prompt (Allow / Deny once, right there). Other screens keep
+  // their own conversation's questions only — the session's native card is on
+  // screen for the rest.
+  const sessionLabel = (k: string): string => {
+    const m = k.match(/^(build|shape|review)-t(\d+)$/)
+    if (m) {
+      const t = detail.frontier?.tiles?.find(x => x.number === Number(m[2]))
+      const stage = m[1] === 'review' ? 'Review' : m[1] === 'build' ? 'Build' : 'Shape'
+      return `${stage} #${m[2]}${t?.title ? ` · ${t.title}` : ''}`
+    }
+    if (k === 'build-spec') return 'Build: the spec'
+    if (k === 'conductor') return 'Conductor'
+    return COLUMN_LABELS[k as Column] ?? k
+  }
+  const doneSessionKeys = new Set((detail.frontier?.tiles ?? [])
+    .filter(t => t.state === 'done' && t.sessionKey).map(t => t.sessionKey as string))
+  const wizItems: WizItem[] = (() => {
+    if (focus.kind !== 'column') {
+      return settled || !slotKey ? [] : (wizardState?.decisions ?? []).map(d => ({ slot: slotKey, d }))
+    }
+    const out: WizItem[] = []
+    const cSlot = detail.sessions.conductor
+    if (cSlot && !isClosed(cSlot)) for (const d of wizardState?.decisions ?? []) out.push({ slot: cSlot, d })
+    for (const k of Object.keys(detail.sessions)) {
+      if (k === 'conductor' || doneSessionKeys.has(k)) continue
+      const slot = detail.sessions[k]
+      if (!slot || isClosed(slot)) continue
+      for (const d of detail.sessionStates?.[k]?.decisions ?? []) out.push({ slot, from: sessionLabel(k), d })
+    }
+    return out
+  })()
+  const wizPrompts: PromptItem[] = (() => {
+    if (focus.kind !== 'column') return []
+    const seen = new Set<string>()
+    const out: PromptItem[] = []
+    for (const k of Object.keys(detail.sessions)) {
+      const slot = detail.sessions[k]
+      // The centre frame's own prompt already shows Kiro's native card.
+      if (!slot || slot === centerFrameSlot || isClosed(slot) || seen.has(slot)) continue
+      const row = liveInfo[slot]
+      if (!row?.pending_approval) continue
+      seen.add(slot)
+      const info = row.pending_approval_info
+      out.push({
+        key: k, slot, from: sessionLabel(k),
+        tool: info?.tool || 'a tool call', input: info?.tool_input, purpose: info?.tool_purpose,
+        requestId: info?.request_id,
+        // Only a native prompt with a request id is decidable through the slot
+        // approve route; anything else opens the session instead.
+        canDecide: info?.origin === 'native' && !!info?.request_id,
+      })
+    }
+    return out
+  })()
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -775,7 +853,9 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
                       one at a time, Submit sends them as one message, Hide
                       tucks it into a pill. Keyed by session so one session's
                       sent answers never hide another's questions. */}
-                  <QuestionWizard key={slotKey ?? 'none'} state={wizardState} slotKey={slotKey} settled={settled} onError={setActionError} onSize={onWizardSize} bottomOffset={composerH + 10} />
+                  <QuestionWizard key={key ?? 'none'} items={wizItems} prompts={wizPrompts}
+                    onOpenPrompt={k => setFocus(focusOfKey(k) ?? { kind: 'column' })}
+                    onError={setActionError} onSize={onWizardSize} bottomOffset={composerH + 10} />
                 </div>
               </section>
             </div>
