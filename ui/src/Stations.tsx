@@ -489,11 +489,19 @@ function StationRow({ s, open, busy, selectedKey, compact, onToggle, onOpenTile 
             title={compact ? UNITS[s.id] : undefined}>{LABELS[s.id]}</span>
           {!compact && <span style={{ width: 92, flexShrink: 0, fontSize: 10, color: 'var(--muted)' }}>{UNITS[s.id]}</span>}
           <span style={{ flex: 1, textAlign: 'right', fontSize: T.small, minWidth: 0 }}>
-            {stationQ > 0 && (
-              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
+            {/* The folded station wears its rows' signal; expanded, each row
+                shows its own chip and the header stays quiet. */}
+            {!open && stationQ > 0 && (
+              <span className="kipo-pulse" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', padding: '1px 6px',
                 borderRadius: 99, border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.color, whiteSpace: 'nowrap', marginRight: 6 }}>
                 {stationQ === 1 ? '1 question' : `${stationQ} questions`}
               </span>
+            )}
+            {/* Trust prompts, asks and HITL rows folded out of sight: the same
+                amber pulsing dot the sidebar uses on a shut layer. */}
+            {!open && !stationQ && s.rows.some(r => r.attention) && (
+              <span className="kipo-pulse" title="A session in here needs you: a trust prompt, an ask, or HITL"
+                style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, background: STATE_META.you.color, marginRight: 6 }} />
             )}
             {s.count}
           </span>
