@@ -14,7 +14,7 @@ import re
 import shlex
 import time
 
-from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, SKILLS_DIR, STARTS, KipoError, run_line
+from . import COLUMNS, DEFAULT_START, PATHS, SKILLS, SKILLS_DIR, STARTS, TOOLS_LINE, KipoError, run_line
 from . import activity as col_activity
 from . import closing
 from . import stalls
@@ -343,6 +343,7 @@ def render_seed(effort, repo_path, column, ticket=None, skill=None, state_key=No
         if "prs" in ticket:
             listed = ", ".join(f"#{p['number']} {p['url']}".strip() for p in ticket["prs"])
             lines.append(f"PRs: {listed or 'none open'}")
+    lines.append(TOOLS_LINE)
     lines.append(f"Load the skill `kipo-{column}` and follow it. Destination: {effort['destination']}")
     if skill:
         lines.append(run_line(skill))

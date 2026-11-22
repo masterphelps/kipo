@@ -50,12 +50,41 @@ SKILLS_DIR = os.path.expanduser(os.environ.get("KIPO_SKILLS_DIR") or "") or os.p
 )
 
 
+# Under Kiro Crew every shell or MCP call a sub-agent makes is refused, and a
+# compound command (``cd x && git …; gh …``) waits on a per-call prompt until
+# it times out. So every KiPo session runs one plain command per call and does
+# its skills' sub-agent work itself. The seed's Tools line says so.
+TOOLS_LINE = (
+    "Tools: one plain command per call: `git -C <worktree> <cmd>`, `gh <cmd> -R <owner/repo>`; "
+    "no `cd … &&`, no `&&`/`||`/`;` chains, no pipes or redirects, no `$(…)`; "
+    "PR bodies and comments go in a file passed with `--body-file`; push as its own call with a literal branch. "
+    "No sub-agents: never use the Agent or Task tool; when a skill says to spawn sub-agents, "
+    "do that work yourself here, one step after another."
+)
+
+# Matt's skills that fan out into sub-agents, and what to do inline instead.
+INLINE = {
+    "code-review": "run the Standards axis, then the Spec axis, yourself in this conversation, "
+                   "one after the other, finishing one axis's report before starting the next",
+    "implement-spec": "implement the ready tickets yourself in this conversation, one after another, "
+                      "and run its code review inline (Standards axis, then Spec axis)",
+    "grilling": "look up the facts yourself between questions",
+    "wayfinder": "resolve its research tickets yourself, one after another",
+    "improve-codebase-architecture": "walk the codebase yourself",
+    "codebase-design": "draft the alternative interfaces yourself, one after another",
+}
+
+
 def run_line(skill):
     """The message that starts a skill from a button."""
-    return (
+    line = (
         f"Run /{skill}: read {SKILLS_DIR}/{skill}/SKILL.md (and any file it links to) "
         "and follow it now, for this effort."
     )
+    if skill in INLINE:
+        line += (" It says to use sub-agents: don't (no Agent or Task tool, no parallel fan-out); "
+                 f"{INLINE[skill]}.")
+    return line
 
 
 class KipoError(Exception):
