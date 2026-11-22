@@ -125,6 +125,9 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
   const [hidden, setHidden] = useState(false)
+  // Must sit with the other hooks, above the early returns below — a hook
+  // after `return null` renders fewer hooks than expected (React #300).
+  const customRef = useRef<HTMLInputElement>(null)
 
   // Reset the stepper when the set of open questions changes (new conversation,
   // or the batch was answered and recorded), and bring the card back out.
@@ -174,7 +177,6 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   // Clicking the "Something else…" radio or its field selects it right away
   // (not on the first keystroke). A previously picked option is let go of —
   // its text must not leak into the free-text field as the answer.
-  const customRef = useRef<HTMLInputElement>(null)
   const chooseCustom = () => {
     if (sending) return
     setCustomOn(c => ({ ...c, [d.id]: true }))
