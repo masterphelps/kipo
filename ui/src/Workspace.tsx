@@ -11,6 +11,7 @@ import { chain, TileGraph } from './Graph'
 import { Divider, useFitSplit } from './layout'
 import { StationsPanel } from './Stations'
 import { QuestionWizard, SessionProgress, TicketPanel, type PromptItem, type WizItem } from './SessionPanel'
+import { wasSent } from './sent'
 import { closeFinished, closeReplaced, isClosed, openSession } from './sessions'
 import { dispatchStarts } from './dispatch'
 import { dueWakes, observation, wakeMessage, watched, wokeNote } from './stalls'
@@ -278,6 +279,31 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     return () => { live = false; clearInterval(id) }
   }, [api, sessionTiles, active, detail])
 
+  // The status poll only reaches sessions the frontier has LINKED to a tile —
+  // a just-opened review session (its tile still says "needing an agent") has
+  // a live slot the inbox can see but the tile row can't. Merge each ticket's
+  // live trust-prompt/ask flags in BY SESSION KEY (build-tN/shape-tN/
+  // review-tN), the same lookup the inbox uses, so a review stuck on its
+  // first trust prompt pulses amber on its row instead of sitting silently
+  // "IN REVIEW" while the inbox swears it needs you.
+  const [mergedStatuses, mergedActivity] = useMemo(() => {
+    const st: Record<number, SessionStatus> = { ...statuses }
+    const act: Record<number, SessionActivity> = { ...activity }
+    for (const k of Object.keys(detail?.sessions ?? {})) {
+      const m = k.match(/^(?:build|shape|review)-t(\d+)$/)
+      if (!m) continue
+      const slot = detail!.sessions[k]
+      if (!slot || isClosed(slot)) continue
+      const row = liveInfo[slot]
+      const needs = row?.pending_approval ? 'approval' as const : row?.needs_input ? 'input' as const : null
+      if (!needs) continue
+      const n = Number(m[1])
+      st[n] = 'attention'
+      act[n] = { ...(act[n] ?? { at: null, line: null }), needs }
+    }
+    return [st, act] as const
+  }, [statuses, activity, liveInfo, detail])
+
   // Everything here that needs the human, in spine order: the conductor and
   // stage conversations with open questions, and every ticket that has an open
   // question, is stopped on a live trust prompt/ask, OR is simply sitting in
@@ -289,24 +315,29 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     // `?? []` guards a state object that has no decisions array at all — a
     // cross-version localStorage cache can seed `detail` with that shape, and
     // `s?.decisions.filter` would throw on it before the fresh load lands.
-    const openQ = (s?: PhaseState | null) => (s?.decisions ?? []).filter(isOpenQuestion).length
+    // An answer already SENT to the session's chat (but not yet recorded by
+    // its agent) is no longer waiting on the human: the card hides it, so the
+    // count must too, or the badge says "1 question" the card can't show.
+    const openQ = (s: PhaseState | null | undefined, slot?: string | null) =>
+      (s?.decisions ?? []).filter(d => isOpenQuestion(d) && !(slot && wasSent(slot, d.id))).length
     const seen = new Set<string>()
     const out: Focus[] = []
     const add = (f: Focus) => { const k = focusKey(f); if (!seen.has(k)) { seen.add(k); out.push(f) } }
     const tileFocus = (t: Tile): Focus =>
       t.sessionKey?.startsWith('review-t') ? { kind: 'review', t: t.number }
         : t.lane === 'deliver' ? { kind: 'ticket', t: t.number } : { kind: 'decision', t: t.number }
-    if (openQ(detail.sessionStates?.conductor ?? detail.state)) add({ kind: 'column' })
+    if (openQ(detail.sessionStates?.conductor ?? detail.state, detail.sessions.conductor)) add({ kind: 'column' })
     for (const t of detail.frontier?.tiles ?? []) {
       if (t.state === 'done' || !t.sessionKey) continue
-      if (openQ(detail.sessionStates?.[t.sessionKey]) || statuses[t.number] === 'attention' || t.state === 'you') add(tileFocus(t))
+      if (openQ(detail.sessionStates?.[t.sessionKey], detail.sessions[t.sessionKey])
+        || mergedStatuses[t.number] === 'attention' || t.state === 'you') add(tileFocus(t))
     }
     for (const c of ['plan', 'review', 'done', 'intake', 'shape', 'grill'] as Column[]) {
-      if (detail.sessions[c] && openQ(detail.sessionStates?.[c])) add({ kind: 'stage', column: c })
+      if (detail.sessions[c] && openQ(detail.sessionStates?.[c], detail.sessions[c])) add({ kind: 'stage', column: c })
     }
-    if (detail.sessions['build-spec'] && openQ(detail.sessionStates?.['build-spec'])) add({ kind: 'spec' })
+    if (detail.sessions['build-spec'] && openQ(detail.sessionStates?.['build-spec'], detail.sessions['build-spec'])) add({ kind: 'spec' })
     return out
-  }, [detail, statuses])
+  }, [detail, mergedStatuses])
   // Reported up so the sidebar can flash a dot on this effort's row, its repo's
   // header and the folded rail strip even when those layers hide the lines.
   const needsYou = attentionStops.length
@@ -817,7 +848,7 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
           // in the sidebar under this effort's row; clicking any of its rows
           // swaps only the conversation here and its questions on the right.
           const spine = spineHost ? createPortal(
-            <StationsPanel detail={detail} statuses={statuses} activity={activity} busy={busy || starting || !!startingAgents}
+            <StationsPanel detail={detail} statuses={mergedStatuses} activity={mergedActivity} busy={busy || starting || !!startingAgents}
               autopilot={autopilot} selectedKey={key} embedded compact={spineCompact} onAutopilot={setAutopilot}
               onOpenTile={openTile}
               onOpenConversation={k => setFocus(k === 'build-spec' ? { kind: 'spec' }

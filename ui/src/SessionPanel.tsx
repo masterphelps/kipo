@@ -5,6 +5,7 @@ import { backend, errorText } from './api'
 import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
+import { clearSent, markSent, wasSent } from './sent'
 import { isOpenQuestion } from './types'
 import type { Decision, EffortDetail, TailEvent, TicketCard, Tile } from './types'
 
@@ -81,18 +82,8 @@ export function SessionProgress({ slot, active, ended }: { slot: string; active:
   )
 }
 
-// Which answers were already sent to which session's chat, kept OUTSIDE the
-// component: the card clears the moment you submit and stays cleared across
-// remounts and conversation switches, until the agent records the `answer` in
-// the state file (which deletes the entry). Entries expire after two hours so
-// a question an agent re-opens without recording can still come back.
-const SENT_TTL = 2 * 60 * 60 * 1000
-const sentAnswers = new Map<string, number>() // `${slot}:${decision id}` → when sent
-const wasSent = (slot: string, id: string) => {
-  const at = sentAnswers.get(`${slot}:${id}`)
-  if (at && Date.now() - at >= SENT_TTL) sentAnswers.delete(`${slot}:${id}`)
-  return !!at && Date.now() - at < SENT_TTL
-}
+// The sent-answer memory lives in sent.ts, persisted and shared with the
+// counts, so the badge, the card and a reload all agree on what was answered.
 
 // One open question across the effort: which Kiro slot its answer routes back
 // into, where it came from (`from` is unset for the conversation on screen),
@@ -139,7 +130,7 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
   // though a state file only shows them once its agent records each `answer`.
   // (The memory of what was sent lives outside the component — see sentAnswers —
   // so a remount can't make an answered question pop back up.)
-  for (const x of items) if (x.d.answer) sentAnswers.delete(kOf(x))
+  for (const x of items) if (x.d.answer) clearSent(x.slot, x.d.id)
   const open = items.filter(x => isOpenQuestion(x.d) && !wasSent(x.slot, x.d.id))
   const [picks, setPicks] = useState<Record<string, string>>({})
   // "Something else…" chosen (clicked into) for a question, even before any
@@ -234,7 +225,7 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
             : "That's all of them. Record each answer, then carry on.",
         ].join('\n')
         await api.post('/api/chat?ws=1', { slot, message })
-        for (const x of list) sentAnswers.set(kOf(x), Date.now())
+        for (const x of list) markSent(x.slot, x.d.id)
       }
       setPicks({}); setI(0)
     } catch (e) {

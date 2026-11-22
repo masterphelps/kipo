@@ -5,6 +5,7 @@ import { STATE_META, type SessionStatus } from './Frontier'
 import { STATE_MEANING } from './glossary'
 import { isClosed } from './sessions'
 import { COLUMN_DEFS, columnOf, type ColId } from './StageBoard'
+import { wasSent } from './sent'
 import { isOpenQuestion } from './types'
 import type { EffortDetail, SessionActivity, Start, StationsSummary, Tile } from './types'
 
@@ -151,9 +152,13 @@ export function StationsPanel({ detail, statuses, activity, busy, autopilot, sel
   const [confirmClose, setConfirmClose] = useState(false)
   // Unanswered decisions waiting on the human, per conversation. A done
   // ticket's unanswered entries are settled history, never counted.
+  // An answer already sent to the session's chat (not yet recorded by its
+  // agent) is no longer waiting: the card hides it, so these counts must too.
+  const openHere = (s: { decisions?: { id: string; answer?: string | null; title?: string }[] } | null | undefined, slot?: string | null) =>
+    (s?.decisions ?? []).filter(d => isOpenQuestion(d) && !(slot && wasSent(slot, d.id))).length
   const qFor = (key?: string | null) =>
-    key ? (detail.sessionStates?.[key]?.decisions ?? []).filter(isOpenQuestion).length : 0
-  const conductorQ = ((detail.sessionStates?.conductor ?? detail.state)?.decisions ?? []).filter(isOpenQuestion).length
+    key ? openHere(detail.sessionStates?.[key], detail.sessions[key]) : 0
+  const conductorQ = openHere(detail.sessionStates?.conductor ?? detail.state, detail.sessions.conductor)
   const qChip = (n: number): Row['chip'] =>
     ({ label: n === 1 ? '1 question' : `${n} questions`, color: STATE_META.you.color })
   const f = detail.frontier
