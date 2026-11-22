@@ -91,19 +91,18 @@ export function SessionProgress({ slot, active, ended }: { slot: string; active:
 // clear its sent-memory once the agent records them.
 export type WizItem = { slot: string; from?: string; d: Decision }
 // A session stopped on a Kiro trust prompt, relayed into the card. The fields
-// come from the slot list's pending_approval_info (already redacted by Kiro);
-// only a native-origin prompt with a request id can be decided from here — the
-// rest get an Open button into their session instead.
+// come from the slot list's pending_approval_info (already redacted by Kiro).
+// The row NAVIGATES to the session, where Kiro's own trust line (over the chat
+// box) does the deciding: app-issued approve calls proved unreliable — they
+// vanished without ever reaching the approve route's logging — so KiPo does not
+// offer buttons it cannot back. One click to the session, one click to allow.
 export type PromptItem = {
-  key: string // the effort's session key (build-t624…), for Open
+  key: string // the effort's session key (build-t624…): where the row opens
   slot: string
   from: string
   tool: string
   input?: string
   purpose?: string
-  requestId?: string
-  requestMid?: string // pins THIS request (ids can recur); required for an app caller's decide
-  canDecide: boolean
 }
 
 // The question card, in Kiro Crew's own question style — and, on the conductor
@@ -139,18 +138,13 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
   const [hidden, setHidden] = useState(false)
-  // A prompt decided here disappears at once; the next status poll confirms it.
-  const [decided, setDecided] = useState<Record<string, boolean>>({})
-  // A decide that failed says so IN the card — the top-of-screen error line is
-  // too far from the button that was clicked to register as a response.
-  const [promptErr, setPromptErr] = useState('')
   // Must sit with the other hooks, above the early returns below — a hook
   // after `return null` renders fewer hooks than expected (React #300).
   const customRef = useRef<HTMLInputElement>(null)
 
   // Reset the stepper when the set of open questions changes (new conversation,
   // or the batch was answered and recorded), and bring the card back out.
-  const livePrompts = prompts.filter(p => !decided[p.slot])
+  const livePrompts = prompts
   const sig = open.map(kOf).join(',') + '|' + livePrompts.map(p => p.slot).join(',')
   const lastSig = useRef(sig)
   useEffect(() => {
@@ -241,25 +235,6 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
     setPicks(rec)
     void submit(rec)
   }
-  // Rule on a trust prompt from here. An app caller may not use the bare
-  // {action, request_id} form (that's the owner's own browser only): it must
-  // name the exact request the card showed — origin "native" + request_id +
-  // request_mid, the owner-bound target the approve route accepts from every
-  // caller. Allow approves this one call; Deny is reject-once. Never durable
-  // trust from KiPo — standing grants stay a decision made inside Kiro.
-  const decide = async (p: PromptItem, action: 'approved' | 'rejected_once') => {
-    try {
-      await api.post(`/api/chat/slots/${encodeURIComponent(p.slot)}/approve`,
-        { action, request_id: p.requestId, request_mid: p.requestMid, origin: 'native' })
-      setDecided(x => ({ ...x, [p.slot]: true }))
-      setPromptErr('')
-    } catch (e) {
-      const m = `Couldn't ${action === 'approved' ? 'allow' : 'deny'} ${p.from}: ${errorText(e)}`
-      setPromptErr(m)
-      onError(m)
-    }
-  }
-
   const radio = (on: boolean) => (
     <span aria-hidden style={{ width: 13, height: 13, borderRadius: 99, flexShrink: 0, marginTop: 2,
       border: `1.5px solid ${on ? 'var(--accent)' : 'var(--muted)'}`,
@@ -289,11 +264,6 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
     )
   }
 
-  const miniBtn = (label: string, title: string, onClick: () => void) => (
-    <button type="button" title={title} onClick={onClick} disabled={sending}
-      style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 9px',
-        color: 'var(--text)', cursor: 'pointer', fontSize: T.tiny, whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</button>
-  )
 
   const navBtn = (label: string, disabled: boolean, onClick: () => void) => (
     <button type="button" disabled={disabled} onClick={onClick}
@@ -336,27 +306,29 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
         </button>
       </div>
 
-      {/* Sessions stopped on a trust prompt, rulable right here. */}
+      {/* Sessions stopped on a trust prompt. The row opens the session, where
+          Kiro's native trust line (over the chat box) does the deciding. */}
       {livePrompts.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: open.length ? 10 : 2 }}>
           {livePrompts.map(p => (
-            <div key={p.slot} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8,
-              border: `1px solid ${STATE_META.you.color}`, background: 'color-mix(in srgb, #f5b14c 8%, transparent)' }}>
+            <button key={p.slot} type="button" onClick={onOpenPrompt ? () => onOpenPrompt(p.key) : undefined}
+              title={`${[p.tool, p.input, p.purpose].filter(Boolean).join('\n\n')}\n\nOpen this session; its Allow is on the trust line over the chat box.`}
+              onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, #f5b14c 16%, transparent)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, #f5b14c 8%, transparent)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, width: '100%',
+                textAlign: 'left', cursor: onOpenPrompt ? 'pointer' : 'default', color: 'var(--text)',
+                border: `1px solid ${STATE_META.you.color}`, background: 'color-mix(in srgb, #f5b14c 8%, transparent)' }}>
               <span className="kipo-pulse" aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: STATE_META.you.color, flexShrink: 0 }} />
-              <span style={{ flex: 1, minWidth: 0, fontSize: T.small }}
-                title={[p.tool, p.input, p.purpose].filter(Boolean).join('\n\n')}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: T.small }}>
                 <b>{p.from}</b> <span style={muted}>wants to run:</span>
                 <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   color: 'var(--muted)', fontSize: T.tiny, fontFamily: 'ui-monospace, monospace' }}>{p.tool}</span>
               </span>
-              {p.canDecide && <Btn primary onClick={() => void decide(p, 'approved')}>Allow</Btn>}
-              {p.canDecide && miniBtn('Deny once', 'Reject this one call; the session continues without it', () => void decide(p, 'rejected_once'))}
-              {onOpenPrompt && miniBtn('Open', 'Open this session to see the prompt in full', () => onOpenPrompt(p.key))}
-            </div>
+              <span style={{ flexShrink: 0, fontSize: T.small, fontWeight: 600, color: STATE_META.you.text, whiteSpace: 'nowrap' }}>
+                Open & allow →
+              </span>
+            </button>
           ))}
-          {promptErr && (
-            <div style={{ color: 'var(--danger-text, #f85149)', fontSize: T.tiny, padding: '0 2px' }}>{promptErr}</div>
-          )}
         </div>
       )}
 
