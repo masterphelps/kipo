@@ -181,7 +181,8 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
     pending_approval?: boolean
     needs_input?: boolean
     pending_approval_info?: {
-      origin?: string; tool?: string; tool_input?: string; tool_purpose?: string; request_id?: string
+      origin?: string; tool?: string; tool_input?: string; tool_purpose?: string
+      request_id?: string; request_mid?: string
     } | null
   }
   const [liveInfo, setLiveInfo] = useState<Record<string, LiveRow>>({})
@@ -703,10 +704,11 @@ export function Workspace({ repo, number, active, autoStart, spineHost, spineCom
       out.push({
         key: k, slot, from: sessionLabel(k),
         tool: info?.tool || 'a tool call', input: info?.tool_input, purpose: info?.tool_purpose,
-        requestId: info?.request_id,
-        // Only a native prompt with a request id is decidable through the slot
-        // approve route; anything else opens the session instead.
-        canDecide: info?.origin === 'native' && !!info?.request_id,
+        requestId: info?.request_id, requestMid: info?.request_mid,
+        // An app caller must name the exact request a card showed: the slot
+        // approve route only accepts origin "native" + request_id + request_mid
+        // from anyone but the owner's own browser. Anything less: Open instead.
+        canDecide: info?.origin === 'native' && !!info?.request_id && !!info?.request_mid,
       })
     }
     return out
