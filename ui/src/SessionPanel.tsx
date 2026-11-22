@@ -119,6 +119,9 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   for (const d of state?.decisions ?? []) if (d.answer && slotKey) sentAnswers.delete(`${slotKey}:${d.id}`)
   const open = settled || !slotKey ? [] : (state?.decisions ?? []).filter(d => isOpenQuestion(d) && !wasSent(slotKey, d.id))
   const [picks, setPicks] = useState<Record<string, string>>({})
+  // "Something else…" chosen (clicked into) for a question, even before any
+  // text is typed — so its radio selects on click/focus, not on the first key.
+  const [customOn, setCustomOn] = useState<Record<string, boolean>>({})
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
   const [hidden, setHidden] = useState(false)
@@ -130,7 +133,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   useEffect(() => {
     if (lastSig.current === sig) return
     lastSig.current = sig
-    setI(0); setPicks({})
+    setI(0); setPicks({}); setCustomOn({})
     if (sig) setHidden(false)
   }, [sig])
   // Report the card's height (it changes as options and questions change), so
@@ -162,11 +165,22 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   const answered = open.filter(x => (picks[x.id] ?? '').trim())
   const atFirst = idx === 0
   const atLast = idx === open.length - 1
-  const custom = (picks[d.id] ?? '') !== '' && !(d.options ?? []).includes(picks[d.id] ?? '')
+  const customText = (picks[d.id] ?? '') !== '' && !(d.options ?? []).includes(picks[d.id] ?? '')
+  const custom = customText || !!customOn[d.id]
 
   // Every open question that carries a recommendation — the Accept-all target.
   const recommendable = open.filter(x => x.recommended)
   const pick = (a: string) => setPicks(p => ({ ...p, [d.id]: a }))
+  // Clicking the "Something else…" radio or its field selects it right away
+  // (not on the first keystroke). A previously picked option is let go of —
+  // its text must not leak into the free-text field as the answer.
+  const customRef = useRef<HTMLInputElement>(null)
+  const chooseCustom = () => {
+    if (sending) return
+    setCustomOn(c => ({ ...c, [d.id]: true }))
+    setPicks(p => ((d.options ?? []).includes(p[d.id] ?? '') ? { ...p, [d.id]: '' } : p))
+    customRef.current?.focus()
+  }
   const submit = async (usePicks: Record<string, string> = picks) => {
     const ans = open.filter(x => (usePicks[x.id] ?? '').trim())
     if (!ans.length) return
@@ -207,9 +221,10 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   )
 
   const optionRow = (o: string) => {
-    const on = picks[d.id] === o
+    const on = picks[d.id] === o && !customOn[d.id]
     return (
-      <button key={o} type="button" role="radio" aria-checked={on} disabled={sending} onClick={() => pick(o)}
+      <button key={o} type="button" role="radio" aria-checked={on} disabled={sending}
+        onClick={() => { setCustomOn(c => ({ ...c, [d.id]: false })); pick(o) }}
         onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))' }}
         onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent' }}
         style={{ display: 'flex', alignItems: 'flex-start', gap: 9, width: '100%', textAlign: 'left',
@@ -270,9 +285,11 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 9 }}>
         {/* A question can come with no options at all: just the free-text row. */}
         {(d.options ?? []).map(optionRow)}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 10px' }}>
+        <div role="radio" aria-checked={custom} onClick={chooseCustom}
+          style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 10px', cursor: 'text' }}>
           {radio(custom)}
-          <input value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)} disabled={sending}
+          <input ref={customRef} value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)}
+            onFocus={chooseCustom} disabled={sending}
             placeholder="Something else…" aria-label={`Another answer to: ${d.title}`}
             style={{ flex: 1, minWidth: 0, background: 'var(--bg)', color: 'var(--text)', fontSize: T.small,
               border: `1px solid ${custom ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 10px', outline: 'none' }} />
