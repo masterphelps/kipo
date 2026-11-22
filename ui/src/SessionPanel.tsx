@@ -111,6 +111,7 @@ export type PromptItem = {
   input?: string
   purpose?: string
   requestId?: string
+  requestMid?: string // pins THIS request (ids can recur); required for an app caller's decide
   canDecide: boolean
 }
 
@@ -149,6 +150,9 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
   const [hidden, setHidden] = useState(false)
   // A prompt decided here disappears at once; the next status poll confirms it.
   const [decided, setDecided] = useState<Record<string, boolean>>({})
+  // A decide that failed says so IN the card — the top-of-screen error line is
+  // too far from the button that was clicked to register as a response.
+  const [promptErr, setPromptErr] = useState('')
   // Must sit with the other hooks, above the early returns below — a hook
   // after `return null` renders fewer hooks than expected (React #300).
   const customRef = useRef<HTMLInputElement>(null)
@@ -246,15 +250,22 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
     setPicks(rec)
     void submit(rec)
   }
-  // Rule on a trust prompt from here: the same call Kiro's own composer card
-  // makes. Allow approves this one call; Deny is reject-once. Never durable
+  // Rule on a trust prompt from here. An app caller may not use the bare
+  // {action, request_id} form (that's the owner's own browser only): it must
+  // name the exact request the card showed — origin "native" + request_id +
+  // request_mid, the owner-bound target the approve route accepts from every
+  // caller. Allow approves this one call; Deny is reject-once. Never durable
   // trust from KiPo — standing grants stay a decision made inside Kiro.
   const decide = async (p: PromptItem, action: 'approved' | 'rejected_once') => {
     try {
-      await api.post(`/api/chat/slots/${encodeURIComponent(p.slot)}/approve`, { action, request_id: p.requestId })
+      await api.post(`/api/chat/slots/${encodeURIComponent(p.slot)}/approve`,
+        { action, request_id: p.requestId, request_mid: p.requestMid, origin: 'native' })
       setDecided(x => ({ ...x, [p.slot]: true }))
+      setPromptErr('')
     } catch (e) {
-      onError(`Couldn't ${action === 'approved' ? 'allow' : 'deny'} ${p.from}: ${errorText(e)}`)
+      const m = `Couldn't ${action === 'approved' ? 'allow' : 'deny'} ${p.from}: ${errorText(e)}`
+      setPromptErr(m)
+      onError(m)
     }
   }
 
@@ -352,6 +363,9 @@ export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onS
               {onOpenPrompt && miniBtn('Open', 'Open this session to see the prompt in full', () => onOpenPrompt(p.key))}
             </div>
           ))}
+          {promptErr && (
+            <div style={{ color: 'var(--danger-text, #f85149)', fontSize: T.tiny, padding: '0 2px' }}>{promptErr}</div>
+          )}
         </div>
       )}
 
