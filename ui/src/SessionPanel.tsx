@@ -6,7 +6,7 @@ import { ErrorLine, Section, T, muted, strong } from './common'
 import { STATE_META } from './Frontier'
 import { Abbr, STATE_MEANING } from './glossary'
 import { isOpenQuestion } from './types'
-import type { Decision, EffortDetail, PhaseState, TailEvent, TicketCard, Tile } from './types'
+import type { Decision, EffortDetail, TailEvent, TicketCard, Tile } from './types'
 
 // A read-only progress view for a session the dashboard never rendered as a
 // page (a background review round the conductor spawned): the embedded chat is
@@ -94,30 +94,52 @@ const wasSent = (slot: string, id: string) => {
   return !!at && Date.now() - at < SENT_TTL
 }
 
-// The question card, in Kiro Crew's own question style: the question, then its
-// options stacked vertically, one full-width radio row each, the recommended one
-// tagged. Open decisions show ONE AT A TIME with Back / Next, and a single
-// Submit sends every answer as ONE message — so the agent takes them all in one
-// turn, never a queue of single replies (which kills parallel work). You don't
-// have to answer all of them; the unanswered ones stay. Submitted answers clear
-// the card at once (the agent records them in its own time); Hide tucks it into
-// a pill. It sits above the chat box; onSize tells the Workspace its height so
-// the conversation can be padded to scroll clear of it, never hidden under it.
-export function QuestionWizard({ state, slotKey, settled, onError, onSize, bottomOffset = 122 }: {
-  state: PhaseState | null
-  slotKey: string | null
-  settled: boolean // a done ticket's unanswered entries are history, not questions
+// One open question across the effort: which Kiro slot its answer routes back
+// into, where it came from (`from` is unset for the conversation on screen),
+// and the decisions entry itself. Answered entries ride along so the card can
+// clear its sent-memory once the agent records them.
+export type WizItem = { slot: string; from?: string; d: Decision }
+// A session stopped on a Kiro trust prompt, relayed into the card. The fields
+// come from the slot list's pending_approval_info (already redacted by Kiro);
+// only a native-origin prompt with a request id can be decided from here — the
+// rest get an Open button into their session instead.
+export type PromptItem = {
+  key: string // the effort's session key (build-t624…), for Open
+  slot: string
+  from: string
+  tool: string
+  input?: string
+  purpose?: string
+  requestId?: string
+  canDecide: boolean
+}
+
+// The question card, in Kiro Crew's own question style — and, on the conductor
+// screen, the effort's whole inbox: every session's open questions (labelled
+// with where each came from) and every session stopped on a trust prompt, with
+// Allow / Deny once right here. Questions show ONE AT A TIME with Back / Next,
+// and one Submit sends every answer — grouped into ONE message per origin
+// session, so each agent takes its batch in one turn, never a queue of single
+// replies. You don't have to answer all of them; the unanswered ones stay.
+// Submitted answers clear at once (each agent records them in its own time);
+// Hide tucks the card into a pill. It sits above the chat box; onSize tells
+// the Workspace its height so the conversation scrolls clear of it.
+export function QuestionWizard({ items, prompts = [], onOpenPrompt, onError, onSize, bottomOffset = 122 }: {
+  items: WizItem[]
+  prompts?: PromptItem[]
+  onOpenPrompt?: (sessionKey: string) => void
   onError: (m: string) => void
   onSize?: (h: number) => void
   bottomOffset?: number // px above the frame bottom: clears the composer + pills
 }) {
   const api = useAppApi()
+  const kOf = (x: WizItem) => `${x.slot}:${x.d.id}`
   // Answers already sent to the chat are gone from the card immediately, even
-  // though the state file only shows them once the agent records each `answer`.
+  // though a state file only shows them once its agent records each `answer`.
   // (The memory of what was sent lives outside the component — see sentAnswers —
   // so a remount can't make an answered question pop back up.)
-  for (const d of state?.decisions ?? []) if (d.answer && slotKey) sentAnswers.delete(`${slotKey}:${d.id}`)
-  const open = settled || !slotKey ? [] : (state?.decisions ?? []).filter(d => isOpenQuestion(d) && !wasSent(slotKey, d.id))
+  for (const x of items) if (x.d.answer) sentAnswers.delete(kOf(x))
+  const open = items.filter(x => isOpenQuestion(x.d) && !wasSent(x.slot, x.d.id))
   const [picks, setPicks] = useState<Record<string, string>>({})
   // "Something else…" chosen (clicked into) for a question, even before any
   // text is typed — so its radio selects on click/focus, not on the first key.
@@ -125,19 +147,22 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   const [i, setI] = useState(0)
   const [sending, setSending] = useState(false)
   const [hidden, setHidden] = useState(false)
+  // A prompt decided here disappears at once; the next status poll confirms it.
+  const [decided, setDecided] = useState<Record<string, boolean>>({})
   // Must sit with the other hooks, above the early returns below — a hook
   // after `return null` renders fewer hooks than expected (React #300).
   const customRef = useRef<HTMLInputElement>(null)
 
   // Reset the stepper when the set of open questions changes (new conversation,
   // or the batch was answered and recorded), and bring the card back out.
-  const sig = open.map(d => d.id).join(',')
+  const livePrompts = prompts.filter(p => !decided[p.slot])
+  const sig = open.map(kOf).join(',') + '|' + livePrompts.map(p => p.slot).join(',')
   const lastSig = useRef(sig)
   useEffect(() => {
     if (lastSig.current === sig) return
     lastSig.current = sig
     setI(0); setPicks({}); setCustomOn({})
-    if (sig) setHidden(false)
+    if (sig !== '|') setHidden(false)
   }, [sig])
   // Report the card's height (it changes as options and questions change), so
   // the conversation behind it gets padded instead of covered.
@@ -152,53 +177,61 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
     ro.current.observe(el)
   }, [onSize])
 
-  if (!open.length || !slotKey) return null
+  if (!open.length && !livePrompts.length) return null
+  const waiting = open.length + livePrompts.length
   if (hidden) return (
     <button type="button" className="kipo-pulse" onClick={() => setHidden(false)}
-      title="Open the questions waiting on you"
+      title="Open what's waiting on you"
       style={{ position: 'absolute', right: 16, bottom: bottomOffset + 4, zIndex: 6, cursor: 'pointer',
         borderRadius: 99, padding: '4px 12px', fontSize: T.small, fontWeight: 600,
         border: `1px solid ${STATE_META.you.color}`, color: STATE_META.you.text,
         background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0,0,0,.35)' }}>
-      {open.length} question{open.length === 1 ? '' : 's'} →
+      {waiting} waiting on you →
     </button>
   )
-  const idx = Math.min(i, open.length - 1)
-  const d = open[idx]
-  const answered = open.filter(x => (picks[x.id] ?? '').trim())
+  const idx = Math.min(i, Math.max(0, open.length - 1))
+  const q = open.length ? open[idx] : null
+  const k = q ? kOf(q) : ''
+  const answered = open.filter(x => (picks[kOf(x)] ?? '').trim())
   const atFirst = idx === 0
   const atLast = idx === open.length - 1
-  const customText = (picks[d.id] ?? '') !== '' && !(d.options ?? []).includes(picks[d.id] ?? '')
-  const custom = customText || !!customOn[d.id]
+  const customText = !!q && (picks[k] ?? '') !== '' && !(q.d.options ?? []).includes(picks[k] ?? '')
+  const custom = customText || !!customOn[k]
 
   // Every open question that carries a recommendation — the Accept-all target.
-  const recommendable = open.filter(x => x.recommended)
-  const pick = (a: string) => setPicks(p => ({ ...p, [d.id]: a }))
+  const recommendable = open.filter(x => x.d.recommended)
+  const pick = (a: string) => { if (k) setPicks(p => ({ ...p, [k]: a })) }
   // Clicking the "Something else…" radio or its field selects it right away
   // (not on the first keystroke). A previously picked option is let go of —
   // its text must not leak into the free-text field as the answer.
   const chooseCustom = () => {
-    if (sending) return
-    setCustomOn(c => ({ ...c, [d.id]: true }))
-    setPicks(p => ((d.options ?? []).includes(p[d.id] ?? '') ? { ...p, [d.id]: '' } : p))
+    if (sending || !q) return
+    setCustomOn(c => ({ ...c, [k]: true }))
+    setPicks(p => ((q.d.options ?? []).includes(p[k] ?? '') ? { ...p, [k]: '' } : p))
     customRef.current?.focus()
   }
+  // One message per origin session, each listing only its own answers — every
+  // agent takes its batch in one turn, nothing is relayed by hand.
   const submit = async (usePicks: Record<string, string> = picks) => {
-    const ans = open.filter(x => (usePicks[x.id] ?? '').trim())
+    const ans = open.filter(x => (usePicks[kOf(x)] ?? '').trim())
     if (!ans.length) return
-    const left = open.filter(x => !(usePicks[x.id] ?? '').trim())
-    const lines = ans.map((x, n) => `${n + 1}. ${x.title} (${x.id}): ${usePicks[x.id].trim()}`)
-    const message = [
-      `My answers to your ${ans.length === 1 ? 'question' : `${ans.length} questions`}:`, '',
-      ...lines, '',
-      left.length
-        ? `Still open, I'll answer later: ${left.map(x => x.title).join('; ')}.`
-        : "That's all of them. Record each answer, then carry on.",
-    ].join('\n')
+    const bySlot = new Map<string, WizItem[]>()
+    for (const x of ans) { const l = bySlot.get(x.slot) ?? []; l.push(x); bySlot.set(x.slot, l) }
     setSending(true)
     try {
-      await api.post('/api/chat?ws=1', { slot: slotKey, message })
-      for (const x of ans) sentAnswers.set(`${slotKey}:${x.id}`, Date.now())
+      for (const [slot, list] of bySlot) {
+        const left = open.filter(x => x.slot === slot && !(usePicks[kOf(x)] ?? '').trim())
+        const lines = list.map((x, n) => `${n + 1}. ${x.d.title} (${x.d.id}): ${usePicks[kOf(x)].trim()}`)
+        const message = [
+          `My answers to your ${list.length === 1 ? 'question' : `${list.length} questions`}:`, '',
+          ...lines, '',
+          left.length
+            ? `Still open, I'll answer later: ${left.map(x => x.d.title).join('; ')}.`
+            : "That's all of them. Record each answer, then carry on.",
+        ].join('\n')
+        await api.post('/api/chat?ws=1', { slot, message })
+        for (const x of list) sentAnswers.set(kOf(x), Date.now())
+      }
       setPicks({}); setI(0)
     } catch (e) {
       onError(`Couldn't send your answers: ${errorText(e)}`)
@@ -209,9 +242,20 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   // Fill every recommended answer across all open questions and send at once.
   const acceptAll = () => {
     const rec = { ...picks }
-    for (const x of recommendable) rec[x.id] = x.recommended!
+    for (const x of recommendable) rec[kOf(x)] = x.d.recommended!
     setPicks(rec)
     void submit(rec)
+  }
+  // Rule on a trust prompt from here: the same call Kiro's own composer card
+  // makes. Allow approves this one call; Deny is reject-once. Never durable
+  // trust from KiPo — standing grants stay a decision made inside Kiro.
+  const decide = async (p: PromptItem, action: 'approved' | 'rejected_once') => {
+    try {
+      await api.post(`/api/chat/slots/${encodeURIComponent(p.slot)}/approve`, { action, request_id: p.requestId })
+      setDecided(x => ({ ...x, [p.slot]: true }))
+    } catch (e) {
+      onError(`Couldn't ${action === 'approved' ? 'allow' : 'deny'} ${p.from}: ${errorText(e)}`)
+    }
   }
 
   const radio = (on: boolean) => (
@@ -223,10 +267,10 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   )
 
   const optionRow = (o: string) => {
-    const on = picks[d.id] === o && !customOn[d.id]
+    const on = picks[k] === o && !customOn[k]
     return (
       <button key={o} type="button" role="radio" aria-checked={on} disabled={sending}
-        onClick={() => { setCustomOn(c => ({ ...c, [d.id]: false })); pick(o) }}
+        onClick={() => { setCustomOn(c => ({ ...c, [k]: false })); pick(o) }}
         onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))' }}
         onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent' }}
         style={{ display: 'flex', alignItems: 'flex-start', gap: 9, width: '100%', textAlign: 'left',
@@ -236,12 +280,18 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
           color: 'var(--text)' }}>
         {radio(on)}
         <span style={{ flex: 1, minWidth: 0 }}>{o}</span>
-        {o === d.recommended && (
+        {!!q && o === q.d.recommended && (
           <span style={{ ...muted, fontSize: T.tiny, flexShrink: 0, marginTop: 1 }}>Recommended</span>
         )}
       </button>
     )
   }
+
+  const miniBtn = (label: string, title: string, onClick: () => void) => (
+    <button type="button" title={title} onClick={onClick} disabled={sending}
+      style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 9px',
+        color: 'var(--text)', cursor: 'pointer', fontSize: T.tiny, whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</button>
+  )
 
   const navBtn = (label: string, disabled: boolean, onClick: () => void) => (
     <button type="button" disabled={disabled} onClick={onClick}
@@ -251,7 +301,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
   )
 
   return (
-    <div ref={sizeRef} role="dialog" aria-label={`Question ${idx + 1} of ${open.length}`}
+    <div ref={sizeRef} role="dialog" aria-label={`${waiting} waiting on you`}
       // Just above the chat entry box (bottomOffset is the composer's measured
       // height), centred like Kiro's own question card — never over the box or
       // its pills, and the conversation is padded (onSize) so nothing hides
@@ -262,15 +312,16 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
         boxShadow: '0 10px 30px rgba(0,0,0,.45)', padding: '10px 14px 11px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 5 }}>
         <span style={{ fontSize: T.tiny, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: STATE_META.you.text }}>
-          {open.length === 1 ? 'Question' : `Question ${idx + 1} of ${open.length}`}
+          {open.length === 0 ? (livePrompts.length === 1 ? 'Trust prompt' : 'Trust prompts')
+            : open.length === 1 ? 'Question' : `Question ${idx + 1} of ${open.length}`}
         </span>
         {open.length > 1 && (
           // The dots show which of the batch are answered.
           <span style={{ display: 'flex', gap: 3 }} aria-hidden>
             {open.map((x, n) => (
-              <span key={x.id} title={x.title} onClick={() => setI(n)}
+              <span key={kOf(x)} title={`${x.from ? `${x.from} — ` : ''}${x.d.title ?? x.d.id}`} onClick={() => setI(n)}
                 style={{ width: 7, height: 7, borderRadius: 99, cursor: 'pointer',
-                  background: (picks[x.id] ?? '').trim() ? STATE_META.you.color : n === idx ? 'var(--text)' : 'var(--border)' }} />
+                  background: (picks[kOf(x)] ?? '').trim() ? STATE_META.you.color : n === idx ? 'var(--text)' : 'var(--border)' }} />
             ))}
           </span>
         )}
@@ -283,16 +334,39 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
         </button>
       </div>
 
-      <div style={{ ...strong, fontSize: T.body, marginBottom: 8, lineHeight: 1.4 }}>{d.title}</div>
+      {/* Sessions stopped on a trust prompt, rulable right here. */}
+      {livePrompts.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: open.length ? 10 : 2 }}>
+          {livePrompts.map(p => (
+            <div key={p.slot} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8,
+              border: `1px solid ${STATE_META.you.color}`, background: 'color-mix(in srgb, #f5b14c 8%, transparent)' }}>
+              <span className="kipo-pulse" aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: STATE_META.you.color, flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: T.small }}
+                title={[p.tool, p.input, p.purpose].filter(Boolean).join('\n\n')}>
+                <b>{p.from}</b> <span style={muted}>wants to run:</span>
+                <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  color: 'var(--muted)', fontSize: T.tiny, fontFamily: 'ui-monospace, monospace' }}>{p.tool}</span>
+              </span>
+              {p.canDecide && <Btn primary onClick={() => void decide(p, 'approved')}>Allow</Btn>}
+              {p.canDecide && miniBtn('Deny once', 'Reject this one call; the session continues without it', () => void decide(p, 'rejected_once'))}
+              {onOpenPrompt && miniBtn('Open', 'Open this session to see the prompt in full', () => onOpenPrompt(p.key))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {q && (<>
+      {q.from && <div style={{ ...muted, fontSize: T.tiny, marginBottom: 3 }}>from {q.from}</div>}
+      <div style={{ ...strong, fontSize: T.body, marginBottom: 8, lineHeight: 1.4 }}>{q.d.title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 9 }}>
         {/* A question can come with no options at all: just the free-text row. */}
-        {(d.options ?? []).map(optionRow)}
+        {(q.d.options ?? []).map(optionRow)}
         <div role="radio" aria-checked={custom} onClick={chooseCustom}
           style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 10px', cursor: 'text' }}>
           {radio(custom)}
-          <input ref={customRef} value={custom ? (picks[d.id] ?? '') : ''} onChange={e => pick(e.target.value)}
+          <input ref={customRef} value={custom ? (picks[k] ?? '') : ''} onChange={e => pick(e.target.value)}
             onFocus={chooseCustom} disabled={sending}
-            placeholder="Something else…" aria-label={`Another answer to: ${d.title}`}
+            placeholder="Something else…" aria-label={`Another answer to: ${q.d.title}`}
             style={{ flex: 1, minWidth: 0, background: 'var(--bg)', color: 'var(--text)', fontSize: T.small,
               border: `1px solid ${custom ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 10px', outline: 'none' }} />
         </div>
@@ -319,6 +393,7 @@ export function QuestionWizard({ state, slotKey, settled, onError, onSize, botto
           {sending ? 'Sending…' : answered.length > 1 ? `Submit ${answered.length} answers` : 'Submit'}
         </Btn>
       </div>
+      </>)}
     </div>
   )
 }
