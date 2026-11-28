@@ -43,6 +43,17 @@ particular skill, the seed ends with:
 Run /<skill>: read <skills>/<skill>/SKILL.md (and any file it links to) and follow it now, for this effort.
 ```
 
+**Kiro Crew and tools.** Kiro Crew refuses every shell or MCP call a sub-agent makes, and holds a
+compound command (`cd x && git …; gh …`) for a per-call approval that times out. So every KiPo
+session runs one plain command per call (`git -C <worktree> …`, `gh … -R <owner/repo>`, bodies
+via `--body-file`, a push as its own call with a literal branch) and never uses sub-agents: when
+one of Matt's skills says to spawn them (`code-review`'s two axes, `implement-spec`'s
+implementers, `grilling`, `wayfinder`, `codebase-design`, `improve-codebase-architecture`), the
+session does that work itself, one step after another. Every stage seed's `Tools:` line says
+so (`kipo.TOOLS_LINE`), every stage skill's ground rules say so, and the Run line for one of
+those skills (`kipo.INLINE`) adds what to do inline, for `code-review`: the Standards axis,
+then the Spec axis, in the session itself.
+
 ## Start points (the start form's "Where does this start?")
 
 | Start | Where it begins | Meaning |
@@ -267,8 +278,9 @@ python3 <app>/backend/kipo_cli.py report <repo> <n> --from <session> --checkout 
   (`<card id>: <answer>`); `pr-opened`, `pr-merged`; `issue-created`, `issue-closed`;
   `finished`; `nothing-to-do` (and why); `blocked` (exactly what clears it: `#<n>` for an issue
   or PR, or the session it waits on); `failed` (what broke).
-- **After `blocked`** a session keeps checking on its own where it can (the Monitor tool, or a
-  short loop on `gh pr view`, `gh issue view`, `git status`) until the blocker clears, rather
+- **After `blocked`** a session keeps checking on its own where it can (one plain
+  `gh pr view`, `gh issue view` or `git -C <worktree> status` per call, with `sleep 60` as its
+  own call between checks, never a loop) until the blocker clears, rather
   than ending its turn to wait. It ends a turn while waiting only when the blocker needs the
   human or will take hours, with a `blocked` report naming what clears it (every stage skill's
   "Blocked: keep checking yourself").
@@ -445,6 +457,8 @@ State file: <path>
 Report: python3 <app>/backend/kipo_cli.py report <repo> <n> --from <key> --checkout <path> --event <kind> --text "<one line>" [--item "<one per question, PR or issue>"]...
 Ticket: #<t> "<title>"                 (ticket conversations only)
 Blocked by: #a (closed), #b (open)     (when it has blockers)
+PRs: #<pr> <url>, …                    (ticket review conversations)
+Tools: one plain command per call: `git -C <worktree> <cmd>`, `gh <cmd> -R <owner/repo>`; no `cd … &&`, … No sub-agents: …
 Load the skill `kipo-<name>` and follow it. Destination: <destination>
 Run /<skill>: …                         (when started for a particular skill)
 ```

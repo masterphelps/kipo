@@ -5,7 +5,7 @@ import unittest
 
 from test_backend import REPO, Base, write_state
 
-from kipo import COLUMNS, PATHS, SKILLS, SKILLS_DIR, run_line
+from kipo import COLUMNS, INLINE, PATHS, SKILLS, SKILLS_DIR, TOOLS_LINE, run_line
 from kipo import initiatives as ini
 from kipo import reports as col_reports
 from kipo import state as st
@@ -36,6 +36,20 @@ class ConstantsTests(unittest.TestCase):
 
     def test_run_line(self):
         self.assertEqual(run_line("to-spec"), RUN.format(s="to-spec"))
+
+    def test_run_line_keeps_sub_agent_skills_inline(self):
+        # Kiro Crew refuses every call a sub-agent makes: a skill that fans out
+        # is run inline, and code-review's two axes one after the other.
+        line = run_line("code-review")
+        self.assertTrue(line.startswith(RUN.format(s="code-review")))
+        self.assertIn("no Agent or Task tool, no parallel fan-out", line)
+        self.assertIn("the Standards axis, then the Spec axis, yourself", line)
+        self.assertLessEqual(set(INLINE), set(SKILLS))
+
+    def test_tools_line_forbids_compound_commands_and_sub_agents(self):
+        for needle in ("git -C <worktree>", "-R <owner/repo>", "no `cd … &&`", "no pipes or redirects",
+                       "--body-file", "push as its own call", "never use the Agent or Task tool"):
+            self.assertIn(needle, TOOLS_LINE)
 
 
 class CreateTests(Columns):
@@ -245,6 +259,7 @@ class SessionTests(Columns):
             f"Matt's skills: {SKILLS_DIR}",
             self.report(source or column, n),
             *extra,
+            TOOLS_LINE,
             f"Load the skill `kipo-{column}` and follow it. Destination: Ship widgets.",
         ]
         if run:
@@ -376,9 +391,21 @@ class SessionTests(Columns):
         self.assertIn(f"State file: {self.checkout}/.kipo/7/review-t20.json", seed)
         self.assertIn(self.report("review-t20"), seed)
         self.assertIn("Load the skill `kipo-review` and follow it. Destination: Ship widgets.", seed)
+        self.assertIn(TOOLS_LINE, seed)  # one plain command per call, no sub-agents
         self.assertNotIn("Run /", out["seed"])  # kipo-review is the column's own skill, loaded above
         self.assertEqual({k: v for k, v in self.get()[1]["sessions"].items() if k.endswith("t20")},
                          {"build-t20": "kipo-acme-widgets-7-build-t20", "review-t20": "kipo-acme-widgets-7-review-t20"})
+
+    def test_review_seed_runs_code_review_inline(self):
+        # qSIGHT #686: the review's code-review fanned out into sub-agents whose
+        # every call Kiro Crew refused. Its seed now keeps both axes inline.
+        self.make_effort(column="review")
+        status, out = self.post("/session", {"column": "review", "skill": "code-review"})
+        self.assertEqual(status, 200, out)
+        seed = out["seed"].split("\n")
+        self.assertIn(TOOLS_LINE, seed)
+        self.assertEqual(seed[-1], run_line("code-review"))
+        self.assertIn("the Standards axis, then the Spec axis, yourself in this conversation", seed[-1])
 
     def test_ticket_sessions_only_in_build_shape_and_review(self):
         self.make_effort(column="build")
@@ -413,7 +440,8 @@ class SessionTests(Columns):
         status, out = self.post("/session", {"column": "build", "mode": "implement-spec"})
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-build-spec")
-        self.assertTrue(out["seed"].endswith(RUN.format(s="implement-spec")))
+        self.assertTrue(out["seed"].endswith(run_line("implement-spec")))
+        self.assertIn("implement the ready tickets yourself", out["seed"])
         self.assertIn("build-spec", self.get()[1]["sessions"])
         status, out = self.post("/session", {"column": "grill", "mode": "implement-spec"})
         self.assertEqual((status, out["code"]), (400, "invalid_mode"))
@@ -435,7 +463,7 @@ class SessionTests(Columns):
         status, out = self.post("/session", {"column": "shape", "ticket": 31})
         self.assertEqual(status, 200, out)
         self.assertEqual(out["slotName"], "kipo-acme-widgets-7-shape-t31")
-        self.assertIn('Ticket: #31 "Pick auth"\nLoad the skill `kipo-shape`', out["seed"])
+        self.assertIn('Ticket: #31 "Pick auth"\n' + TOOLS_LINE + '\nLoad the skill `kipo-shape`', out["seed"])
         self.assertIn(self.report("shape-t31"), out["seed"])
 
     def test_bad_input(self):
